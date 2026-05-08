@@ -6,9 +6,10 @@ import { PrismaModule } from './infra/prisma/prisma.module';
 import { DefindexModule } from './defindex/defindex.module';
 import { VaultsModule } from './vaults/vaults.module';
 import { DepositsModule } from './deposits/deposits.module';
+import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule],
+  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule, WithdrawalsModule],
   controllers: [AppController],
   providers: [AppService],
 })
