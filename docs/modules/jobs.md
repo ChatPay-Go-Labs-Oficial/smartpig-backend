@@ -45,6 +45,18 @@ Snapshots com saldo zero não são persistidos para economizar espaço.
 
 ---
 
+### VaultSyncJob
+**Arquivo:** `vault-sync.job.ts`
+**Frequência:** A cada 30 minutos (`0 */30 * * * *`)
+
+Chama `DefindexService.discoverVaults()` (endpoint `GET /vault/discover`) e faz upsert no `VaultCatalog` para cada vault retornado:
+- **Novo vault**: cria registro com endereço, APY e TVL
+- **Vault existente**: atualiza APY, TVL e `lastSyncedAt`
+
+Isso garante que novos vaults deployados no DeFindex apareçam automaticamente no SmartPig sem intervenção manual.
+
+---
+
 ### ExpiredIntentsJob
 **Arquivo:** `expired-intents.job.ts`
 **Frequência:** A cada hora (`EVERY_HOUR`)

@@ -1,5 +1,32 @@
 import { SupportedNetworks } from '@defindex/sdk';
 
+export interface DiscoveredVaultDto {
+  address: string;
+  apy: number;
+  totalManagedFunds: {
+    asset: string;
+    total_amount: string;
+    idle_amount: string;
+    invested_amount: string;
+  }[];
+}
+
+export interface DiscoverVaultsResponseDto {
+  totalVaults: number;
+  vaults: DiscoveredVaultDto[];
+}
+
+export interface StrategyDto {
+  address: string;
+  name: string;
+  network: string;
+  asset: string;
+  tvl: number;
+  apy7d: number;
+  apy30d: number;
+  apyAllTime: number;
+}
+
 export interface VaultInfoDto {
   defindexVaultId: string;
   name: string;

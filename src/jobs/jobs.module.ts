@@ -5,9 +5,10 @@ import { ReconciliationJob } from './reconciliation.job';
 import { ApySyncJob } from './apy-sync.job';
 import { PortfolioSnapshotJob } from './portfolio-snapshot.job';
 import { ExpiredIntentsJob } from './expired-intents.job';
+import { VaultSyncJob } from './vault-sync.job';
 
 @Module({
   imports: [ScheduleModule.forRoot(), DefindexModule],
-  providers: [ReconciliationJob, ApySyncJob, PortfolioSnapshotJob, ExpiredIntentsJob],
+  providers: [ReconciliationJob, ApySyncJob, PortfolioSnapshotJob, ExpiredIntentsJob, VaultSyncJob],
 })
 export class JobsModule {}

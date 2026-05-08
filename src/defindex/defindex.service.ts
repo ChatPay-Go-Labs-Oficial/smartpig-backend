@@ -1,10 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import axios, { AxiosInstance } from 'axios';
 import { DefindexConfig } from './defindex.config';
 import { DefindexMapper } from './defindex.mapper';
 import { mapDefindexError } from './errors/defindex.errors';
 import {
+  DiscoverVaultsResponseDto,
   GenerateDepositXdrDto,
   GenerateWithdrawXdrDto,
+  StrategyDto,
   SubmitTransactionDto,
   SubmitTransactionResultDto,
   VaultApyDto,
@@ -39,11 +42,53 @@ async function withRetry<T>(
 @Injectable()
 export class DefindexService {
   private readonly logger = new Logger(DefindexService.name);
+  private readonly httpClient: AxiosInstance;
 
-  constructor(private readonly defindexConfig: DefindexConfig) {}
+  constructor(private readonly defindexConfig: DefindexConfig) {
+    this.httpClient = axios.create({
+      baseURL: this.defindexConfig.baseUrl,
+      timeout: this.defindexConfig.timeoutMs,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.defindexConfig.apiKey && {
+          Authorization: `Bearer ${this.defindexConfig.apiKey}`,
+        }),
+      },
+    });
+  }
 
   private get sdk() {
     return this.defindexConfig.sdk;
+  }
+
+  async discoverVaults(network?: string): Promise<DiscoverVaultsResponseDto> {
+    const net = network ?? this.defindexConfig.defaultNetwork;
+    try {
+      const data = await withRetry(() =>
+        this.httpClient
+          .get(`/vault/discover?network=${net}`)
+          .then((res) => res.data),
+      );
+      return data as DiscoverVaultsResponseDto;
+    } catch (err) {
+      this.logger.warn(`discoverVaults failed for network=${net}`);
+      mapDefindexError(err);
+    }
+  }
+
+  async getStrategies(network?: string): Promise<StrategyDto[]> {
+    const net = network ?? this.defindexConfig.defaultNetwork;
+    try {
+      const data = await withRetry(() =>
+        this.httpClient
+          .get(`/strategies?network=${net}`)
+          .then((res) => res.data),
+      );
+      return data as StrategyDto[];
+    } catch (err) {
+      this.logger.warn(`getStrategies failed for network=${net}`);
+      mapDefindexError(err);
+    }
   }
 
   async healthCheck(): Promise<unknown> {

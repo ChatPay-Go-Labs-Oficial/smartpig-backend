@@ -26,12 +26,16 @@ Ponto central de chamadas ao SDK. Todos os métodos:
 | Método | Descrição |
 |--------|-----------|
 | `healthCheck()` | Verifica disponibilidade do DeFindex |
+| `discoverVaults(network?)` | Lista todos os vaults via `GET /vault/discover` (não coberto pelo SDK) |
+| `getStrategies(network?)` | Lista todas as estratégias via `GET /strategies` (não coberto pelo SDK) |
 | `getVaultInfo(vaultAddress)` | Info completa do vault (nome, símbolo, APY, assets) |
 | `getVaultBalance(vaultAddress, userAddress)` | Saldo do usuário em dfTokens e underlying |
 | `getVaultApy(vaultAddress)` | APY atual do vault |
 | `generateDepositXdr(params)` | Gera XDR não assinado para depósito |
 | `generateWithdrawXdr(params)` | Gera XDR não assinado para saque |
 | `submitSignedTransaction(params)` | Envia XDR assinado ao Stellar |
+
+> **Nota:** `discoverVaults` e `getStrategies` usam chamadas HTTP diretas (axios) pois o SDK v0.3.0 não expõe esses endpoints. O mesmo header `Authorization: Bearer {DEFINDEX_API_KEY}` é utilizado.
 
 ## Retry policy
 
