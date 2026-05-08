@@ -1,0 +1,249 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum IntentStatus {
+  CREATED
+  XDR_GENERATED
+  SIGNED_XDR_RECEIVED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum IntentType {
+  DEPOSIT
+  WITHDRAWAL
+}
+
+// ─────────────────────────────────────────────
+// Auth & Users
+// ─────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  googleId  String?  @unique
+  appleId   String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallets           WalletAccount[]
+  depositIntents    DepositIntent[]
+  withdrawalIntents WithdrawalIntent[]
+  transactions      TransactionRecord[]
+  portfolioSnapshots PortfolioSnapshot[]
+  refreshTokens     RefreshToken[]
+  auditLogs         ApiAuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────
+// Wallets
+// ─────────────────────────────────────────────
+
+model WalletAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  stellarAddress String
+  label          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  depositIntents    DepositIntent[]
+  withdrawalIntents WithdrawalIntent[]
+
+  @@unique([userId, stellarAddress])
+  @@index([userId])
+  @@map("wallet_accounts")
+}
+
+// ─────────────────────────────────────────────
+// Vaults
+// ─────────────────────────────────────────────
+
+model VaultCatalog {
+  id               String   @id @default(cuid())
+  defindexVaultId  String   @unique
+  name             String
+  assetSymbol      String
+  description      String?
+  apy              Decimal? @db.Decimal(10, 4)
+  tvl              Decimal? @db.Decimal(30, 8)
+  metadata         Json?
+  isActive         Boolean  @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  depositIntents    DepositIntent[]
+  withdrawalIntents WithdrawalIntent[]
+  portfolioSnapshots PortfolioSnapshot[]
+
+  @@index([isActive])
+  @@map("vault_catalog")
+}
+
+// ─────────────────────────────────────────────
+// Deposit Intents
+// ─────────────────────────────────────────────
+
+model DepositIntent {
+  id              String        @id @default(cuid())
+  idempotencyKey  String        @unique
+  userId          String
+  walletAccountId String
+  vaultId         String
+  amount          Decimal       @db.Decimal(30, 8)
+  assetSymbol     String
+  status          IntentStatus  @default(CREATED)
+  unsignedXdr     String?       @db.Text
+  signedXdr       String?       @db.Text
+  errorMessage    String?
+  expiresAt       DateTime
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id])
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id])
+  vault         VaultCatalog  @relation(fields: [vaultId], references: [id])
+  transaction   TransactionRecord?
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("deposit_intents")
+}
+
+// ─────────────────────────────────────────────
+// Withdrawal Intents
+// ─────────────────────────────────────────────
+
+model WithdrawalIntent {
+  id              String        @id @default(cuid())
+  idempotencyKey  String        @unique
+  userId          String
+  walletAccountId String
+  vaultId         String
+  shareAmount     Decimal       @db.Decimal(30, 8)
+  status          IntentStatus  @default(CREATED)
+  unsignedXdr     String?       @db.Text
+  signedXdr       String?       @db.Text
+  errorMessage    String?
+  expiresAt       DateTime
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id])
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id])
+  vault         VaultCatalog  @relation(fields: [vaultId], references: [id])
+  transaction   TransactionRecord?
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("withdrawal_intents")
+}
+
+// ─────────────────────────────────────────────
+// Transactions
+// ─────────────────────────────────────────────
+
+model TransactionRecord {
+  id                 String            @id @default(cuid())
+  userId             String
+  intentType         IntentType
+  depositIntentId    String?           @unique
+  withdrawalIntentId String?           @unique
+  txHash             String?           @unique
+  status             TransactionStatus @default(PENDING)
+  blockchainResponse Json?
+  createdAt          DateTime          @default(now())
+  confirmedAt        DateTime?
+
+  user             User              @relation(fields: [userId], references: [id])
+  depositIntent    DepositIntent?    @relation(fields: [depositIntentId], references: [id])
+  withdrawalIntent WithdrawalIntent? @relation(fields: [withdrawalIntentId], references: [id])
+
+  @@index([userId])
+  @@index([txHash])
+  @@index([status])
+  @@map("transaction_records")
+}
+
+// ─────────────────────────────────────────────
+// Portfolio
+// ─────────────────────────────────────────────
+
+model PortfolioSnapshot {
+  id            String   @id @default(cuid())
+  userId        String
+  vaultId       String
+  balanceAmount Decimal  @db.Decimal(30, 8)
+  balanceUsd    Decimal? @db.Decimal(20, 4)
+  capturedAt    DateTime @default(now())
+
+  user  User         @relation(fields: [userId], references: [id])
+  vault VaultCatalog @relation(fields: [vaultId], references: [id])
+
+  @@index([userId, capturedAt])
+  @@index([vaultId, capturedAt])
+  @@map("portfolio_snapshots")
+}
+
+// ─────────────────────────────────────────────
+// Audit
+// ─────────────────────────────────────────────
+
+model ApiAuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  ipAddress  String?
+  userAgent  String?
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([action, resource])
+  @@map("api_audit_logs")
+}
