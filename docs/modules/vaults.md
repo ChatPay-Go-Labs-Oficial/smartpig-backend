@@ -27,12 +27,20 @@ O `ApySyncJob` mantém o banco atualizado de 10 em 10 minutos como fonte de fall
 
 ## Adicionando vaults
 
-Atualmente, vaults são gerenciados via seed ou diretamente no banco. O campo `defindexVaultId` deve ser o endereço público do vault na rede Stellar.
+Vaults são **descobertos e sincronizados automaticamente** pelo `VaultSyncJob` a cada 30 minutos:
+
+1. O job chama `DefindexService.discoverVaults()` → `GET /vault/discover` na API DeFindex
+2. Para cada vault retornado, faz upsert no `VaultCatalog` (cria ou atualiza APY/TVL)
+3. Novos vaults deployados no protocolo aparecem no app sem intervenção manual
+
+Enquanto o banco ainda estiver vazio (primeira execução), é possível popular manualmente:
 
 ```bash
-# Popular com vaults de exemplo
+# Seed manual (enquanto o job não rodou)
 npx prisma db seed
 ```
+
+O campo `defindexVaultId` é o endereço público do contrato do vault na rede Stellar.
 
 ## Dependências
 

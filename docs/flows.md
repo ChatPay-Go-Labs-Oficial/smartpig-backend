@@ -121,8 +121,16 @@ Tempo
   │
   ├── :00/:10/:20/... (a cada 10 min)
   │    └── ApySyncJob
-  │         ├── Lista todos os vaults ativos
-  │         └── Atualiza apy + lastSyncedAt para cada vault
+  │         ├── Lista todos os vaults ativos no banco
+  │         └── Atualiza apy + lastSyncedAt para cada vault via SDK
+  │
+  ├── :00/:30 (a cada 30 min)
+  │    └── VaultSyncJob
+  │         ├── Chama GET /vault/discover na API DeFindex
+  │         ├── Para cada vault retornado:
+  │         │    ├── Se novo: cria VaultCatalog (endereço, APY, TVL)
+  │         │    └── Se existente: atualiza APY, TVL, lastSyncedAt
+  │         └── Novos vaults aparecem automaticamente no SmartPig
   │
   ├── 00:05 UTC (diário)
   │    └── PortfolioSnapshotJob

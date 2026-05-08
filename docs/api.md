@@ -38,6 +38,8 @@ Verifica se a API está no ar.
 
 ## Vaults
 
+> **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+
 ### `GET /vaults`
 Lista todos os vaults ativos (dados do banco local).
 

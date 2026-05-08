@@ -139,17 +139,21 @@ src/
     ├── reconciliation.job.ts
     ├── apy-sync.job.ts
     ├── portfolio-snapshot.job.ts
-    └── expired-intents.job.ts
+    ├── expired-intents.job.ts
+    └── vault-sync.job.ts
 ```
 
 ## Decisões técnicas
 
 ### SDK vs REST direto
-Utilizamos o SDK oficial `@defindex/sdk` ao invés de chamar a API REST diretamente porque:
-- Tipagem completa em TypeScript
-- Abstrações sobre geração de XDR
-- Manutenibilidade: mudanças no protocolo refletem apenas no SDK
-- Documentação oficial recomenda SDK para projetos TypeScript
+Utilizamos uma abordagem **híbrida**:
+
+- **SDK oficial `@defindex/sdk`** para operações cobertas pelo SDK: vault info, balance, APY, geração de XDR, envio de transação. Garante tipagem completa e abstração sobre geração de XDR.
+- **HTTP direto (axios)** para endpoints da API REST que o SDK v0.3.0 ainda não expõe:
+  - `GET /vault/discover` — lista todos os vaults deployados na rede
+  - `GET /strategies` — lista todas as estratégias com TVL e APY histórico
+
+Ambas as abordagens usam o mesmo `Authorization: Bearer {DEFINDEX_API_KEY}`. A lógica de retry e mapeamento de erros é aplicada igualmente. Quando o SDK expor esses endpoints nativamente, basta remover as chamadas diretas sem impacto no restante do sistema.
 
 ### Prisma 5 (não Prisma 7)
 O Prisma 7 introduziu um modelo de adapter obrigatório (`PrismaPg`) incompatível com o padrão NestJS de `extends PrismaClient`. Usamos Prisma 5 que mantém total compatibilidade.

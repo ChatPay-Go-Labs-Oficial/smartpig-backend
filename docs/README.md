@@ -16,7 +16,7 @@ Bem-vindo à documentação técnica do backend do **SmartPig**, um app de finan
 | [modules/vaults.md](./modules/vaults.md) | Consulta de vaults, APY e saldo |
 | [modules/deposits.md](./modules/deposits.md) | Criação e processamento de depósitos |
 | [modules/withdrawals.md](./modules/withdrawals.md) | Criação e processamento de saques |
-| [modules/jobs.md](./modules/jobs.md) | Jobs em background (reconciliação, APY, snapshots) |
+| [modules/jobs.md](./modules/jobs.md) | Jobs em background (reconciliação, APY, snapshots, vault sync) |
 
 ## Visão rápida
 
@@ -28,9 +28,11 @@ React Native App
 NestJS Backend (SmartPig API)
       │
       ├── PostgreSQL (Prisma 5)
-      └── DeFindex SDK (@defindex/sdk)
-                │
-                └── Stellar Network
+      └── DeFindex                 ← SDK + REST direto (híbrido)
+           ├── @defindex/sdk        ← operações principais (XDR, info, balance)
+           └── REST API direta      ← endpoints não cobertos pelo SDK (discover, strategies)
+                     │
+                     └── Stellar Network
 ```
 
 O backend atua como intermediário seguro entre o app mobile e o protocolo DeFindex:

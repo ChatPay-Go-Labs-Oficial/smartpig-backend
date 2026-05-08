@@ -59,20 +59,20 @@ Carteira Stellar vinculada ao usuário.
 Constraint: `(userId, stellarAddress)` único — um usuário não pode vincular a mesma carteira duas vezes.
 
 ### VaultCatalog
-Cache local dos vaults disponíveis no DeFindex.
+Cache local dos vaults disponíveis no DeFindex. **Populado automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover`.
 
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
 | id | String (cuid) | PK interno |
-| defindexVaultId | String unique | Endereço do vault no DeFindex |
-| name | String | Nome do vault |
-| assetSymbol | String | Símbolo do ativo (ex: USDC) |
+| defindexVaultId | String unique | Endereço do contrato do vault no Stellar |
+| name | String | Nome do vault (pode ser o endereço até enriquecimento via `getVaultInfo`) |
+| assetSymbol | String | Símbolo do ativo principal (ex: USDC) |
 | description | String? | Descrição opcional |
-| apy | Decimal(10,4)? | APY atual (%) |
-| tvl | Decimal(30,8)? | Total Value Locked |
-| metadata | Json? | Dados extras |
-| isActive | Boolean | Se o vault está disponível |
-| lastSyncedAt | DateTime? | Última sincronização de APY |
+| apy | Decimal(10,4)? | APY atual (%) — atualizado pelo `ApySyncJob` e `VaultSyncJob` |
+| tvl | Decimal(30,8)? | Total Value Locked — atualizado pelo `VaultSyncJob` |
+| metadata | Json? | Dados extras do protocolo |
+| isActive | Boolean | Se o vault está disponível para operações |
+| lastSyncedAt | DateTime? | Última sincronização de APY/TVL |
 
 ### DepositIntent
 Representa uma intenção de depósito e seu ciclo de vida.
