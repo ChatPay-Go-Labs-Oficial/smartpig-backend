@@ -4,9 +4,10 @@ import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { DefindexModule } from './defindex/defindex.module';
+import { VaultsModule } from './vaults/vaults.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, DefindexModule],
+  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule],
   controllers: [AppController],
   providers: [AppService],
 })
