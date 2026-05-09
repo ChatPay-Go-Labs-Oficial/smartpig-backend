@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { VaultsService } from './vaults.service';
 import { IsNotEmpty, IsString } from 'class-validator';
 
@@ -15,6 +15,11 @@ export class VaultsController {
   @Get()
   listVaults() {
     return this.vaultsService.listVaults();
+  }
+
+  @Post('sync')
+  triggerSync() {
+    return this.vaultsService.triggerSync();
   }
 
   @Get(':id')

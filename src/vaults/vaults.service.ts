@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
 import { Decimal } from '@prisma/client/runtime/library';
+import { VaultSyncJob } from '../jobs/vault-sync.job';
 
 const APY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -13,6 +14,7 @@ export class VaultsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
+    private readonly vaultSyncJob: VaultSyncJob,
   ) {}
 
   async listVaults() {
@@ -97,6 +99,11 @@ export class VaultsService {
     const vault = await this.findActiveVaultOrThrow(id);
     const balance = await this.defindex.getVaultBalance(vault.defindexVaultId, walletAddress);
     return { vaultId: id, walletAddress, ...balance };
+  }
+
+  async triggerSync() {
+    await this.vaultSyncJob.syncVaultsFromDefindex();
+    return { message: 'Vault sync triggered successfully' };
   }
 
   private async findActiveVaultOrThrow(id: string) {

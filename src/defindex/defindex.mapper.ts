@@ -6,13 +6,20 @@ export class DefindexMapper {
     defindexVaultId: string,
     raw: VaultInfoResponse,
   ): VaultInfoDto {
+    const primaryAsset = raw.assets?.[0];
+    const primaryFunds = raw.totalManagedFunds?.[0];
+
     return {
       defindexVaultId,
       name: raw.name,
       symbol: raw.symbol,
+      assetSymbol: primaryAsset?.symbol ?? null,
+      tvl: primaryFunds?.total_amount ?? null,
       apy: raw.apy,
       assets: raw.assets?.map((a) => ({
         address: a.address,
+        name: a.name,
+        symbol: a.symbol,
         strategies: a.strategies?.map((s) => ({
           address: s.address,
           name: s.name,

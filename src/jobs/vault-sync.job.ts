@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
+
+/** Delay between getVaultInfo calls to avoid hitting the DeFindex rate limit. */
+const INTER_VAULT_DELAY_MS = 500;
 
 /**
  * Discovers vaults from the DeFindex API and upserts them into the local VaultCatalog.
@@ -39,23 +42,39 @@ export class VaultSyncJob {
 
     for (const vault of discovered.vaults) {
       try {
-        const totalFunds = vault.totalManagedFunds?.[0];
-        const tvl = totalFunds?.total_amount
-          ? new Decimal(totalFunds.total_amount)
-          : null;
+        // Enrich with on-chain vault metadata (name, asset symbol, and TVL).
+        // A small delay between calls avoids hitting the DeFindex rate limit.
+        await new Promise((r) => setTimeout(r, INTER_VAULT_DELAY_MS));
+
+        let vaultName = vault.address;
+        let assetSymbol = 'UNKNOWN';
+        let tvl: Decimal | null = null;
+
+        try {
+          const info = await this.defindex.getVaultInfo(vault.address);
+          if (info?.name) vaultName = info.name;
+          if (info?.assetSymbol) assetSymbol = info.assetSymbol;
+          if (info?.tvl) tvl = new Decimal(info.tvl);
+        } catch (infoErr) {
+          this.logger.warn(
+            `Could not enrich vault info for ${vault.address}: ${(infoErr as Error).message}`,
+          );
+        }
 
         await this.prisma.vaultCatalog.upsert({
           where: { defindexVaultId: vault.address },
           create: {
             defindexVaultId: vault.address,
-            name: vault.address, // placeholder — enriched by getVaultInfo if needed
-            assetSymbol: totalFunds?.asset ?? 'UNKNOWN',
+            name: vaultName,
+            assetSymbol,
             apy: vault.apy != null ? new Decimal(vault.apy) : null,
             tvl,
             isActive: true,
             lastSyncedAt: new Date(),
           },
           update: {
+            name: vaultName,
+            assetSymbol,
             apy: vault.apy != null ? new Decimal(vault.apy) : undefined,
             tvl: tvl ?? undefined,
             isActive: true,

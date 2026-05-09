@@ -2,13 +2,13 @@ import { SupportedNetworks } from '@defindex/sdk';
 
 export interface DiscoveredVaultDto {
   address: string;
-  apy: number;
+  apy: number | null;
+  /** null when the on-chain simulation for this vault failed */
   totalManagedFunds: {
+    /** Asset contract address (not a human-readable symbol) */
     asset: string;
     total_amount: string;
-    idle_amount: string;
-    invested_amount: string;
-  }[];
+  }[] | null;
 }
 
 export interface DiscoverVaultsResponseDto {
@@ -31,9 +31,15 @@ export interface VaultInfoDto {
   defindexVaultId: string;
   name: string;
   symbol: string;
+  /** Symbol of the primary underlying asset (e.g. "USDC", "XLM") */
+  assetSymbol: string | null;
+  /** TVL of the primary asset as a raw string (stroops or token decimals), null if unavailable */
+  tvl: string | null;
   apy: number;
   assets: {
     address: string;
+    name: string;
+    symbol: string;
     strategies: { address: string; name: string; paused: boolean }[];
   }[];
 }

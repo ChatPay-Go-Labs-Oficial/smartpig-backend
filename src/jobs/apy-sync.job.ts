@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
+
+/** Delay between getVaultApy calls to avoid hitting the DeFindex rate limit. */
+const INTER_VAULT_DELAY_MS = 500;
 
 /**
  * Periodically refreshes APY for all active vaults and persists to DB.
@@ -30,6 +33,7 @@ export class ApySyncJob {
     let updated = 0;
 
     for (const vault of vaults) {
+      await new Promise((r) => setTimeout(r, INTER_VAULT_DELAY_MS));
       try {
         const { apy } = await this.defindex.getVaultApy(vault.defindexVaultId);
         await this.prisma.vaultCatalog.update({
