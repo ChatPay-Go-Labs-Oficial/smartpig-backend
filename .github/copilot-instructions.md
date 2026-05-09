@@ -171,3 +171,15 @@ REDIS_URL=
 - `noImplicitAny` is disabled — explicit `any` is allowed but `@typescript-eslint/no-explicit-any` is off.
 - `emitDecoratorMetadata` and `experimentalDecorators` are enabled — required for NestJS decorators (`@Injectable()`, `@Controller()`, etc.).
 - Use NestJS CLI to scaffold new resources: `npx nest g module <name>`, `npx nest g controller <name>`, `npx nest g service <name>`.
+
+## Project Documentation
+
+Before answering questions about the project, architecture, flows, modules, API, or the current state of the implementation, also review the docs/ directory in addition to src/, prisma/, and package.json.
+
+When the task involves a general understanding of the system or comparing the implementation with the documentation:
+
+ - read docs/README.md and the relevant documents in docs/
+ - treat docs/ as an important source of functional and architectural context
+ - point out any discrepancies between the documentation and the code when they exist
+
+For code changes, use docs/ as context, but prioritize the source code as the source of truth in case of conflict.
