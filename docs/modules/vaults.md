@@ -14,6 +14,7 @@ Expõe endpoints de consulta (read-only) de vaults DeFi. Combina dados do banco 
 | GET | `/vaults/:id` | Detalhes + info live do DeFindex |
 | GET | `/vaults/:id/apy` | APY live com cache |
 | GET | `/vaults/:id/balance` | Saldo do usuário no vault |
+| POST | `/vaults/sync` | Dispara manualmente o VaultSyncJob |
 
 Ver detalhes em [api.md](../api.md#vaults).
 

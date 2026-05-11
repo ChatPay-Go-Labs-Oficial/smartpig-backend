@@ -14,12 +14,14 @@ User
  ├── WithdrawalIntent (1:N)
  ├── TransactionRecord (1:N)
  ├── PortfolioSnapshot (1:N)
- └── ApiAuditLog (1:N)
+ ├── ApiAuditLog (1:N)
+ └── ManagedVault (1:N)
 
 VaultCatalog
  ├── DepositIntent (1:N)
  ├── WithdrawalIntent (1:N)
- └── PortfolioSnapshot (1:N)
+ ├── PortfolioSnapshot (1:N)
+ └── ManagedVault (1:1, opcional)  ← vault criado via VaultManager
 
 DepositIntent
  └── TransactionRecord (1:1, opcional)
@@ -140,6 +142,27 @@ Log imutável de operações sensíveis (a ser populado pela fase de auth e hard
 | ipAddress | String? | IP do cliente |
 | createdAt | DateTime | Timestamp imutável |
 
+### ManagedVault
+Vault DeFindex criado e gerenciado pelo SmartPig. Mantém o estado do ciclo de criação (geração de XDR → assinatura → submissão → confirmação).
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| id | String (cuid) | PK |
+| creatorUserId | String | FK → User (operador que criou) |
+| callerAddress | String | Endereço Stellar que assina a criação |
+| name | String | Nome do vault |
+| symbol | String | Símbolo do dfToken |
+| vaultFeeBps | Int | Taxa de gestão em basis points (25 = 0.25%) |
+| roles | Json | Endereços de manager, emergencyManager, feeReceiver, rebalanceManager |
+| assets | Json | Ativos e estratégias configurados |
+| status | ManagedVaultStatus | Status atual (ver enum abaixo) |
+| unsignedXdr | Text? | XDR não assinado retornado pelo DeFindex |
+| signedXdr | Text? | XDR assinado recebido do operador |
+| predictedVaultAddress | String? | Endereço previsto do vault antes da confirmação |
+| txHash | String? unique | Hash da transação de criação |
+| vaultCatalogId | String? unique | FK → VaultCatalog (após confirmação) |
+| errorMessage | String? | Mensagem de erro se FAILED |
+
 ### RefreshToken
 Token de refresh para autenticação JWT (implementação futura).
 
@@ -150,6 +173,21 @@ Token de refresh para autenticação JWT (implementação futura).
 | revokedAt | DateTime? | Data de revogação (logout) |
 
 ## Enums
+
+### ManagedVaultStatus
+Ciclo de vida de um vault gerenciado:
+
+```
+PENDING_SIGNATURE → SUBMITTED → CONFIRMED
+                             └→ FAILED
+```
+
+| Valor | Descrição |
+|-------|-----------|
+| PENDING_SIGNATURE | XDR gerado, aguardando assinatura do operador |
+| SUBMITTED | XDR assinado submetido à rede Stellar |
+| CONFIRMED | Vault criado e confirmado on-chain |
+| FAILED | Falhou na submissão ou confirmação |
 
 ### IntentStatus
 Ciclo de vida de uma intent (depósito ou saque):

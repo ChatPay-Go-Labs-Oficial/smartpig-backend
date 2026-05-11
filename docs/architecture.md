@@ -17,6 +17,9 @@ O SmartPig Backend é uma API REST construída em **NestJS** que serve como cama
 │  │  Vaults  │  │ Deposits │  │    Withdrawals     │ │
 │  └──────────┘  └──────────┘  └────────────────────┘ │
 │  ┌──────────────────────────────────────────────────┐ │
+│  │              VaultManagerModule                  │ │
+│  └──────────────────────────────────────────────────┘ │
+│  ┌──────────────────────────────────────────────────┐ │
 │  │          DefindexModule (SDK wrapper)            │ │
 │  └──────────────────────────────────────────────────┘ │
 │  ┌─────────────┐  ┌──────────────────────────────────┐ │
@@ -117,6 +120,14 @@ src/
 │   ├── vaults.controller.ts
 │   ├── vaults.service.ts
 │   └── vaults.module.ts
+│
+├── vault-manager/         # Criação e gestão de vaults SmartPig
+│   ├── vault-manager.controller.ts
+│   ├── vault-manager.service.ts
+│   ├── vault-manager.module.ts
+│   └── dto/
+│       ├── create-managed-vault.dto.ts
+│       └── submit-managed-vault.dto.ts
 │
 ├── deposits/              # Fluxo de depósito
 │   ├── deposits.controller.ts

@@ -100,6 +100,16 @@ APY live do vault (cache em memória de 5 minutos, fallback para valor do banco)
 
 ---
 
+### `POST /vaults/sync`
+Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 30 minutos.
+
+**Resposta 200:**
+```json
+{ "upserted": 9, "total": 9 }
+```
+
+---
+
 ### `GET /vaults/:id/balance?walletAddress=G...`
 Saldo do usuário em um vault específico.
 
@@ -247,6 +257,101 @@ Status atual de uma intent de saque.
 
 ### `GET /withdrawals?userId=...` 🔒
 Lista todas as intents de saque de um usuário.
+
+---
+
+---
+
+## Vault Manager
+
+> Endpoints para SmartPig criar e gerenciar seus próprios vaults no protocolo DeFindex.
+> Requer que o usuário assine o XDR gerado com sua carteira Stellar e o submeta de volta.
+
+### `POST /vault-manager/vaults` 🔒
+Cria um novo vault DeFindex gerenciado pelo SmartPig. Gera um XDR não assinado que deve ser assinado pelo operador (via Stellar Laboratory ou carteira).
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "callerAddress": "GADS4...",
+  "name": "SmartPig XLM Vault",
+  "symbol": "SPXLM",
+  "vaultFeeBps": 25,
+  "upgradable": true,
+  "roles": {
+    "manager": "GADS4...",
+    "emergencyManager": "GADS4...",
+    "feeReceiver": "GADS4...",
+    "rebalanceManager": "GADS4..."
+  },
+  "assets": [{
+    "address": "CDLZFC3...",
+    "symbol": "XLM",
+    "amount": 100000000,
+    "strategies": [{
+      "address": "CDVLOSP...",
+      "name": "xlm_blend_autocompound",
+      "amount": 100000000
+    }]
+  }]
+}
+```
+
+> **Nota sobre `amount`**: valores em unidades mínimas da rede (stroops para XLM: `10 XLM = 100000000`).
+> **`vaultFeeBps`**: taxa de gestão em basis points (25 = 0.25% ao ano sobre o TVL).
+> **`feeReceiver`**: carteira do SmartPig que recebe as taxas de gestão.
+
+**Resposta 201:**
+```json
+{
+  "id": "clx...",
+  "name": "SmartPig XLM Vault",
+  "symbol": "SPXLM",
+  "status": "PENDING_SIGNATURE",
+  "unsignedXdr": "AAAAAgAAAA...",
+  "predictedVaultAddress": "CDDU2F..."
+}
+```
+
+---
+
+### `POST /vault-manager/vaults/:id/submit` 🔒
+Submete o XDR assinado pelo operador para broadcast na rede Stellar. Ao confirmar, o vault é registrado automaticamente no `VaultCatalog`.
+
+**Body:**
+```json
+{ "signedXdr": "AAAAAgAAAA...assinado..." }
+```
+
+**Resposta 200:**
+```json
+{
+  "id": "clx...",
+  "txHash": "cb0e820b...",
+  "vaultAddress": "CDDU2F...",
+  "status": "CONFIRMED"
+}
+```
+
+**Erros:**
+- `404` — ManagedVault não encontrado
+- `400` — Vault já submetido ou em estado inválido
+
+---
+
+### `GET /vault-manager/vaults?userId=...` 🔒
+Lista todos os vaults gerenciados criados por um usuário.
+
+**Query params:**
+- `userId` *(obrigatório)* — será substituído por extração do JWT
+
+**Resposta 200:** array de `ManagedVault` com dados do `VaultCatalog` vinculado (APY, TVL).
+
+---
+
+### `GET /vault-manager/vaults/:id` 🔒
+Detalhes de um vault gerenciado específico, incluindo status e o `VaultCatalog` vinculado.
 
 ---
 

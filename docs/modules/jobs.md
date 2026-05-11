@@ -26,8 +26,10 @@ Reconcilia transações que foram submetidas mas ainda estão como `PENDING`. Pa
 **Frequência:** A cada 10 minutos (`0 */10 * * * *`)
 
 Para cada vault ativo no banco:
-1. Chama `DefindexService.getVaultApy()`
-2. Atualiza `VaultCatalog.apy` e `VaultCatalog.lastSyncedAt`
+1. Chama `DefindexService.getVaultInfo()` — uma única chamada que retorna APY e TVL
+2. Atualiza `VaultCatalog.apy`, `VaultCatalog.tvl` e `VaultCatalog.lastSyncedAt`
+
+> Usa `getVaultInfo()` em vez de `getVaultApy()` para obter APY e TVL em uma única chamada, garantindo dados consistentes inclusive para vaults criados pelo SmartPig que ainda não aparecem no endpoint `discover`.
 
 Erros por vault são logados mas não interrompem o ciclo dos demais vaults.
 
