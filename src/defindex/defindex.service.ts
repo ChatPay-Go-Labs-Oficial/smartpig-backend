@@ -4,6 +4,8 @@ import { DefindexConfig } from './defindex.config';
 import { DefindexMapper } from './defindex.mapper';
 import { mapDefindexError } from './errors/defindex.errors';
 import {
+  CreateVaultParamsDto,
+  CreateVaultResultDto,
   DiscoverVaultsResponseDto,
   GenerateDepositXdrDto,
   GenerateWithdrawXdrDto,
@@ -190,9 +192,28 @@ export class DefindexService {
         txHash: raw.txHash,
         success: raw.success,
         ledger: raw.ledger,
+        result: raw.result ?? null,
       };
     } catch (err) {
       this.logger.warn(`submitSignedTransaction failed`);
+      mapDefindexError(err);
+    }
+  }
+
+  async createVault(params: CreateVaultParamsDto): Promise<CreateVaultResultDto> {
+    const net = this.defindexConfig.defaultNetwork;
+    try {
+      const data = await withRetry(() =>
+        this.httpClient
+          .post(`/factory/create-vault-auto-invest?network=${net}`, params)
+          .then((res) => res.data),
+      );
+      return {
+        xdr: data.xdr ?? null,
+        predictedVaultAddress: data.predictedVaultAddress ?? null,
+      };
+    } catch (err) {
+      this.logger.warn(`createVault failed`);
       mapDefindexError(err);
     }
   }

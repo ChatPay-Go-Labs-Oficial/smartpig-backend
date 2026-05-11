@@ -85,4 +85,40 @@ export interface SubmitTransactionResultDto {
   txHash: string;
   success: boolean;
   ledger: number;
+  result?: unknown;
+}
+
+export interface CreateVaultRolesDto {
+  manager: string;
+  emergencyManager: string;
+  feeReceiver: string;
+  rebalanceManager: string;
+}
+
+export interface CreateVaultAssetStrategyDto {
+  address: string;
+  name: string;
+  amount: number;
+}
+
+export interface CreateVaultAssetDto {
+  address: string;
+  symbol: string;
+  amount: number;
+  strategies: CreateVaultAssetStrategyDto[];
+}
+
+export interface CreateVaultParamsDto {
+  caller: string;
+  roles: CreateVaultRolesDto;
+  name: string;
+  symbol: string;
+  vaultFee: number;
+  upgradable: boolean;
+  assets: CreateVaultAssetDto[];
+}
+
+export interface CreateVaultResultDto {
+  xdr: string | null;
+  predictedVaultAddress: string | null;
 }

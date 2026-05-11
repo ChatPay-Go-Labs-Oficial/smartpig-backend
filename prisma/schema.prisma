@@ -34,6 +34,13 @@ enum IntentType {
   WITHDRAWAL
 }
 
+enum ManagedVaultStatus {
+  PENDING_SIGNATURE
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
@@ -56,6 +63,7 @@ model User {
   portfolioSnapshots PortfolioSnapshot[]
   refreshTokens     RefreshToken[]
   auditLogs         ApiAuditLog[]
+  managedVaults     ManagedVault[]
 
   @@map("users")
 }
@@ -116,6 +124,7 @@ model VaultCatalog {
   depositIntents    DepositIntent[]
   withdrawalIntents WithdrawalIntent[]
   portfolioSnapshots PortfolioSnapshot[]
+  managedVault      ManagedVault?
 
   @@index([isActive])
   @@map("vault_catalog")
@@ -224,6 +233,37 @@ model PortfolioSnapshot {
   @@index([userId, capturedAt])
   @@index([vaultId, capturedAt])
   @@map("portfolio_snapshots")
+}
+
+// ─────────────────────────────────────────────
+// Vault Manager (SmartPig-owned vaults)
+// ─────────────────────────────────────────────
+
+model ManagedVault {
+  id                    String             @id @default(cuid())
+  creatorUserId         String
+  callerAddress         String
+  name                  String
+  symbol                String
+  vaultFeeBps           Int                @default(25)
+  roles                 Json
+  assets                Json
+  status                ManagedVaultStatus @default(PENDING_SIGNATURE)
+  unsignedXdr           String?            @db.Text
+  signedXdr             String?            @db.Text
+  predictedVaultAddress String?
+  txHash                String?            @unique
+  vaultCatalogId        String?            @unique
+  errorMessage          String?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  creator      User          @relation(fields: [creatorUserId], references: [id], onDelete: Cascade)
+  vaultCatalog VaultCatalog? @relation(fields: [vaultCatalogId], references: [id])
+
+  @@index([creatorUserId])
+  @@index([status])
+  @@map("managed_vaults")
 }
 
 // ─────────────────────────────────────────────

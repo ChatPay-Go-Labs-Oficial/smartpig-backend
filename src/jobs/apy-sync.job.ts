@@ -35,10 +35,15 @@ export class ApySyncJob {
     for (const vault of vaults) {
       await new Promise((r) => setTimeout(r, INTER_VAULT_DELAY_MS));
       try {
-        const { apy } = await this.defindex.getVaultApy(vault.defindexVaultId);
+        // Use getVaultInfo to get APY + TVL in a single call (more accurate than getVaultApy alone).
+        const info = await this.defindex.getVaultInfo(vault.defindexVaultId);
         await this.prisma.vaultCatalog.update({
           where: { id: vault.id },
-          data: { apy: new Decimal(apy), lastSyncedAt: new Date() },
+          data: {
+            apy: info.apy != null ? new Decimal(info.apy) : undefined,
+            tvl: info.tvl != null ? new Decimal(info.tvl) : undefined,
+            lastSyncedAt: new Date(),
+          },
         });
         updated++;
       } catch (err) {

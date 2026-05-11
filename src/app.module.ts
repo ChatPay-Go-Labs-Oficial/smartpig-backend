@@ -8,9 +8,10 @@ import { VaultsModule } from './vaults/vaults.module';
 import { DepositsModule } from './deposits/deposits.module';
 import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 import { JobsModule } from './jobs/jobs.module';
+import { VaultManagerModule } from './vault-manager/vault-manager.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule, WithdrawalsModule, JobsModule],
+  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule, WithdrawalsModule, JobsModule, VaultManagerModule],
   controllers: [AppController],
   providers: [AppService],
 })
