@@ -245,6 +245,7 @@ model ManagedVault {
   callerAddress         String
   name                  String
   symbol                String
+  description           String?
   vaultFeeBps           Int                @default(25)
   roles                 Json
   assets                Json

@@ -103,4 +103,8 @@ export class CreateManagedVaultDto {
   @IsBoolean()
   @IsOptional()
   upgradable?: boolean;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
 }

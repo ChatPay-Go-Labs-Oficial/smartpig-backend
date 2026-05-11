@@ -36,6 +36,7 @@ export class VaultManagerService {
         callerAddress: dto.callerAddress,
         name: dto.name,
         symbol: dto.symbol,
+        description: dto.description,
         vaultFeeBps: dto.vaultFeeBps,
         roles: dto.roles as object,
         assets: dto.assets as object,
@@ -104,12 +105,14 @@ export class VaultManagerService {
         create: {
           defindexVaultId: vaultAddress,
           name: managed.name,
+          description: managed.description,
           assetSymbol,
           isActive: true,
           lastSyncedAt: new Date(),
         },
         update: {
           name: managed.name,
+          description: managed.description ?? undefined,
           assetSymbol,
           isActive: true,
         },
