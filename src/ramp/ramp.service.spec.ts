@@ -82,9 +82,11 @@ describe('RampService', () => {
       mockBlindPayService.createReceiver.mockResolvedValue({ id: 'bp_r1' });
       mockPrisma.blindPayReceiver.create.mockResolvedValue({ id: 'r1', blindpayReceiverId: 'bp_r1' });
 
-      const result = await service.createReceiver({ userId: 'u1', name: 'Alice' });
+      const result = await service.createReceiver({ userId: 'u1', email: 'alice@example.com', firstName: 'Alice' });
       expect(result.blindpayReceiverId).toBe('bp_r1');
-      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith({ name: 'Alice', tax_id: undefined });
+      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'individual', kyc_type: 'standard', email: 'alice@example.com', country: 'BR' }),
+      );
     });
   });
 
@@ -238,7 +240,7 @@ describe('RampService', () => {
       expect(mockBlindPayService.createPayoutStellar).toHaveBeenCalledWith({
         quote_id: 'qu_1',
         sender_wallet_address: 'GABC',
-        transaction_hash: 'abc123',
+        signed_transaction: 'abc123',
       });
     });
   });

@@ -45,7 +45,12 @@ export class RampService {
     }
 
     const bpReceiver = await this.blindpay.createReceiver({
-      name: dto.name,
+      type: dto.type ?? 'individual',
+      kyc_type: dto.kycType ?? 'standard',
+      email: dto.email,
+      country: dto.country ?? 'BR',
+      first_name: dto.firstName,
+      last_name: dto.lastName,
       tax_id: dto.taxId,
     });
 
@@ -53,7 +58,7 @@ export class RampService {
       data: {
         userId: dto.userId,
         blindpayReceiverId: bpReceiver.id,
-        name: dto.name,
+        name: [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email,
         taxId: dto.taxId,
       },
     });
@@ -76,12 +81,14 @@ export class RampService {
     });
     if (!receiver) throw new NotFoundException('Receiver not found — create it first');
 
-    const bpAccount = await this.blindpay.createBankAccount({
-      receiver_id: receiver.blindpayReceiverId,
-      type: 'pix',
-      pix_key: dto.pixKey,
-      pix_key_type: dto.pixKeyType,
-    });
+    const bpAccount = await this.blindpay.createBankAccount(
+      receiver.blindpayReceiverId,
+      {
+        type: 'pix',
+        name: dto.name,
+        pix_key: dto.pixKey,
+      },
+    );
 
     return this.prisma.blindPayBankAccount.create({
       data: {
@@ -112,11 +119,14 @@ export class RampService {
     });
     if (!receiver) throw new NotFoundException('Receiver not found — create it first');
 
-    const bpWallet = await this.blindpay.createBlockchainWallet({
-      receiver_id: receiver.blindpayReceiverId,
-      network: this.network,
-      address: dto.stellarAddress,
-    });
+    const bpWallet = await this.blindpay.createBlockchainWallet(
+      receiver.blindpayReceiverId,
+      {
+        name: dto.name ?? `Stellar wallet for ${receiver.name}`,
+        network: this.network,
+        address: dto.stellarAddress,
+      },
+    );
 
     return this.prisma.blindPayBlockchainWallet.create({
       data: {
@@ -138,9 +148,8 @@ export class RampService {
 
     return this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
-      blockchain: this.network,
+      currency_type: 'sender',
       token: 'USDC',
-      currency: 'BRL',
       payment_method: 'pix',
       request_amount: dto.amountBrl,
     });
@@ -162,9 +171,8 @@ export class RampService {
     // Create quote
     const quote = await this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
-      blockchain: this.network,
+      currency_type: 'sender',
       token: 'USDC',
-      currency: 'BRL',
       payment_method: 'pix',
       request_amount: dto.amountBrl,
     });
@@ -208,7 +216,8 @@ export class RampService {
 
     return this.blindpay.createPayoutQuote({
       bank_account_id: bankAccount.blindpayBankAccountId,
-      blockchain: this.network,
+      currency_type: 'sender',
+      network: this.network,
       token: 'USDC',
       request_amount: dto.amountUsdc,
       cover_fees: dto.coverFees ?? false,
@@ -231,7 +240,8 @@ export class RampService {
     // Create quote
     const quote = await this.blindpay.createPayoutQuote({
       bank_account_id: bankAccount.blindpayBankAccountId,
-      blockchain: this.network,
+      currency_type: 'sender',
+      network: this.network,
       token: 'USDC',
       request_amount: dto.amountUsdc,
       cover_fees: dto.coverFees ?? false,
@@ -287,7 +297,7 @@ export class RampService {
     const payout = await this.blindpay.createPayoutStellar({
       quote_id: txn.blindpayQuoteId,
       sender_wallet_address: txn.senderWalletAddress,
-      transaction_hash: dto.signedDelegationHash,
+      signed_transaction: dto.signedDelegationHash,
     });
 
     return this.prisma.offrampTransaction.update({

@@ -72,10 +72,10 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
-  async createBankAccount(params: CreateBankAccountParams): Promise<BlindPayBankAccount> {
+  async createBankAccount(receiverId: string, params: CreateBankAccountParams): Promise<BlindPayBankAccount> {
     try {
       const { data } = await this.http.post<BlindPayBankAccount>(
-        `/instances/${this.instanceId}/bank-accounts`,
+        `/instances/${this.instanceId}/receivers/${receiverId}/bank-accounts`,
         params,
       );
       return data;
@@ -87,8 +87,7 @@ export class BlindPayService implements OnModuleInit {
   async listBankAccounts(receiverId: string): Promise<BlindPayBankAccount[]> {
     try {
       const { data } = await this.http.get<BlindPayBankAccount[]>(
-        `/instances/${this.instanceId}/bank-accounts`,
-        { params: { receiver_id: receiverId } },
+        `/instances/${this.instanceId}/receivers/${receiverId}/bank-accounts`,
       );
       return data;
     } catch (err) {
@@ -99,11 +98,12 @@ export class BlindPayService implements OnModuleInit {
   // ─── Blockchain Wallets ────────────────────────────────────────────────────
 
   async createBlockchainWallet(
+    receiverId: string,
     params: CreateBlockchainWalletParams,
   ): Promise<BlindPayBlockchainWallet> {
     try {
       const { data } = await this.http.post<BlindPayBlockchainWallet>(
-        `/instances/${this.instanceId}/blockchain-wallets`,
+        `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
         params,
       );
       return data;
@@ -115,8 +115,7 @@ export class BlindPayService implements OnModuleInit {
   async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(
-        `/instances/${this.instanceId}/blockchain-wallets`,
-        { params: { receiver_id: receiverId } },
+        `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
       );
       return data;
     } catch (err) {
@@ -146,7 +145,7 @@ export class BlindPayService implements OnModuleInit {
   ): Promise<StellarDelegationResult> {
     try {
       const { data } = await this.http.post<StellarDelegationResult>(
-        `/instances/${this.instanceId}/payouts/stellar/prepare-delegation`,
+        `/instances/${this.instanceId}/payouts/stellar/authorize`,
         { quote_id: quoteId, sender_wallet_address: senderWalletAddress },
       );
       return data;
@@ -199,7 +198,7 @@ export class BlindPayService implements OnModuleInit {
   async createPayinStellar(params: CreatePayinParams): Promise<BlindPayPayin> {
     try {
       const { data } = await this.http.post<BlindPayPayin>(
-        `/instances/${this.instanceId}/payins/stellar`,
+        `/instances/${this.instanceId}/payins/evm`,
         params,
       );
       return data;

@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 // ─── Receiver ─────────────────────────────────────────────────────────────────
 
@@ -6,12 +6,33 @@ export class CreateReceiverDto {
   @IsString()
   userId: string;
 
+  @IsEmail()
+  email: string;
+
+  @IsOptional()
   @IsString()
-  name: string;
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
 
   @IsOptional()
   @IsString()
   taxId?: string;
+
+  /** ISO 3166-1 alpha-2 country code. Defaults to 'BR'. */
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsEnum(['individual', 'business'])
+  type?: 'individual' | 'business';
+
+  @IsOptional()
+  @IsEnum(['light', 'standard', 'enhanced'])
+  kycType?: 'light' | 'standard' | 'enhanced';
 }
 
 // ─── Bank Account ─────────────────────────────────────────────────────────────
@@ -20,11 +41,13 @@ export class CreateBankAccountDto {
   @IsString()
   userId: string;
 
-  @IsEnum(['cpf', 'cnpj', 'phone', 'email', 'random'])
-  pixKeyType: 'cpf' | 'cnpj' | 'phone' | 'email' | 'random';
-
+  /** Display name for this bank account */
   @IsString()
-  pixKey: string;
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  pixKey?: string;
 }
 
 // ─── Blockchain Wallet ────────────────────────────────────────────────────────
@@ -35,6 +58,11 @@ export class CreateBlockchainWalletDto {
 
   @IsString()
   stellarAddress: string;
+
+  /** Display name for this wallet */
+  @IsOptional()
+  @IsString()
+  name?: string;
 }
 
 // ─── On-ramp ──────────────────────────────────────────────────────────────────

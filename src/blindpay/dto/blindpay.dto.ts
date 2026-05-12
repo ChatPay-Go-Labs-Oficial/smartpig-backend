@@ -1,47 +1,64 @@
 // ─── Receivers ───────────────────────────────────────────────────────────────
 
 export interface CreateReceiverParams {
-  name: string;
+  type: 'individual' | 'business';
+  kyc_type: 'light' | 'standard' | 'enhanced';
+  email: string;
+  country: string;
+  first_name?: string;
+  last_name?: string;
+  legal_name?: string;
   tax_id?: string;
+  phone_number?: string;
 }
 
 export interface BlindPayReceiver {
   id: string;
-  name: string;
+  type: string;
+  kyc_type: string;
+  kyc_status: string | null;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  legal_name: string | null;
   tax_id: string | null;
+  country: string;
   created_at: string;
 }
 
 // ─── Bank Accounts ────────────────────────────────────────────────────────────
 
+/** receiver_id is passed in the URL path, not in the body */
 export interface CreateBankAccountParams {
-  receiver_id: string;
   type: 'pix';
-  pix_key: string;
-  pix_key_type: 'cpf' | 'cnpj' | 'phone' | 'email' | 'random';
+  name: string;
+  pix_key?: string;
 }
 
 export interface BlindPayBankAccount {
   id: string;
   receiver_id: string;
   type: string;
+  name: string;
   pix_key: string | null;
   created_at: string;
 }
 
 // ─── Blockchain Wallets ───────────────────────────────────────────────────────
 
+/** receiver_id is passed in the URL path, not in the body */
 export interface CreateBlockchainWalletParams {
-  receiver_id: string;
+  name: string;
   network: 'stellar' | 'stellar_testnet';
-  address: string;
+  address?: string;
 }
 
 export interface BlindPayBlockchainWallet {
   id: string;
   receiver_id: string;
+  name: string;
   network: string;
-  address: string;
+  address: string | null;
   created_at: string;
 }
 
@@ -49,7 +66,9 @@ export interface BlindPayBlockchainWallet {
 
 export interface CreatePayoutQuoteParams {
   bank_account_id: string;
-  blockchain: 'stellar' | 'stellar_testnet';
+  /** currency_type: 'sender' means request_amount is the USDC amount sender sends */
+  currency_type: 'sender' | 'receiver';
+  network: 'stellar' | 'stellar_testnet';
   token: 'USDC';
   /** Amount in smallest units (micro-USDC, i.e. 1 USDC = 1_000_000) */
   request_amount: number;
@@ -90,8 +109,8 @@ export interface StellarDelegationResult {
 export interface CreatePayoutStellarParams {
   quote_id: string;
   sender_wallet_address: string;
-  /** Transaction hash returned after signing + submitting the delegation XDR */
-  transaction_hash: string;
+  /** Signed XDR transaction returned after signing the delegation */
+  signed_transaction?: string;
 }
 
 export interface BlindPayPayout {
@@ -106,9 +125,9 @@ export interface BlindPayPayout {
 
 export interface CreatePayinQuoteParams {
   blockchain_wallet_id: string;
-  blockchain: 'stellar' | 'stellar_testnet';
+  /** currency_type: 'sender' means request_amount is the BRL amount sender pays */
+  currency_type: 'sender' | 'receiver';
   token: 'USDC';
-  currency: 'BRL';
   payment_method: 'pix';
   /** Amount in fiat cents (e.g. R$10.00 = 1000) */
   request_amount: number;
