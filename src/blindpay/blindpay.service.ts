@@ -92,9 +92,12 @@ export class BlindPayService implements OnModuleInit {
    */
   async initiateTos(idempotencyKey: string, redirectUrl?: string): Promise<string> {
     try {
+      const body: Record<string, string> = { idempotency_key: idempotencyKey };
+      if (redirectUrl) body.redirect_url = redirectUrl;
+
       const { data } = await this.http.post<{ url: string }>(
         `/e/instances/${this.instanceId}/tos`,
-        { idempotency_key: idempotencyKey, redirect_url: redirectUrl },
+        body,
       );
       return data.url;
     } catch (err) {

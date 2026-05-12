@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { BlindPayService } from '../blindpay/blindpay.service';
 import { ConfigService } from '@nestjs/config';
@@ -28,7 +29,7 @@ export class RampService {
     private readonly prisma: PrismaService,
     private readonly blindpay: BlindPayService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   private get network(): 'stellar' | 'stellar_testnet' {
     const env = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
@@ -84,8 +85,9 @@ export class RampService {
   // ─── Terms of Service ──────────────────────────────────────────────────────
 
   async initiateTos(dto: InitiateTosDto): Promise<{ tosUrl: string }> {
-    // Use userId as idempotency key so duplicate calls return same session
-    const tosUrl = await this.blindpay.initiateTos(dto.userId, dto.redirectUrl);
+    // BlindPay requires a UUID v4 as idempotency_key
+    const idempotencyKey = randomUUID();
+    const tosUrl = await this.blindpay.initiateTos(idempotencyKey, dto.redirectUrl || undefined);
     return { tosUrl };
   }
 
