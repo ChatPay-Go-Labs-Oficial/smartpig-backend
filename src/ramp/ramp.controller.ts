@@ -20,6 +20,7 @@ import {
   CreateOfframpDto,
   CreateOnrampDto,
   CreateReceiverDto,
+  InitiateTosDto,
   OfframpQuoteDto,
   OnrampQuoteDto,
   SubmitOfframpDto,
@@ -34,6 +35,19 @@ export class RampController {
     private readonly rampService: RampService,
     private readonly config: ConfigService,
   ) {}
+
+  // ─── Terms of Service ───────────────────────────────────────────────────────
+
+  /**
+   * Initiate BlindPay Terms of Service session.
+   * Returns { tosUrl } — open this URL in a WebView/browser.
+   * After acceptance, BlindPay redirects to redirectUrl?tos_id=to_XXXXXXXXXXXX.
+   * Pass that tos_id in POST /ramp/receiver.
+   */
+  @Post('ramp/tos')
+  initiateTos(@Body() dto: InitiateTosDto) {
+    return this.rampService.initiateTos(dto);
+  }
 
   // ─── KYC File Upload ────────────────────────────────────────────────────────
 

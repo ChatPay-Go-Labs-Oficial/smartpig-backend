@@ -83,6 +83,25 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
+  // ─── Terms of Service ──────────────────────────────────────────────────────
+
+  /**
+   * Initiate a Terms of Service session.
+   * Returns a URL the end-user must visit to accept the ToS.
+   * After acceptance, BlindPay redirects to redirectUrl with ?tos_id=to_...
+   */
+  async initiateTos(idempotencyKey: string, redirectUrl?: string): Promise<string> {
+    try {
+      const { data } = await this.http.post<{ url: string }>(
+        `/e/instances/${this.instanceId}/tos`,
+        { idempotency_key: idempotencyKey, redirect_url: redirectUrl },
+      );
+      return data.url;
+    } catch (err) {
+      mapBlindPayError(err);
+    }
+  }
+
   // ─── Receivers ─────────────────────────────────────────────────────────────
 
   async createReceiver(params: CreateReceiverParams): Promise<BlindPayReceiver> {

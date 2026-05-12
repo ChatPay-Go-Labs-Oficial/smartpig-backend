@@ -1,5 +1,17 @@
 import { IsEmail, IsEnum, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
+// ─── Terms of Service ─────────────────────────────────────────────────────────
+
+export class InitiateTosDto {
+  @IsString()
+  userId: string;
+
+  /** Optional deep-link or URL to redirect after ToS acceptance (receives ?tos_id=to_...) */
+  @IsOptional()
+  @IsUrl()
+  redirectUrl?: string;
+}
+
 // ─── Receiver ─────────────────────────────────────────────────────────────────
 
 export class CreateReceiverDto {
@@ -84,6 +96,14 @@ export class CreateReceiverDto {
   @IsOptional()
   @IsUrl()
   idDocBackUrl?: string;
+
+  /**
+   * Terms of Service acceptance ID — obtain via POST /ramp/tos flow.
+   * Format: to_XXXXXXXXXXXX (exactly 15 chars)
+   */
+  @IsOptional()
+  @IsString()
+  tosId?: string;
 }
 
 // ─── Bank Account ─────────────────────────────────────────────────────────────

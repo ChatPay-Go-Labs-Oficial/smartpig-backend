@@ -13,6 +13,7 @@ import {
   CreateOfframpDto,
   CreateOnrampDto,
   CreateReceiverDto,
+  InitiateTosDto,
   OfframpQuoteDto,
   OnrampQuoteDto,
   SubmitOfframpDto,
@@ -63,6 +64,7 @@ export class RampService {
       selfie_file: dto.selfieFileUrl,
       id_doc_front_file: dto.idDocFrontUrl,
       id_doc_back_file: dto.idDocBackUrl,
+      tos_id: dto.tosId,
     });
 
     return this.prisma.blindPayReceiver.create({
@@ -77,6 +79,14 @@ export class RampService {
 
   async uploadKycFile(fileBuffer: Buffer, originalName: string, mimeType: string): Promise<string> {
     return this.blindpay.uploadFile(fileBuffer, originalName, mimeType, 'onboarding');
+  }
+
+  // ─── Terms of Service ──────────────────────────────────────────────────────
+
+  async initiateTos(dto: InitiateTosDto): Promise<{ tosUrl: string }> {
+    // Use userId as idempotency key so duplicate calls return same session
+    const tosUrl = await this.blindpay.initiateTos(dto.userId, dto.redirectUrl);
+    return { tosUrl };
   }
 
   async getReceiver(userId: string) {

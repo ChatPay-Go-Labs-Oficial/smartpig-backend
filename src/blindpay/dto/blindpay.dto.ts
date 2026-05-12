@@ -22,6 +22,8 @@ export interface CreateReceiverParams {
   selfie_file?: string;
   id_doc_front_file?: string;
   id_doc_back_file?: string;
+  /** Accepted Terms of Service ID — obtain via POST /ramp/tos */
+  tos_id?: string;
 }
 
 export interface BlindPayReceiver {
