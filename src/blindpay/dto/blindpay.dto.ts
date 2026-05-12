@@ -65,6 +65,7 @@ export interface CreateBlockchainWalletParams {
   name: string;
   network: 'stellar' | 'stellar_testnet';
   address?: string;
+  is_account_abstraction?: boolean;
 }
 
 export interface BlindPayBlockchainWallet {

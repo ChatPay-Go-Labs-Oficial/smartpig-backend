@@ -343,11 +343,11 @@ model BlindPayBankAccount {
 }
 
 model BlindPayBlockchainWallet {
-  id               String  @id @default(cuid())
+  id               String @id @default(cuid())
   receiverId       String
-  blindpayWalletId String  @unique
+  blindpayWalletId String @unique
   network          String
-  address          String?
+  address          String
 
   createdAt DateTime @default(now())
 

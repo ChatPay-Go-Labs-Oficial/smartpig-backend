@@ -167,8 +167,15 @@ export class BlindPayService implements OnModuleInit {
     params: CreateBlockchainWalletParams,
   ): Promise<BlindPayBlockchainWallet> {
     try {
-      // Only include address if provided — BlindPay may reject non-EVM address formats
-      const body: Record<string, unknown> = { name: params.name, network: params.network };
+      const isStellar = params.network === 'stellar' || params.network === 'stellar_testnet';
+
+      // Stellar networks require is_account_abstraction=true and address directly.
+      // EVM networks require signature-based registration (signature_tx_hash).
+      const body: Record<string, unknown> = {
+        name: params.name,
+        network: params.network,
+        is_account_abstraction: isStellar ? true : false,
+      };
       if (params.address) body.address = params.address;
 
       const { data } = await this.http.post<BlindPayBlockchainWallet>(
