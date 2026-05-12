@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
+import FormData from 'form-data';
 import { mapBlindPayError } from './blindpay.errors';
 import {
   BlindPayBankAccount,
@@ -43,6 +44,43 @@ export class BlindPayService implements OnModuleInit {
     });
 
     this.logger.log(`BlindPay client initialized (instance: ${this.instanceId})`);
+  }
+
+  // ─── File Upload ───────────────────────────────────────────────────────────
+
+  /**
+   * Upload a file to BlindPay and return the hosted URL.
+   * bucket: 'onboarding' for KYC documents (selfie, ID docs)
+   */
+  async uploadFile(
+    fileBuffer: Buffer,
+    originalName: string,
+    mimeType: string,
+    bucket: 'avatar' | 'onboarding' | 'limit_increase' = 'onboarding',
+  ): Promise<string> {
+    try {
+      const form = new FormData();
+      form.append('file', fileBuffer, { filename: originalName, contentType: mimeType });
+      form.append('bucket', bucket);
+
+      const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
+      const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
+
+      const { data } = await axios.post<{ file_url: string }>(
+        `${baseUrl}/v1/upload`,
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Authorization: `Bearer ${apiKey}`,
+          },
+          timeout: 30_000,
+        },
+      );
+      return data.file_url;
+    } catch (err) {
+      mapBlindPayError(err);
+    }
   }
 
   // ─── Receivers ─────────────────────────────────────────────────────────────

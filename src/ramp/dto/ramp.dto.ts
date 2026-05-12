@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEmail, IsEnum, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Min } from 'class-validator';
 
 // ─── Receiver ─────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,57 @@ export class CreateReceiverDto {
   @IsOptional()
   @IsEnum(['light', 'standard', 'enhanced'])
   kycType?: 'light' | 'standard' | 'enhanced';
+
+  // ─── Standard KYC fields (required when kycType = 'standard') ───────────
+
+  @IsOptional()
+  @IsString()
+  addressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  addressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  stateProvinceRegion?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
+  /** ISO 8601 date string, e.g. '1990-01-15T00:00:00Z' */
+  @IsOptional()
+  @IsISO8601()
+  dateOfBirth?: string;
+
+  /** ISO 3166-1 alpha-2 country code of the ID document */
+  @IsOptional()
+  @IsString()
+  idDocCountry?: string;
+
+  @IsOptional()
+  @IsEnum(['PASSPORT', 'ID_CARD', 'DRIVERS'])
+  idDocType?: 'PASSPORT' | 'ID_CARD' | 'DRIVERS';
+
+  /** URL of selfie image — obtain via POST /ramp/upload */
+  @IsOptional()
+  @IsUrl()
+  selfieFileUrl?: string;
+
+  /** URL of ID document front — obtain via POST /ramp/upload */
+  @IsOptional()
+  @IsUrl()
+  idDocFrontUrl?: string;
+
+  /** URL of ID document back — obtain via POST /ramp/upload */
+  @IsOptional()
+  @IsUrl()
+  idDocBackUrl?: string;
 }
 
 // ─── Bank Account ─────────────────────────────────────────────────────────────

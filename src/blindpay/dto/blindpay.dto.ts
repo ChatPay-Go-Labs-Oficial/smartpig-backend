@@ -10,6 +10,18 @@ export interface CreateReceiverParams {
   legal_name?: string;
   tax_id?: string;
   phone_number?: string;
+  // Standard KYC fields
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state_province_region?: string;
+  postal_code?: string;
+  date_of_birth?: string;
+  id_doc_country?: string;
+  id_doc_type?: 'PASSPORT' | 'ID_CARD' | 'DRIVERS';
+  selfie_file?: string;
+  id_doc_front_file?: string;
+  id_doc_back_file?: string;
 }
 
 export interface BlindPayReceiver {

@@ -9,7 +9,10 @@ import {
   Post,
   Req,
   UnauthorizedException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { RampService } from './ramp.service';
 import {
   CreateBankAccountDto,
@@ -31,6 +34,22 @@ export class RampController {
     private readonly rampService: RampService,
     private readonly config: ConfigService,
   ) {}
+
+  // ─── KYC File Upload ────────────────────────────────────────────────────────
+
+  /**
+   * Upload a KYC document (selfie, ID front/back) to BlindPay.
+   * Returns the hosted URL to be used in POST /ramp/receiver.
+   *
+   * multipart/form-data field name: "file"
+   */
+  @Post('ramp/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadKycFile(@UploadedFile() file: Express.Multer.File) {
+    return this.rampService
+      .uploadKycFile(file.buffer, file.originalname, file.mimetype)
+      .then((url) => ({ url }));
+  }
 
   // ─── Receiver ───────────────────────────────────────────────────────────────
 

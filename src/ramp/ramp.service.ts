@@ -46,14 +46,23 @@ export class RampService {
 
     const bpReceiver = await this.blindpay.createReceiver({
       type: dto.type ?? 'individual',
-      // 'light' requires only email+country; 'standard'/'enhanced' require
-      // additional KYC docs (address, selfie, id_doc) sent as multipart uploads.
-      kyc_type: dto.kycType ?? 'light',
+      kyc_type: dto.kycType ?? 'standard',
       email: dto.email,
       country: dto.country ?? 'BR',
       first_name: dto.firstName,
       last_name: dto.lastName,
       tax_id: dto.taxId,
+      address_line_1: dto.addressLine1,
+      address_line_2: dto.addressLine2,
+      city: dto.city,
+      state_province_region: dto.stateProvinceRegion,
+      postal_code: dto.postalCode,
+      date_of_birth: dto.dateOfBirth,
+      id_doc_country: dto.idDocCountry,
+      id_doc_type: dto.idDocType,
+      selfie_file: dto.selfieFileUrl,
+      id_doc_front_file: dto.idDocFrontUrl,
+      id_doc_back_file: dto.idDocBackUrl,
     });
 
     return this.prisma.blindPayReceiver.create({
@@ -64,6 +73,10 @@ export class RampService {
         taxId: dto.taxId,
       },
     });
+  }
+
+  async uploadKycFile(fileBuffer: Buffer, originalName: string, mimeType: string): Promise<string> {
+    return this.blindpay.uploadFile(fileBuffer, originalName, mimeType, 'onboarding');
   }
 
   async getReceiver(userId: string) {
