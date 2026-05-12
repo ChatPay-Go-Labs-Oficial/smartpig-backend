@@ -84,7 +84,7 @@ export interface CreatePayoutQuoteParams {
   /** currency_type: 'sender' means request_amount is the USDC amount sender sends */
   currency_type: 'sender' | 'receiver';
   network: 'stellar' | 'stellar_testnet';
-  token: 'USDC';
+  token: 'USDC' | 'USDT' | 'USDB';
   /** Amount in smallest units (micro-USDC, i.e. 1 USDC = 1_000_000) */
   request_amount: number;
   /** If true, sender pays all fees; if false, receiver pays fees */
@@ -142,7 +142,7 @@ export interface CreatePayinQuoteParams {
   blockchain_wallet_id: string;
   /** currency_type: 'sender' means request_amount is the BRL amount sender pays */
   currency_type: 'sender' | 'receiver';
-  token: 'USDC';
+  token: 'USDC' | 'USDT' | 'USDB';
   payment_method: 'pix';
   /** Amount in fiat cents (e.g. R$10.00 = 1000) */
   request_amount: number;

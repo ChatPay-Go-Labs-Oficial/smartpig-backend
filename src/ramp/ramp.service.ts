@@ -36,6 +36,11 @@ export class RampService {
     return env === 'mainnet' ? 'stellar' : 'stellar_testnet';
   }
 
+  /** USDC on mainnet, USDB on dev/testnet (BlindPay doesn't support USDC in dev) */
+  private get rampToken(): 'USDC' | 'USDB' {
+    return this.config.get<string>('BLINDPAY_TOKEN', this.network === 'stellar' ? 'USDC' : 'USDB') as 'USDC' | 'USDB';
+  }
+
   // ─── Receiver ──────────────────────────────────────────────────────────────
 
   async createReceiver(dto: CreateReceiverDto) {
@@ -176,7 +181,7 @@ export class RampService {
     return this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
       currency_type: 'sender',
-      token: 'USDC',
+      token: this.rampToken,
       payment_method: 'pix',
       request_amount: dto.amountBrl,
     });
@@ -199,7 +204,7 @@ export class RampService {
     const quote = await this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
       currency_type: 'sender',
-      token: 'USDC',
+      token: this.rampToken,
       payment_method: 'pix',
       request_amount: dto.amountBrl,
     });
@@ -245,7 +250,7 @@ export class RampService {
       bank_account_id: bankAccount.blindpayBankAccountId,
       currency_type: 'sender',
       network: this.network,
-      token: 'USDC',
+      token: this.rampToken,
       request_amount: dto.amountUsdc,
       cover_fees: dto.coverFees ?? false,
     });
@@ -269,7 +274,7 @@ export class RampService {
       bank_account_id: bankAccount.blindpayBankAccountId,
       currency_type: 'sender',
       network: this.network,
-      token: 'USDC',
+      token: this.rampToken,
       request_amount: dto.amountUsdc,
       cover_fees: dto.coverFees ?? false,
     });
