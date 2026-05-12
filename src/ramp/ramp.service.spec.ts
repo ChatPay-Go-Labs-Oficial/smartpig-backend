@@ -85,7 +85,7 @@ describe('RampService', () => {
       const result = await service.createReceiver({ userId: 'u1', email: 'alice@example.com', firstName: 'Alice' });
       expect(result.blindpayReceiverId).toBe('bp_r1');
       expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'individual', kyc_type: 'standard', email: 'alice@example.com', country: 'BR' }),
+        expect.objectContaining({ type: 'individual', kyc_type: 'light', email: 'alice@example.com', country: 'BR' }),
       );
     });
   });

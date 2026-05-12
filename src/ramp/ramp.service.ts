@@ -46,7 +46,9 @@ export class RampService {
 
     const bpReceiver = await this.blindpay.createReceiver({
       type: dto.type ?? 'individual',
-      kyc_type: dto.kycType ?? 'standard',
+      // 'light' requires only email+country; 'standard'/'enhanced' require
+      // additional KYC docs (address, selfie, id_doc) sent as multipart uploads.
+      kyc_type: dto.kycType ?? 'light',
       email: dto.email,
       country: dto.country ?? 'BR',
       first_name: dto.firstName,
