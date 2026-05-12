@@ -188,6 +188,20 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
+  async createAssetTrustline(walletAddress: string): Promise<string | null> {
+    try {
+      const { data } = await this.http.post<{ success: boolean; xdr?: string }>(
+        `/instances/${this.instanceId}/create-asset-trustline`,
+        { address: walletAddress },
+      );
+      return data.xdr ?? null;
+    } catch (err) {
+      // Non-fatal: trustline may already exist or not be needed
+      this.logger.warn(`create-asset-trustline failed for ${walletAddress}: ${err?.message}`);
+      return null;
+    }
+  }
+
   async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(

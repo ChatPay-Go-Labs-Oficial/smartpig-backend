@@ -10,6 +10,7 @@ const mockBlindPayService = {
   createReceiver: jest.fn(),
   createBankAccount: jest.fn(),
   createBlockchainWallet: jest.fn(),
+  createAssetTrustline: jest.fn(),
   createPayinQuote: jest.fn(),
   createPayinStellar: jest.fn(),
   createPayoutQuote: jest.fn(),

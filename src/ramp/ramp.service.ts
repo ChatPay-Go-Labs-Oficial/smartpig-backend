@@ -160,7 +160,7 @@ export class RampService {
       },
     );
 
-    return this.prisma.blindPayBlockchainWallet.create({
+    const wallet = await this.prisma.blindPayBlockchainWallet.create({
       data: {
         receiverId: receiver.id,
         blindpayWalletId: bpWallet.id,
@@ -168,6 +168,12 @@ export class RampService {
         address: dto.stellarAddress,
       },
     });
+
+    // Request trustline XDR so the client can sign and submit it to Stellar.
+    // The wallet must have a USDB trustline before it can receive on-ramp funds.
+    const trustlineXdr = await this.blindpay.createAssetTrustline(dto.stellarAddress);
+
+    return { ...wallet, trustlineXdr };
   }
 
   // ─── On-ramp: Quote ────────────────────────────────────────────────────────
