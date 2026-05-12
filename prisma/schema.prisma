@@ -41,6 +41,16 @@ enum ManagedVaultStatus {
   FAILED
 }
 
+enum RampStatus {
+  PENDING
+  AWAITING_PAYMENT
+  PROCESSING
+  DELEGATION_NEEDED
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
@@ -64,6 +74,9 @@ model User {
   refreshTokens     RefreshToken[]
   auditLogs         ApiAuditLog[]
   managedVaults     ManagedVault[]
+  blindpayReceiver  BlindPayReceiver?
+  onrampTxns        OnrampTransaction[]
+  offrampTxns       OfframpTransaction[]
 
   @@map("users")
 }
@@ -287,4 +300,114 @@ model ApiAuditLog {
   @@index([userId, createdAt])
   @@index([action, resource])
   @@map("api_audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// BlindPay On/Off Ramp
+// ─────────────────────────────────────────────
+
+model BlindPayReceiver {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  blindpayReceiverId String   @unique
+  name               String
+  taxId              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user              User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccounts      BlindPayBankAccount[]
+  blockchainWallets BlindPayBlockchainWallet[]
+  onrampTxns        OnrampTransaction[]
+  offrampTxns       OfframpTransaction[]
+
+  @@map("blindpay_receivers")
+}
+
+model BlindPayBankAccount {
+  id                    String  @id @default(cuid())
+  receiverId            String
+  blindpayBankAccountId String  @unique
+  type                  String
+  pixKey                String?
+  isDefault             Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  receiver    BlindPayReceiver     @relation(fields: [receiverId], references: [id], onDelete: Cascade)
+  offrampTxns OfframpTransaction[]
+
+  @@index([receiverId])
+  @@map("blindpay_bank_accounts")
+}
+
+model BlindPayBlockchainWallet {
+  id               String @id @default(cuid())
+  receiverId       String
+  blindpayWalletId String @unique
+  network          String
+  address          String
+
+  createdAt DateTime @default(now())
+
+  receiver   BlindPayReceiver    @relation(fields: [receiverId], references: [id], onDelete: Cascade)
+  onrampTxns OnrampTransaction[]
+
+  @@index([receiverId])
+  @@map("blindpay_blockchain_wallets")
+}
+
+model OnrampTransaction {
+  id                 String     @id @default(cuid())
+  idempotencyKey     String     @unique
+  userId             String
+  receiverId         String
+  blockchainWalletId String
+  blindpayPayinId    String?    @unique
+  blindpayQuoteId    String?
+  amountBrl          Decimal    @db.Decimal(20, 2)
+  amountUsdc         Decimal?   @db.Decimal(20, 6)
+  pixCode            String?    @db.Text
+  status             RampStatus @default(PENDING)
+  errorMessage       String?
+  completedAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  user             User                     @relation(fields: [userId], references: [id])
+  receiver         BlindPayReceiver         @relation(fields: [receiverId], references: [id])
+  blockchainWallet BlindPayBlockchainWallet @relation(fields: [blockchainWalletId], references: [id])
+
+  @@index([userId, status])
+  @@index([blindpayPayinId])
+  @@map("onramp_transactions")
+}
+
+model OfframpTransaction {
+  id                    String     @id @default(cuid())
+  idempotencyKey        String     @unique
+  userId                String
+  receiverId            String
+  bankAccountId         String
+  blindpayPayoutId      String?    @unique
+  blindpayQuoteId       String?
+  amountUsdc            Decimal    @db.Decimal(20, 6)
+  amountBrl             Decimal?   @db.Decimal(20, 2)
+  senderWalletAddress   String
+  unsignedDelegationXdr String?    @db.Text
+  signedDelegationHash  String?
+  status                RampStatus @default(PENDING)
+  errorMessage          String?
+  completedAt           DateTime?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  user        User                @relation(fields: [userId], references: [id])
+  receiver    BlindPayReceiver    @relation(fields: [receiverId], references: [id])
+  bankAccount BlindPayBankAccount @relation(fields: [bankAccountId], references: [id])
+
+  @@index([userId, status])
+  @@index([blindpayPayoutId])
+  @@map("offramp_transactions")
 }
