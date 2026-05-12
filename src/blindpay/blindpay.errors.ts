@@ -15,8 +15,13 @@ export function mapBlindPayError(error: unknown): never {
     if (axiosError.response?.data) {
       const data = axiosError.response.data;
       const status = axiosError.response.status ?? 502;
-      const message = data.message ?? data.error ?? JSON.stringify(data);
-      logger.error(`BlindPay API error ${status}: ${message}`);
+      // Capture all error details from response
+      const message =
+        data.message ??
+        data.error ??
+        (Array.isArray(data.errors) ? data.errors.join(', ') : null) ??
+        JSON.stringify(data);
+      logger.error(`BlindPay API error ${status}: ${JSON.stringify(data)}`);
       throw new BlindPayUpstreamError(status, message);
     }
 

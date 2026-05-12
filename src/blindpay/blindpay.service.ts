@@ -43,6 +43,11 @@ export class BlindPayService implements OnModuleInit {
       timeout: 15_000,
     });
 
+    this.http.interceptors.request.use((config) => {
+      this.logger.debug(`BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`);
+      return config;
+    });
+
     this.logger.log(`BlindPay client initialized (instance: ${this.instanceId})`);
   }
 
@@ -162,9 +167,13 @@ export class BlindPayService implements OnModuleInit {
     params: CreateBlockchainWalletParams,
   ): Promise<BlindPayBlockchainWallet> {
     try {
+      // Only include address if provided — BlindPay may reject non-EVM address formats
+      const body: Record<string, unknown> = { name: params.name, network: params.network };
+      if (params.address) body.address = params.address;
+
       const { data } = await this.http.post<BlindPayBlockchainWallet>(
         `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
-        params,
+        body,
       );
       return data;
     } catch (err) {

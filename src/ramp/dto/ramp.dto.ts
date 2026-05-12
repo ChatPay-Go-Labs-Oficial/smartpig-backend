@@ -127,8 +127,10 @@ export class CreateBlockchainWalletDto {
   @IsString()
   userId: string;
 
+  /** Stellar public key (G...). Optional — BlindPay may reject non-EVM addresses. */
+  @IsOptional()
   @IsString()
-  stellarAddress: string;
+  stellarAddress?: string;
 
   /** Display name for this wallet */
   @IsOptional()
