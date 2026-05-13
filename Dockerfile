@@ -1,7 +1,9 @@
 # ─── Stage 1: Build ───────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 WORKDIR /app
+
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -16,9 +18,11 @@ COPY . .
 RUN npm run build
 
 # ─── Stage 2: Production ──────────────────────────────────────────────────────
-FROM node:22-alpine AS production
+FROM node:22-slim AS production
 
 WORKDIR /app
+
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY prisma ./prisma/
