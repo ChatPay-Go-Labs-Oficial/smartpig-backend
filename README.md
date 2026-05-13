@@ -10,6 +10,7 @@ Bem-vindo à documentação técnica do backend do **SmartPig**, um app de finan
 | [database.md](./database.md) | Schema do banco de dados, entidades e relacionamentos |
 | [api.md](./api.md) | Referência completa dos endpoints REST |
 | [flows.md](./flows.md) | Fluxos de operação: depósito, saque e autenticação |
+| [deployment.md](./deployment.md) | Deploy no Railway, migrações e procedimento de baseline |
 | [modules/config.md](./modules/config.md) | Módulo de configuração e variáveis de ambiente |
 | [modules/infra.md](./modules/infra.md) | Infraestrutura: PrismaModule |
 | [modules/defindex.md](./modules/defindex.md) | Integração com o SDK do DeFindex |
@@ -63,7 +64,13 @@ npm run test:e2e     # testes end-to-end
 npm run lint         # eslint --fix
 npm run format       # prettier --write
 
-npx prisma migrate dev --name <nome>   # nova migration
-npx prisma generate                    # regenerar cliente Prisma
-npx prisma db seed                     # popular banco com dados iniciais
+# Migrações
+npm run migrate:deploy               # aplicar migrações pendentes (produção)
+npm run start:migrate                # migrar + iniciar app (somente após baseline)
+
+npx prisma migrate dev --name <nome> # nova migration (desenvolvimento)
+npx prisma generate                  # regenerar cliente Prisma
+npx prisma db seed                   # popular banco com dados iniciais
 ```
+
+> **Atenção:** Consulte [docs/deployment.md](./docs/deployment.md) antes do primeiro deploy em um banco de dados existente (procedimento de baseline).
