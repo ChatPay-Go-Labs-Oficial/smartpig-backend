@@ -9,9 +9,10 @@ import { DepositsModule } from './deposits/deposits.module';
 import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 import { JobsModule } from './jobs/jobs.module';
 import { VaultManagerModule } from './vault-manager/vault-manager.module';
+import { RampModule } from './ramp/ramp.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule, WithdrawalsModule, JobsModule, VaultManagerModule],
+  imports: [ConfigModule, PrismaModule, DefindexModule, VaultsModule, DepositsModule, WithdrawalsModule, JobsModule, VaultManagerModule, RampModule],
   controllers: [AppController],
   providers: [AppService],
 })

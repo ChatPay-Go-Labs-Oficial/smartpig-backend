@@ -366,3 +366,223 @@ Detalhes de um vault gerenciado específico, incluindo status e o `VaultCatalog`
 | 409 | Conflito (operação duplicada) |
 | 422 | Entidade não processável |
 | 500 | Erro interno |
+
+---
+
+## On/Off Ramp (BlindPay)
+
+> Integração com BlindPay para converter entre BRL (via PIX) e USDC (rede Stellar).
+> Cada usuário precisa ter um Receiver cadastrado antes de usar on-ramp/off-ramp.
+
+### Setup do usuário
+
+#### `POST /ramp/receiver` 🔒
+Cria um Receiver BlindPay para o usuário (uma vez por usuário).
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "name": "João da Silva",
+  "taxId": "123.456.789-00"
+}
+```
+
+**Resposta 201:** objeto `BlindPayReceiver` com `id`, `blindpayReceiverId`, `name`.
+
+---
+
+#### `GET /ramp/receiver` 🔒
+Retorna o receiver do usuário com suas contas bancárias e carteiras blockchain registradas.
+
+**Body:** `{ "userId": "clx..." }`
+
+---
+
+#### `POST /ramp/receiver/bank-accounts` 🔒
+Adiciona uma chave PIX ao receiver do usuário.
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "pixKeyType": "cpf",
+  "pixKey": "12345678900"
+}
+```
+
+**`pixKeyType`:** `cpf` | `cnpj` | `phone` | `email` | `random`
+
+---
+
+#### `GET /ramp/receiver/bank-accounts` 🔒
+Lista as contas bancárias (chaves PIX) do receiver do usuário.
+
+**Body:** `{ "userId": "clx..." }`
+
+---
+
+#### `POST /ramp/receiver/wallets` 🔒
+Registra o endereço Stellar do usuário no BlindPay (necessário para on-ramp).
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "stellarAddress": "GABC..."
+}
+```
+
+---
+
+### On-ramp (BRL → USDC)
+
+**Fluxo:**
+1. `POST /ramp/onramp/quote` → obter cotação
+2. `POST /ramp/onramp` → criar on-ramp (retorna código PIX)
+3. Usuário paga o PIX no app bancário
+4. BlindPay envia USDC para a carteira Stellar do usuário automaticamente
+5. Webhook atualiza status para `COMPLETED`
+
+#### `POST /ramp/onramp/quote` 🔒
+Cotação de on-ramp (quanto USDC receberá por X BRL).
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "blockchainWalletId": "bw_...",
+  "amountBrl": 5000
+}
+```
+
+> `amountBrl` em centavos (R$50.00 = `5000`)
+
+**Resposta 200:** objeto com `payin_amount` (micro-USDC), `exchange_rate`, `fee`, `expires_at`.
+
+---
+
+#### `POST /ramp/onramp` 🔒
+Inicia o on-ramp. Retorna código PIX para pagamento.
+
+**Body:** igual ao de quote.
+
+**Resposta 201:**
+```json
+{
+  "id": "clx...",
+  "status": "AWAITING_PAYMENT",
+  "amountBrl": "5000.00",
+  "amountUsdc": "5000000.000000",
+  "pixCode": "00020101...",
+  "createdAt": "2026-05-12T14:00:00.000Z"
+}
+```
+
+> Em instâncias de desenvolvimento do BlindPay, o pagamento é simulado automaticamente em 30 segundos.
+
+---
+
+#### `GET /ramp/onramp/:id` 🔒
+Status de uma transação de on-ramp.
+
+**Body:** `{ "userId": "clx..." }`
+
+**Status possíveis:** `PENDING` | `AWAITING_PAYMENT` | `PROCESSING` | `COMPLETED` | `FAILED` | `REFUNDED`
+
+---
+
+### Off-ramp (USDC → BRL)
+
+**Fluxo:**
+1. `POST /ramp/offramp/quote` → obter cotação
+2. `POST /ramp/offramp` → criar off-ramp (retorna XDR de delegação não assinado)
+3. Usuário assina o XDR com a carteira Stellar (delega USDC ao BlindPay)
+4. `POST /ramp/offramp/:id/submit` → enviar hash da delegação assinada
+5. BlindPay transfere BRL via PIX para a conta do usuário
+6. Webhook atualiza status para `COMPLETED`
+
+#### `POST /ramp/offramp/quote` 🔒
+Cotação de off-ramp (quanto BRL receberá por X USDC).
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "bankAccountId": "clx...",
+  "amountUsdc": 1000000,
+  "coverFees": false
+}
+```
+
+> `amountUsdc` em micro-USDC (1 USDC = `1000000`)
+
+**Resposta 200:** objeto com `payout_amount` (centavos BRL), `exchange_rate`, `fee`, `expires_at`.
+
+---
+
+#### `POST /ramp/offramp` 🔒
+Inicia o off-ramp. Retorna XDR não assinado para delegação.
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "bankAccountId": "clx...",
+  "senderWalletAddress": "GABC...",
+  "amountUsdc": 1000000,
+  "coverFees": false
+}
+```
+
+**Resposta 201:**
+```json
+{
+  "id": "clx...",
+  "status": "DELEGATION_NEEDED",
+  "amountUsdc": "1000000.000000",
+  "amountBrl": "50000.00",
+  "unsignedDelegationXdr": "AAAAAgAAAA..."
+}
+```
+
+> O usuário deve assinar o `unsignedDelegationXdr` com sua carteira Stellar e enviar o hash resultante para `/submit`.
+
+---
+
+#### `POST /ramp/offramp/:id/submit` 🔒
+Envia o hash da transação de delegação assinada.
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "signedDelegationHash": "abc123def..."
+}
+```
+
+**Resposta 200:** objeto `OfframpTransaction` com `status: "PROCESSING"`.
+
+---
+
+#### `GET /ramp/offramp/:id` 🔒
+Status de uma transação de off-ramp.
+
+**Body:** `{ "userId": "clx..." }`
+
+---
+
+### Webhooks
+
+#### `POST /webhooks/blindpay`
+Recebe notificações do BlindPay sobre status de pagamentos. **Endpoint público**, mas verificado com assinatura HMAC-SHA256 (`blindpay-signature` header).
+
+Atualiza automaticamente os status de `OnrampTransaction` e `OfframpTransaction`.
+
+| Evento BlindPay | Novo status interno |
+|---|---|
+| `payin.completed` | `COMPLETED` |
+| `payin.failed` | `FAILED` |
+| `payin.refunded` | `REFUNDED` |
+| `payout.completed` | `COMPLETED` |
+| `payout.failed` | `FAILED` |
