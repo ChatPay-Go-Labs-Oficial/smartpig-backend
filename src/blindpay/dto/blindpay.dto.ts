@@ -93,17 +93,20 @@ export interface CreatePayoutQuoteParams {
 
 export interface BlindPayPayoutQuote {
   id: string;
-  bank_account_id: string;
-  request_amount: number;
-  /** Amount receiver gets in fiat cents */
-  payout_amount: number;
-  currency: string;
-  token: string;
-  fee: number;
-  exchange_rate: number;
-  expires_at: string;
-  token_contract_address: string | null;
-  blindpay_contract_address: string | null;
+  /** Amount sender sends in micro-token units */
+  sender_amount: number;
+  /** Amount receiver gets in fiat cents (BRL centavos) */
+  receiver_amount: number;
+  commercial_quotation: number;
+  blindpay_quotation: number;
+  flat_fee: number;
+  partner_fee_amount: number;
+  billing_fee_amount: number;
+  expires_at: number;
+  contract: {
+    address: string;
+    network: { chainId: number; name: string };
+  } | null;
 }
 
 // ─── Stellar Delegation ───────────────────────────────────────────────────────
@@ -115,8 +118,12 @@ export interface PrepareStelllarDelegationParams {
 }
 
 export interface StellarDelegationResult {
-  /** Unsigned XDR transaction for the user to sign */
-  transaction: string;
+  /**
+   * Unsigned XDR envelope returned by BlindPay's /payouts/stellar/authorize.
+   * Despite the field name, this is a base64-encoded Stellar transaction XDR
+   * that must be signed by the user's wallet before submitting the payout.
+   */
+  transaction_hash: string;
 }
 
 // ─── Payouts ─────────────────────────────────────────────────────────────────

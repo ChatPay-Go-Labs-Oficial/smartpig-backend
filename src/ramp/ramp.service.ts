@@ -299,9 +299,9 @@ export class RampService {
         bankAccountId: bankAccount.id,
         blindpayQuoteId: quote.id,
         amountUsdc: dto.amountUsdc,
-        amountBrl: quote.payout_amount,
+        amountBrl: quote.receiver_amount,
         senderWalletAddress: dto.senderWalletAddress,
-        unsignedDelegationXdr: delegation.transaction,
+        unsignedDelegationXdr: delegation.transaction_hash,
         status: RampStatus.DELEGATION_NEEDED,
       },
     });

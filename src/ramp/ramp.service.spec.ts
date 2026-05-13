@@ -172,10 +172,10 @@ describe('RampService', () => {
       });
       mockBlindPayService.createPayoutQuote.mockResolvedValue({
         id: 'qu_1',
-        payout_amount: 50000,
+        receiver_amount: 50000,
       });
       mockBlindPayService.prepareStellarDelegation.mockResolvedValue({
-        transaction: 'AAAA...delegation_xdr',
+        transaction_hash: 'AAAA...delegation_xdr',
       });
       mockPrisma.offrampTransaction.create.mockResolvedValue({
         id: 'of1',

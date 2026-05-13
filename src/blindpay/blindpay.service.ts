@@ -27,7 +27,7 @@ export class BlindPayService implements OnModuleInit {
   private http: AxiosInstance;
   private instanceId: string;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   onModuleInit() {
     const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
