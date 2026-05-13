@@ -75,7 +75,7 @@ describe('RampService', () => {
     it('throws if receiver already exists', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
       await expect(
-        service.createReceiver({ userId: 'u1', name: 'Alice' }),
+        service.createReceiver({ userId: 'u1', email: 'alice@example.com' }),
       ).rejects.toThrow(BadRequestException);
     });
 
