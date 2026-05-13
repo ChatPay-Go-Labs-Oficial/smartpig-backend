@@ -157,15 +157,16 @@ export interface CreatePayinQuoteParams {
 
 export interface BlindPayPayinQuote {
   id: string;
-  blockchain_wallet_id: string;
-  request_amount: number;
-  /** Amount of USDC (in micro-USDC) that will be sent to the wallet */
-  payin_amount: number;
-  currency: string;
-  token: string;
-  fee: number;
-  exchange_rate: number;
-  expires_at: string;
+  /** Amount of stablecoin the wallet will receive */
+  receiver_amount: number;
+  /** Amount in fiat cents (BRL centavos) the sender must send */
+  sender_amount: number;
+  commercial_quotation: number;
+  blindpay_quotation: number;
+  flat_fee: number;
+  partner_fee_amount: number;
+  billing_fee_amount: number;
+  expires_at: number;
 }
 
 // ─── Payins ──────────────────────────────────────────────────────────────────

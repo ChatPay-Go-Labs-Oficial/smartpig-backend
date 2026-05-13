@@ -36,6 +36,10 @@ export class RampService {
     return env === 'mainnet' ? 'stellar' : 'stellar_testnet';
   }
 
+  private get isTestnet(): boolean {
+    return this.network === 'stellar_testnet';
+  }
+
   /** USDC on mainnet, USDB on dev/testnet (BlindPay doesn't support USDC in dev) */
   private get rampToken(): 'USDC' | 'USDB' {
     return this.config.get<string>('BLINDPAY_TOKEN', this.network === 'stellar' ? 'USDC' : 'USDB') as 'USDC' | 'USDB';
@@ -220,6 +224,12 @@ export class RampService {
       payin_quote_id: quote.id,
     });
 
+    // TESTNET ONLY: simulate USDB delivery — BlindPay dev env never auto-completes
+    // tracking_complete for Stellar. Remove when going to mainnet.
+    if (this.isTestnet) {
+      await this.blindpay.mintUsdbStellar(wallet.address, String(quote.receiver_amount ?? 10));
+    }
+
     return this.prisma.onrampTransaction.create({
       data: {
         idempotencyKey: `onramp-${dto.userId}-${Date.now()}`,
@@ -229,7 +239,7 @@ export class RampService {
         blindpayPayinId: payin.id,
         blindpayQuoteId: quote.id,
         amountBrl: dto.amountBrl,
-        amountUsdc: quote.payin_amount,
+        amountUsdc: quote.receiver_amount,
         pixCode: payin.pix_code,
         status: RampStatus.AWAITING_PAYMENT,
       },

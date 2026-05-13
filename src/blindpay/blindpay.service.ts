@@ -202,6 +202,27 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
+  // ─── Testnet only ──────────────────────────────────────────────────────────
+
+  /**
+   * TESTNET ONLY — simulates USDB delivery to a Stellar wallet.
+   * BlindPay's dev environment does not auto-complete the on-ramp
+   * tracking_complete step; this call replaces that behaviour so we can
+   * observe the balance arriving in the wallet during development.
+   * Remove / disable for mainnet.
+   */
+  async mintUsdbStellar(address: string, amount: string): Promise<void> {
+    try {
+      await this.http.post(`/instances/${this.instanceId}/mint-usdb-stellar`, {
+        address,
+        amount,
+      });
+      this.logger.debug(`[TESTNET] Minted ${amount} USDB to ${address}`);
+    } catch (err) {
+      this.logger.warn(`[TESTNET] mint-usdb-stellar failed: ${err?.message}`);
+    }
+  }
+
   async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(

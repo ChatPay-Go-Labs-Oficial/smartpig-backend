@@ -11,6 +11,7 @@ const mockBlindPayService = {
   createBankAccount: jest.fn(),
   createBlockchainWallet: jest.fn(),
   createAssetTrustline: jest.fn(),
+  mintUsdbStellar: jest.fn(),
   createPayinQuote: jest.fn(),
   createPayinStellar: jest.fn(),
   createPayoutQuote: jest.fn(),
@@ -121,10 +122,11 @@ describe('RampService', () => {
       mockPrisma.blindPayBlockchainWallet.findUnique.mockResolvedValue({
         id: 'w1',
         blindpayWalletId: 'bw_1',
+        address: 'GABC123',
       });
       mockBlindPayService.createPayinQuote.mockResolvedValue({
         id: 'pq_1',
-        payin_amount: 5000000,
+        receiver_amount: 5000000,
       });
       mockBlindPayService.createPayinStellar.mockResolvedValue({
         id: 'pi_1',
