@@ -70,41 +70,41 @@ Idêntico ao depósito, com diferenças:
 
 ---
 
-## Fluxo de Autenticação *(a implementar — Fase 3)*
+## Fluxo de Autenticação (Wallet Login)
 
 ```
-App Mobile                  Backend                   Google / Apple
-     │                          │                           │
-     │  [Login com Google]       │                           │
-     │──────────────────────────────────────────────────────▶│
-     │◀──────────────────────────────────────────────────────│
-     │  idToken do Google        │                           │
-     │                          │                           │
-     │ POST /auth/google         │                           │
-     │ { idToken }               │                           │
-     │─────────────────────────▶│                           │
-     │                          │ Verifica idToken           │
-     │                          │ (google-auth-library)      │
-     │                          │ Upsert User no banco       │
-     │                          │ Gera accessToken (15min)   │
-     │                          │ Gera refreshToken (30dias) │
-     │◀─────────────────────────│                           │
-     │  { accessToken,          │                           │
-     │    refreshToken }         │                           │
-     │                          │                           │
-     │ GET /vaults               │                           │
-     │ Authorization: Bearer ... │                           │
-     │─────────────────────────▶│                           │
-     │                          │ JwtAuthGuard valida token  │
-     │◀─────────────────────────│                           │
+App Mobile                  Backend (NestJS)
+     │                            │
+     │  [Usuário abre o app]      │
+     │  Lê stellarAddress         │
+     │  da carteira local         │
+     │                            │
+     │ POST /auth/wallet           │
+     │ { stellarAddress, label }   │
+     │──────────────────────────▶│
+     │                            │ 1. Busca WalletAccount pela stellarAddress
+     │                            │ 2a. Se existe → retorna User associado
+     │                            │ 2b. Se não existe → cria User + WalletAccount
+     │◀──────────────────────────│
+     │  { user, wallet,           │
+     │    isNewUser }             │
+     │                            │
+     │  [App persiste userId      │
+     │   localmente]              │
+     │                            │
+     │ GET /vaults                │
+     │ (sem auth header)          │
+     │──────────────────────────▶│
+     │◀──────────────────────────│
+     │  [lista de vaults]         │
 ```
 
-### Regras de autenticação
+### Regras do wallet login
 
-- Access token: JWT, 15 minutos, assínado com `JWT_ACCESS_SECRET`
-- Refresh token: opaque, 30 dias, armazenado como hash no banco
-- Logout revoga o refresh token imediatamente
-- Rotação de refresh token: ao usar `/auth/refresh`, o token antigo é invalidado
+- Nenhuma senha ou token é gerado — a identidade é a `stellarAddress`
+- A mesma `stellarAddress` sempre retorna o mesmo `userId`
+- `isNewUser: true` apenas na primeira chamada com aquela carteira
+- Se a wallet estava desativada, ela é reativada automaticamente
 
 ---
 

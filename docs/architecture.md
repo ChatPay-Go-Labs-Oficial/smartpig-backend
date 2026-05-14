@@ -7,12 +7,15 @@ O SmartPig Backend é uma API REST construída em **NestJS** que serve como cama
 ```
 ┌──────────────────────────────────────────────────────┐
 │                  React Native App                    │
-│  (autenticação, assinatura de XDR, interface mobile) │
+│  (wallet login, assinatura de XDR, interface mobile) │
 └─────────────────────┬────────────────────────────────┘
-                      │ HTTPS / REST + JWT
+                      │ HTTPS / REST
 ┌─────────────────────▼────────────────────────────────┐
 │               SmartPig Backend (NestJS)              │
 │                                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+│  │   Auth   │  │  Users   │  │     Wallets      │   │
+│  └──────────┘  └──────────┘  └──────────────────┘   │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐ │
 │  │  Vaults  │  │ Deposits │  │    Withdrawals     │ │
 │  └──────────┘  └──────────┘  └────────────────────┘ │
@@ -107,6 +110,24 @@ src/
 │   └── interceptors/
 │       └── logging.interceptor.ts     # Log de req/res
 │
+├── auth/                  # Login via carteira Stellar
+│   ├── auth.controller.ts
+│   ├── auth.service.ts
+│   ├── auth.module.ts
+│   └── dto/wallet-login.dto.ts
+│
+├── users/                 # Gerenciamento de perfil de usuário
+│   ├── users.controller.ts
+│   ├── users.service.ts
+│   ├── users.module.ts
+│   └── dto/update-user.dto.ts
+│
+├── wallets/               # Carteiras Stellar do usuário
+│   ├── wallets.controller.ts
+│   ├── wallets.service.ts
+│   ├── wallets.module.ts
+│   └── dto/create-wallet.dto.ts
+│
 ├── defindex/              # Integração com DeFindex SDK
 │   ├── defindex.config.ts
 │   ├── defindex.service.ts
@@ -169,8 +190,8 @@ Ambas as abordagens usam o mesmo `Authorization: Bearer {DEFINDEX_API_KEY}`. A l
 ### Prisma 5 (não Prisma 7)
 O Prisma 7 introduziu um modelo de adapter obrigatório (`PrismaPg`) incompatível com o padrão NestJS de `extends PrismaClient`. Usamos Prisma 5 que mantém total compatibilidade.
 
-### Auth deferida
-A autenticação via Google/Apple → JWT está planejada mas não implementada ainda. Os endpoints atualmente recebem `userId` diretamente no body. Ao implementar auth, esse campo será substituído pelo usuário extraído do JWT.
+### Auth via Wallet Stellar
+A autenticação é feita pelo endereço público da carteira Stellar do usuário. `POST /auth/wallet` faz upsert de `User` + `WalletAccount` e retorna o `userId`. Não há JWT, tokens de sessão ou segredo compartilhado — a identidade é a posse da carteira.
 
 ### Sem Redis por enquanto
 O cache de APY é in-memory (`Map` no `VaultsService`). Redis será introduzido quando a fase de hardening for implementada.

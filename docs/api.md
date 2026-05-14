@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:3000` (dev) | configurável via `PORT`
 
-> **Nota**: Autenticação JWT ainda não está implementada. Os endpoints que futuramente exigirão JWT estão marcados com 🔒. Por enquanto, `userId` deve ser enviado no body/query.
+> **Autenticação via wallet**: O app autentica o usuário pela carteira Stellar (`POST /auth/wallet`). Não há JWT. O `userId` retornado deve ser enviado no body/query dos endpoints marcados com 🔒.
 
 ## Formato de resposta
 
@@ -24,7 +24,145 @@ Todos os erros seguem o formato abaixo (via `HttpExceptionFilter`):
 
 ---
 
-## Health
+## Auth
+
+### `POST /auth/wallet`
+Registra ou faz login de um usuário pela carteira Stellar. Não há senha nem JWT — a identidade é a `stellarAddress`.
+
+**Body:**
+```json
+{
+  "stellarAddress": "GABC...XYZ",
+  "label": "Minha carteira principal"
+}
+```
+
+**Resposta 200:**
+```json
+{
+  "user": {
+    "id": "clx...",
+    "name": null,
+    "email": null,
+    "avatarUrl": null,
+    "createdAt": "2026-05-14T10:00:00.000Z"
+  },
+  "wallet": {
+    "id": "clx...",
+    "stellarAddress": "GABC...XYZ",
+    "label": "Minha carteira principal",
+    "isActive": true
+  },
+  "isNewUser": true
+}
+```
+
+> **`isNewUser`**: `true` na primeira vez que aquela `stellarAddress` é vista. O `userId` retornado deve ser persistido no app e enviado nas chamadas seguintes.
+
+---
+
+## Users
+
+### `GET /users/:id` 🔒
+Retorna o perfil do usuário.
+
+**Resposta 200:**
+```json
+{
+  "id": "clx...",
+  "name": "João Silva",
+  "email": "joao@example.com",
+  "avatarUrl": null,
+  "createdAt": "2026-05-14T10:00:00.000Z",
+  "updatedAt": "2026-05-14T10:00:00.000Z"
+}
+```
+
+---
+
+### `PATCH /users/:id` 🔒
+Atualiza nome, email ou avatar do usuário.
+
+**Body (todos os campos opcionais):**
+```json
+{
+  "name": "João Silva",
+  "email": "joao@example.com",
+  "avatarUrl": "https://..."
+}
+```
+
+**Erros:**
+- `404` — usuário não encontrado
+- `409` — email já em uso por outro usuário
+
+---
+
+### `DELETE /users/:id` 🔒
+Remove a conta permanentemente. Todos os dados relacionados são deletados em cascade (wallets, intents, transações).
+
+**Resposta 200:**
+```json
+{ "id": "clx...", "deleted": true }
+```
+
+---
+
+## Wallets
+
+### `GET /wallets?userId=...` 🔒
+Lista todas as wallets ativas de um usuário.
+
+**Resposta 200:**
+```json
+[
+  {
+    "id": "clx...",
+    "userId": "clx...",
+    "stellarAddress": "GABC...",
+    "label": "Carteira principal",
+    "isActive": true,
+    "createdAt": "2026-05-14T10:00:00.000Z"
+  }
+]
+```
+
+---
+
+### `POST /wallets` 🔒
+Adiciona uma nova wallet Stellar ao usuário. Se a carteira já existia mas estava desativada, ela é reativada.
+
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "stellarAddress": "GABC...XYZ",
+  "label": "Carteira secundária"
+}
+```
+
+**Erros:**
+- `404` — usuário não encontrado
+- `409` — wallet já ativa para esse usuário
+
+---
+
+### `GET /wallets/:id` 🔒
+Retorna detalhes de uma wallet específica.
+
+---
+
+### `DELETE /wallets/:id` 🔒
+Desativa uma wallet (soft delete — não é removida do banco).
+
+**Resposta 200:**
+```json
+{ "id": "clx...", "isActive": false }
+```
+
+---
+
+
 
 ### `GET /health`
 Verifica se a API está no ar.

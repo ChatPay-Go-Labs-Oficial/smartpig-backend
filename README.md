@@ -9,7 +9,7 @@ Bem-vindo à documentação técnica do backend do **SmartPig**, um app de finan
 | [architecture.md](./architecture.md) | Visão geral da arquitetura, camadas e padrões de projeto |
 | [database.md](./database.md) | Schema do banco de dados, entidades e relacionamentos |
 | [api.md](./api.md) | Referência completa dos endpoints REST |
-| [flows.md](./flows.md) | Fluxos de operação: depósito, saque e autenticação |
+| [flows.md](./flows.md) | Fluxos de operação: wallet login, depósito, saque e jobs |
 | [deployment.md](./deployment.md) | Deploy no Railway, migrações e procedimento de baseline |
 | [modules/config.md](./modules/config.md) | Módulo de configuração e variáveis de ambiente |
 | [modules/infra.md](./modules/infra.md) | Infraestrutura: PrismaModule |
@@ -18,13 +18,14 @@ Bem-vindo à documentação técnica do backend do **SmartPig**, um app de finan
 | [modules/deposits.md](./modules/deposits.md) | Criação e processamento de depósitos |
 | [modules/withdrawals.md](./modules/withdrawals.md) | Criação e processamento de saques |
 | [modules/jobs.md](./modules/jobs.md) | Jobs em background (reconciliação, APY, snapshots, vault sync) |
+| [modules/ramp.md](./modules/ramp.md) | On/Off Ramp via BlindPay (BRL ↔ USDC) |
 
 ## Visão rápida
 
 ```
 React Native App
       │
-      │ HTTPS/REST (JWT)
+      │ HTTPS/REST (wallet login)
       ▼
 NestJS Backend (SmartPig API)
       │
