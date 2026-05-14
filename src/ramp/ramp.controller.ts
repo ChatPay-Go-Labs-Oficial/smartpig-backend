@@ -13,6 +13,15 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { createHmac, timingSafeEqual } from 'crypto';
+import type { Request } from 'express';
 import { RampService } from './ramp.service';
 import {
   CreateBankAccountDto,
@@ -25,10 +34,8 @@ import {
   OnrampQuoteDto,
   SubmitOfframpDto,
 } from './dto/ramp.dto';
-import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'crypto';
-import type { Request } from 'express';
 
+@ApiTags('Ramp')
 @Controller()
 export class RampController {
   constructor(
@@ -45,6 +52,11 @@ export class RampController {
    * Pass that tos_id in POST /ramp/receiver.
    */
   @Post('ramp/tos')
+  @ApiOperation({
+    summary: 'Initiate BlindPay ToS',
+    description:
+      'Starts a Terms of Service session. Returns a URL that must be opened in a browser/WebView.',
+  })
   initiateTos(@Body() dto: InitiateTosDto) {
     return this.rampService.initiateTos(dto);
   }
@@ -59,6 +71,23 @@ export class RampController {
    */
   @Post('ramp/upload')
   @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({
+    summary: 'Upload KYC document',
+    description:
+      'Uploads a file for KYC purposes. Returns the hosted URL for the document.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
   uploadKycFile(@UploadedFile() file: Express.Multer.File) {
     return this.rampService
       .uploadKycFile(file.buffer, file.originalname, file.mimetype)
@@ -68,11 +97,13 @@ export class RampController {
   // ─── Receiver ───────────────────────────────────────────────────────────────
 
   @Post('ramp/receiver')
+  @ApiOperation({ summary: 'Create a BlindPay receiver' })
   createReceiver(@Body() dto: CreateReceiverDto) {
     return this.rampService.createReceiver(dto);
   }
 
   @Get('ramp/receiver')
+  @ApiOperation({ summary: 'Get receiver details' })
   getReceiver(@Body('userId') userId: string) {
     return this.rampService.getReceiver(userId);
   }
@@ -80,11 +111,13 @@ export class RampController {
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
   @Post('ramp/receiver/bank-accounts')
+  @ApiOperation({ summary: 'Add a bank account to a receiver' })
   createBankAccount(@Body() dto: CreateBankAccountDto) {
     return this.rampService.createBankAccount(dto);
   }
 
   @Get('ramp/receiver/bank-accounts')
+  @ApiOperation({ summary: 'List bank accounts for a receiver' })
   listBankAccounts(@Body('userId') userId: string) {
     return this.rampService.listBankAccounts(userId);
   }
@@ -92,6 +125,7 @@ export class RampController {
   // ─── Blockchain Wallets ─────────────────────────────────────────────────────
 
   @Post('ramp/receiver/wallets')
+  @ApiOperation({ summary: 'Add a blockchain wallet to a receiver' })
   createBlockchainWallet(@Body() dto: CreateBlockchainWalletDto) {
     return this.rampService.createBlockchainWallet(dto);
   }
@@ -99,16 +133,19 @@ export class RampController {
   // ─── On-ramp ────────────────────────────────────────────────────────────────
 
   @Post('ramp/onramp/quote')
+  @ApiOperation({ summary: 'Get an on-ramp quote' })
   getOnrampQuote(@Body() dto: OnrampQuoteDto) {
     return this.rampService.getOnrampQuote(dto);
   }
 
   @Post('ramp/onramp')
+  @ApiOperation({ summary: 'Create an on-ramp transaction' })
   createOnramp(@Body() dto: CreateOnrampDto) {
     return this.rampService.createOnramp(dto);
   }
 
   @Get('ramp/onramp/:id')
+  @ApiOperation({ summary: 'Get on-ramp transaction details' })
   getOnramp(@Param('id') id: string, @Body('userId') userId: string) {
     return this.rampService.getOnramp(id, userId);
   }
@@ -116,16 +153,19 @@ export class RampController {
   // ─── Off-ramp ───────────────────────────────────────────────────────────────
 
   @Post('ramp/offramp/quote')
+  @ApiOperation({ summary: 'Get an off-ramp quote' })
   getOfframpQuote(@Body() dto: OfframpQuoteDto) {
     return this.rampService.getOfframpQuote(dto);
   }
 
   @Post('ramp/offramp')
+  @ApiOperation({ summary: 'Create an off-ramp transaction' })
   createOfframp(@Body() dto: CreateOfframpDto) {
     return this.rampService.createOfframp(dto);
   }
 
   @Post('ramp/offramp/:id/submit')
+  @ApiOperation({ summary: 'Submit signed XDR for off-ramp' })
   submitOfframp(
     @Param('id') id: string,
     @Body() dto: SubmitOfframpDto & { userId: string },
@@ -134,6 +174,7 @@ export class RampController {
   }
 
   @Get('ramp/offramp/:id')
+  @ApiOperation({ summary: 'Get off-ramp transaction details' })
   getOfframp(@Param('id') id: string, @Body('userId') userId: string) {
     return this.rampService.getOfframp(id, userId);
   }
@@ -142,6 +183,10 @@ export class RampController {
 
   @Post('webhooks/blindpay')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'BlindPay webhook handler',
+    description: 'Internal endpoint for BlindPay notifications.',
+  })
   async handleBlindPayWebhook(
     @Req() req: Request & { rawBody?: Buffer },
     @Headers('blindpay-signature') signature: string,
