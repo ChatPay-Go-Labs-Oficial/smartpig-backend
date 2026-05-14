@@ -1,0 +1,33 @@
+.git
+.gitignore
+.github
+
+# Local dev
+node_modules
+npm-debug.log*
+
+# Compiled output (built inside Docker)
+dist
+build
+
+# TypeScript incremental build cache (must not bleed into Docker layers)
+*.tsbuildinfo
+
+# Tests & coverage
+test
+coverage
+.nyc_output
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+
+# Docs
+docs
+README.md
