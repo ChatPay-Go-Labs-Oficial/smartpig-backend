@@ -38,6 +38,7 @@ import {
   SubmitEtherfuseOfframpDto,
   SubmitKycDto,
   UploadKycDocumentDto,
+  UserIdDto,
 } from './dto/etherfuse-ramp.dto';
 
 @ApiTags('Etherfuse Ramp')
@@ -61,8 +62,8 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/onboarding/organization')
   @ApiOperation({ summary: 'Get Etherfuse customer record for the user' })
-  getCustomer(@Body('userId') userId: string) {
-    return this.service.getCustomer(userId);
+  getCustomer(@Body() dto: UserIdDto) {
+    return this.service.getCustomer(dto.userId);
   }
 
   // ─── Onboarding: KYC ────────────────────────────────────────────────────────
@@ -157,8 +158,17 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/onboarding/bank-accounts')
   @ApiOperation({ summary: 'List registered bank accounts' })
-  listBankAccounts(@Body('userId') userId: string) {
-    return this.service.listBankAccounts(userId);
+  listBankAccounts(@Body() dto: UserIdDto) {
+    return this.service.listBankAccounts(dto.userId);
+  }
+
+  @Post('etherfuse/onboarding/bank-accounts/sync')
+  @ApiOperation({
+    summary: 'Sync bank accounts from Etherfuse',
+    description: 'Fetches all bank accounts registered in Etherfuse and upserts them into the local database. Useful when an account was created via the presigned URL flow and was not persisted locally.',
+  })
+  syncBankAccounts(@Body() dto: UserIdDto) {
+    return this.service.syncBankAccounts(dto.userId);
   }
 
   // ─── Quotes ─────────────────────────────────────────────────────────────────
@@ -206,8 +216,8 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/orders/:id')
   @ApiOperation({ summary: 'Get order details' })
-  getOrder(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.service.getOrder(id, userId);
+  getOrder(@Param('id') id: string, @Body() dto: UserIdDto) {
+    return this.service.getOrder(id, dto.userId);
   }
 
   // ─── Webhook (public, signature-verified) ───────────────────────────────────

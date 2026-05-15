@@ -169,6 +169,28 @@ export class EtherfuseService implements OnModuleInit {
     }
   }
 
+  async listBankAccounts(customerId: string): Promise<EtherfuseBankAccountResponse[]> {
+    try {
+      const { data } = await this.http.get<unknown>(
+        `/ramp/customer/${customerId}/bank-accounts`,
+      );
+      if (Array.isArray(data)) return data as EtherfuseBankAccountResponse[];
+      const obj = data as Record<string, unknown>;
+      // Paginated response: { items: [...] }
+      const nested =
+        obj['items'] ??
+        obj['bankAccounts'] ??
+        obj['bank_accounts'] ??
+        obj['data'] ??
+        obj['accounts'];
+      if (Array.isArray(nested)) return nested as EtherfuseBankAccountResponse[];
+      this.logger.warn(`Unexpected listBankAccounts response shape: ${JSON.stringify(data)}`);
+      return [];
+    } catch (err) {
+      mapEtherfuseError(err);
+    }
+  }
+
   async registerPixBankAccount(
     params: RegisterPixBankAccountParams,
   ): Promise<EtherfuseBankAccountResponse> {

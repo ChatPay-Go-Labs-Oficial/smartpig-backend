@@ -133,12 +133,31 @@ export interface EtherfuseBankAccountResponse {
   /** May be returned as `id` or `bankAccountId` depending on the endpoint */
   id?: string;
   bankAccountId?: string;
+  customerId?: string;
   clabe?: string;
+  abbrClabe?: string;
   pixKey?: string;
   pixKeyType?: string;
+  /** 'mxn' → SPEI, 'brl' → PIX */
+  currency?: string;
   compliant: boolean;
-  accountType: string;
+  needsWork?: boolean;
+  status?: string;
+  accountType?: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface ListBankAccountsResponse {
+  items?: EtherfuseBankAccountResponse[];
+  bankAccounts?: EtherfuseBankAccountResponse[];
+  bank_accounts?: EtherfuseBankAccountResponse[];
+  data?: EtherfuseBankAccountResponse[];
+  accounts?: EtherfuseBankAccountResponse[];
+  totalItems?: number;
+  pageSize?: number;
+  pageNumber?: number;
+  totalPages?: number;
 }
 
 // ─── Crypto Wallets ───────────────────────────────────────────────────────────

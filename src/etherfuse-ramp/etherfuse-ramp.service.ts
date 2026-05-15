@@ -34,7 +34,7 @@ export class EtherfuseRampService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly etherfuse: EtherfuseService,
-  ) {}
+  ) { }
 
   // ─── Onboarding: Create Customer Org ───────────────────────────────────────
 
@@ -234,8 +234,8 @@ export class EtherfuseRampService {
     // Reference: https://docs.etherfuse.com/api-reference/bank-accounts/create-bank-account-presigned-url.md
     throw new BadRequestException(
       'PIX bank account registration is not yet supported by Etherfuse. ' +
-        'For BRL on-ramp, Etherfuse provides their own PIX deposit key at order creation. ' +
-        'Check back when Etherfuse adds PIX off-ramp bank account support.',
+      'For BRL on-ramp, Etherfuse provides their own PIX deposit key at order creation. ' +
+      'Check back when Etherfuse adds PIX off-ramp bank account support.',
     );
   }
 
@@ -244,6 +244,57 @@ export class EtherfuseRampService {
     return this.prisma.etherfuseBankAccount.findMany({
       where: { customerId: customer.id },
     });
+  }
+
+  async syncBankAccounts(userId: string) {
+    const customer = await this.requireCustomer(userId);
+
+    let remoteAccounts: Awaited<ReturnType<typeof this.etherfuse.listBankAccounts>>;
+    try {
+      remoteAccounts = await this.etherfuse.listBankAccounts(customer.etherfuseOrgId);
+    } catch (err) {
+      this.logger.error(`Failed to fetch bank accounts from Etherfuse: ${err}`);
+      throw err;
+    }
+
+    this.logger.debug(`Etherfuse returned ${remoteAccounts.length} bank account(s) for org ${customer.etherfuseOrgId}`);
+
+    const upserted = await Promise.all(
+      remoteAccounts.map((account) => {
+        const etherfuseBankId = account.bankAccountId ?? account.id ?? '';
+        if (!etherfuseBankId) {
+          this.logger.warn('Skipping bank account with no ID from Etherfuse');
+          return null;
+        }
+
+        const rail = (account.currency === 'brl' || account.pixKey) ? 'pix' : 'spei';
+
+        return this.prisma.etherfuseBankAccount.upsert({
+          where: { etherfuseBankId },
+          create: {
+            customerId: customer.id,
+            etherfuseBankId,
+            clabe: account.clabe ?? account.abbrClabe ?? null,
+            pixKey: account.pixKey ?? null,
+            pixKeyType: account.pixKeyType ?? null,
+            rail,
+            accountType: account.accountType ?? 'personal',
+            isCompliant: account.compliant ?? false,
+          },
+          update: {
+            isCompliant: account.compliant ?? false,
+            accountType: account.accountType ?? 'personal',
+            clabe: account.clabe ?? account.abbrClabe ?? null,
+            pixKey: account.pixKey ?? null,
+            pixKeyType: account.pixKeyType ?? null,
+          },
+        });
+      }),
+    );
+
+    const synced = upserted.filter(Boolean);
+    this.logger.log(`Synced ${synced.length} bank accounts for customer ${customer.id}`);
+    return synced;
   }
 
   // ─── Quotes ─────────────────────────────────────────────────────────────────

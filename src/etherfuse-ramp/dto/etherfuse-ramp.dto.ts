@@ -15,6 +15,13 @@ import { Type } from 'class-transformer';
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
+export class UserIdDto {
+  @ApiProperty({ description: 'Internal SmartPig user ID' })
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+}
+
 export class CreateEtherfuseCustomerDto {
   @ApiProperty({ description: 'Internal SmartPig user ID' })
   @IsString()
