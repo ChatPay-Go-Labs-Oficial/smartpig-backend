@@ -337,14 +337,15 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const onramp = (result as any).onramp;
+    const raw = result as any;
+    const onramp = raw.onramp ?? raw;
 
     return this.prisma.etherfuseOrder.create({
       data: {
         idempotencyKey: orderId,
         customerId: customer.id,
         bankAccountId: bankAccount.id,
-        etherfuseOrderId: onramp?.id ?? orderId,
+        etherfuseOrderId: onramp?.id ?? raw.id ?? orderId,
         etherfuseQuoteId: dto.quoteId,
         direction: EtherfuseOrderDirection.ONRAMP,
         status: EtherfuseOrderStatus.PROCESSING,
@@ -378,15 +379,23 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const offramp = (result as any).offramp;
-    const unsignedBurnXdr: string | undefined = offramp?.burnTransaction;
+    const raw = result as any;
+    // Etherfuse may return the offramp data wrapped in `{ offramp: {...} }`
+    // or flat at the root level. Normalise to a single object.
+    const offramp = raw.offramp ?? raw;
+    const unsignedBurnXdr: string | undefined =
+      offramp?.burnTransaction ?? raw.burnTransaction;
+
+    this.logger.debug(
+      `createOfframp raw response: ${JSON.stringify(raw)} | unsignedBurnXdr present: ${!!unsignedBurnXdr}`,
+    );
 
     const order = await this.prisma.etherfuseOrder.create({
       data: {
         idempotencyKey: orderId,
         customerId: customer.id,
         bankAccountId: bankAccount.id,
-        etherfuseOrderId: offramp?.id ?? orderId,
+        etherfuseOrderId: offramp?.id ?? raw.id ?? orderId,
         etherfuseQuoteId: dto.quoteId,
         direction: EtherfuseOrderDirection.OFFRAMP,
         status: unsignedBurnXdr
