@@ -449,7 +449,13 @@ export class EtherfuseRampService {
   async getOrder(id: string, userId: string) {
     const customer = await this.requireCustomer(userId);
     const order = await this.prisma.etherfuseOrder.findFirst({
-      where: { id, customerId: customer.id },
+      where: {
+        customerId: customer.id,
+        OR: [
+          { id },
+          { etherfuseOrderId: id },
+        ],
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
     return order;
@@ -525,7 +531,13 @@ export class EtherfuseRampService {
     const customer = await this.requireCustomer(userId);
 
     const order = await this.prisma.etherfuseOrder.findFirst({
-      where: { id: orderId, customerId: customer.id },
+      where: {
+        customerId: customer.id,
+        OR: [
+          { id: orderId },
+          { etherfuseOrderId: orderId },
+        ],
+      },
     });
     if (!order) throw new NotFoundException('Order not found');
     if (order.direction !== EtherfuseOrderDirection.ONRAMP) {

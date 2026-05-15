@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UploadedFile,
@@ -62,8 +63,8 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/onboarding/organization')
   @ApiOperation({ summary: 'Get Etherfuse customer record for the user' })
-  getCustomer(@Body() dto: UserIdDto) {
-    return this.service.getCustomer(dto.userId);
+  getCustomer(@Query('userId') userId: string) {
+    return this.service.getCustomer(userId);
   }
 
   // ─── Onboarding: KYC ────────────────────────────────────────────────────────
@@ -158,8 +159,8 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/onboarding/bank-accounts')
   @ApiOperation({ summary: 'List registered bank accounts' })
-  listBankAccounts(@Body() dto: UserIdDto) {
-    return this.service.listBankAccounts(dto.userId);
+  listBankAccounts(@Query('userId') userId: string) {
+    return this.service.listBankAccounts(userId);
   }
 
   @Post('etherfuse/onboarding/bank-accounts/sync')
@@ -216,8 +217,8 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/orders/:id')
   @ApiOperation({ summary: 'Get order details' })
-  getOrder(@Param('id') id: string, @Body() dto: UserIdDto) {
-    return this.service.getOrder(id, dto.userId);
+  getOrder(@Param('id') id: string, @Query('userId') userId: string) {
+    return this.service.getOrder(id, userId);
   }
 
   // ─── Sandbox ────────────────────────────────────────────────────────────────
