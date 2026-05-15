@@ -203,6 +203,18 @@ export class EtherfuseRampController {
     return this.service.createOfframp(dto);
   }
 
+  @Post('etherfuse/offramp/:id/refresh-xdr')
+  @ApiOperation({
+    summary: 'Refresh unsigned burn XDR for an off-ramp order',
+    description: 'Fetches the latest order details from Etherfuse and updates the unsignedBurnXdr in the database. Use when the XDR was not returned at order creation time.',
+  })
+  refreshOfframpXdr(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+  ) {
+    return this.service.refreshOfframpXdr(id, dto.userId);
+  }
+
   @Post('etherfuse/offramp/:id/submit')
   @ApiOperation({
     summary: 'Submit signed burn XDR for off-ramp',

@@ -383,22 +383,31 @@ export class EtherfuseRampService {
     });
 
     const raw = result as any;
-    // Etherfuse may return the offramp data wrapped in `{ offramp: {...} }`
-    // or flat at the root level. Normalise to a single object.
-    const offramp = raw.offramp ?? raw;
-    const unsignedBurnXdr: string | undefined =
-      offramp?.burnTransaction ?? raw.burnTransaction;
+    const etherfuseOrderId: string = raw.offramp?.orderId ?? raw.offramp?.id ?? raw.id ?? orderId;
 
-    this.logger.debug(
-      `createOfframp raw response: ${JSON.stringify(raw)} | unsignedBurnXdr present: ${!!unsignedBurnXdr}`,
-    );
+    // The POST /ramp/order response only contains the orderId.
+    // Fetch the full order to get the burnTransaction XDR.
+    let unsignedBurnXdr: string | undefined;
+    try {
+      const orderDetails = await this.etherfuse.getOrder(etherfuseOrderId) as any;
+      unsignedBurnXdr =
+        orderDetails?.burnTransaction ??
+        orderDetails?.burn_transaction ??
+        orderDetails?.offramp?.burnTransaction ??
+        orderDetails?.offramp?.burn_transaction;
+      this.logger.log(
+        `createOfframp order details: ${JSON.stringify(orderDetails)} | unsignedBurnXdr found: ${!!unsignedBurnXdr}`,
+      );
+    } catch (err) {
+      this.logger.warn(`Could not fetch order details for ${etherfuseOrderId}: ${err}`);
+    }
 
     const order = await this.prisma.etherfuseOrder.create({
       data: {
         idempotencyKey: orderId,
         customerId: customer.id,
         bankAccountId: bankAccount.id,
-        etherfuseOrderId: offramp?.id ?? raw.id ?? orderId,
+        etherfuseOrderId: etherfuseOrderId,
         etherfuseQuoteId: dto.quoteId,
         direction: EtherfuseOrderDirection.OFFRAMP,
         status: unsignedBurnXdr
@@ -419,6 +428,53 @@ export class EtherfuseRampService {
       sourceAmount: order.sourceAmount,
       destinationAmount: order.destinationAmount,
       unsignedBurnXdr: order.unsignedBurnXdr ?? undefined,
+    };
+  }
+
+  async refreshOfframpXdr(id: string, userId: string) {
+    const customer = await this.requireCustomer(userId);
+
+    const order = await this.prisma.etherfuseOrder.findFirst({
+      where: {
+        customerId: customer.id,
+        OR: [{ id }, { etherfuseOrderId: id }],
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.direction !== EtherfuseOrderDirection.OFFRAMP) {
+      throw new BadRequestException('This endpoint only applies to off-ramp orders');
+    }
+    if (!order.etherfuseOrderId) {
+      throw new BadRequestException('Order has no Etherfuse order ID');
+    }
+
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId) as any;
+    const unsignedBurnXdr: string | undefined =
+      details?.burnTransaction ??
+      details?.burn_transaction ??
+      details?.offramp?.burnTransaction ??
+      details?.offramp?.burn_transaction;
+
+    this.logger.log(`refreshOfframpXdr for order ${order.id}: details=${JSON.stringify(details)} xdr=${!!unsignedBurnXdr}`);
+
+    if (!unsignedBurnXdr) {
+      throw new NotFoundException('burnTransaction not available yet for this order — try again in a few seconds');
+    }
+
+    const updated = await this.prisma.etherfuseOrder.update({
+      where: { id: order.id },
+      data: {
+        unsignedBurnXdr,
+        status: EtherfuseOrderStatus.PENDING_SIGNATURE,
+      },
+    });
+
+    return {
+      id: updated.id,
+      status: updated.status,
+      sourceAmount: updated.sourceAmount,
+      destinationAmount: updated.destinationAmount,
+      unsignedBurnXdr: updated.unsignedBurnXdr,
     };
   }
 
