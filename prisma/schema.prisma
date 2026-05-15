@@ -52,6 +52,28 @@ enum RampStatus {
   REFUNDED
 }
 
+enum EtherfuseKycStatus {
+  NOT_STARTED
+  PROPOSED
+  APPROVED
+  APPROVED_CHAIN_DEPLOYING
+  REJECTED
+}
+
+enum EtherfuseOrderDirection {
+  ONRAMP
+  OFFRAMP
+}
+
+enum EtherfuseOrderStatus {
+  CREATED
+  PENDING_SIGNATURE
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
@@ -78,6 +100,7 @@ model User {
   blindpayReceiver  BlindPayReceiver?
   onrampTxns        OnrampTransaction[]
   offrampTxns       OfframpTransaction[]
+  etherfuseCustomer EtherfuseCustomer?
 
   @@map("users")
 }
@@ -411,4 +434,73 @@ model OfframpTransaction {
   @@index([userId, status])
   @@index([blindpayPayoutId])
   @@map("offramp_transactions")
+}
+
+// ─────────────────────────────────────────────
+// Etherfuse Ramps
+// ─────────────────────────────────────────────
+
+model EtherfuseCustomer {
+  id             String             @id @default(cuid())
+  userId         String             @unique
+  etherfuseOrgId String             @unique
+  kycStatus      EtherfuseKycStatus @default(NOT_STARTED)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccounts EtherfuseBankAccount[]
+  orders       EtherfuseOrder[]
+
+  @@map("etherfuse_customers")
+}
+
+model EtherfuseBankAccount {
+  id              String   @id @default(cuid())
+  customerId      String
+  etherfuseBankId String   @unique
+  // SPEI (Mexico)
+  clabe           String?
+  // PIX (Brazil)
+  pixKey          String?
+  pixKeyType      String?
+  rail            String   @default("spei") // "spei" | "pix"
+  accountType     String
+  isCompliant     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customer EtherfuseCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orders   EtherfuseOrder[]
+
+  @@index([customerId])
+  @@map("etherfuse_bank_accounts")
+}
+
+model EtherfuseOrder {
+  id                String                  @id @default(cuid())
+  idempotencyKey    String                  @unique
+  customerId        String
+  bankAccountId     String
+  etherfuseOrderId  String?                 @unique
+  etherfuseQuoteId  String
+  direction         EtherfuseOrderDirection
+  status            EtherfuseOrderStatus    @default(CREATED)
+  sourceAsset       String
+  targetAsset       String
+  sourceAmount      Decimal                 @db.Decimal(30, 8)
+  destinationAmount Decimal                 @db.Decimal(30, 8)
+  walletAddress     String
+  unsignedBurnXdr   String?                 @db.Text
+  signedBurnXdr     String?                 @db.Text
+  errorMessage      String?
+  completedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  customer    EtherfuseCustomer    @relation(fields: [customerId], references: [id])
+  bankAccount EtherfuseBankAccount @relation(fields: [bankAccountId], references: [id])
+
+  @@index([customerId, status])
+  @@map("etherfuse_orders")
 }

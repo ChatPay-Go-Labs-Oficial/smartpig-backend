@@ -81,12 +81,15 @@ src/
 [Mobile] ──POST /ramp/offramp──► [Backend]
                                     │
                                     ├─ createPayoutQuote() ──► BlindPay API
+                                    ├─ createAssetTrustline() ─► BlindPay API
+                                    │   returns: trustlineXdr (null se já existir)
                                     ├─ prepareStellarDelegation() ─► BlindPay API
-                                    │   returns: unsigned XDR
+                                    │   returns: unsigned delegation XDR
                                     ├─ Salva OfframpTransaction (DELEGATION_NEEDED)
-                                    └─► retorna { id, unsignedDelegationXdr, status }
+                                    └─► retorna { id, unsignedDelegationXdr, trustlineXdr?, status }
 
-[Mobile] ──── assina XDR ────────► Stellar wallet do usuário
+[Mobile] ── se trustlineXdr presente: assina + submete trustline primeiro
+[Mobile] ──── assina delegation XDR ──► Stellar wallet do usuário
          ──POST /ramp/offramp/:id/submit──► [Backend]
                                     │
                                     ├─ createPayoutStellar() ─► BlindPay API

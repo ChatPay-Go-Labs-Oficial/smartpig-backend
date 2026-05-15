@@ -13,6 +13,7 @@ import { WithdrawalsModule } from './withdrawals/withdrawals.module';
 import { JobsModule } from './jobs/jobs.module';
 import { VaultManagerModule } from './vault-manager/vault-manager.module';
 import { RampModule } from './ramp/ramp.module';
+import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RampModule } from './ramp/ramp.module';
     JobsModule,
     VaultManagerModule,
     RampModule,
+    EtherfuseRampModule,
   ],
   controllers: [AppController],
   providers: [AppService],
