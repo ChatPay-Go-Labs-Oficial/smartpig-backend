@@ -220,6 +220,20 @@ export class EtherfuseRampController {
     return this.service.getOrder(id, dto.userId);
   }
 
+  // ─── Sandbox ────────────────────────────────────────────────────────────────
+
+  @Post('etherfuse/sandbox/onramp/:id/simulate-payment')
+  @ApiOperation({
+    summary: '[SANDBOX ONLY] Simulate fiat payment received for an on-ramp order',
+    description: 'Triggers the Etherfuse sandbox endpoint `POST /ramp/order/fiat_received` to advance the order. Only works when ETHERFUSE_BASE_URL points to the sandbox environment.',
+  })
+  sandboxSimulatePayment(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+  ) {
+    return this.service.sandboxSimulatePayment(id, dto.userId);
+  }
+
   // ─── Webhook (public, signature-verified) ───────────────────────────────────
 
   @Post('webhooks/etherfuse')

@@ -248,4 +248,12 @@ export class EtherfuseService implements OnModuleInit {
       mapEtherfuseError(err);
     }
   }
+
+  async sandboxSimulateFiatReceived(etherfuseOrderId: string): Promise<void> {
+    try {
+      await this.http.post('/ramp/order/fiat_received', { orderId: etherfuseOrderId });
+    } catch (err) {
+      mapEtherfuseError(err);
+    }
+  }
 }

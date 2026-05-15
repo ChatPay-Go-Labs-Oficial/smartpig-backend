@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,6 +8,7 @@ import {
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { EtherfuseService } from '../etherfuse/etherfuse.service';
+import { ConfigService } from '@nestjs/config';
 import {
   AcceptAgreementDto,
   CreateEtherfuseCustomerDto,
@@ -34,6 +36,7 @@ export class EtherfuseRampService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly etherfuse: EtherfuseService,
+    private readonly config: ConfigService,
   ) { }
 
   // ─── Onboarding: Create Customer Org ───────────────────────────────────────
@@ -508,6 +511,34 @@ export class EtherfuseRampService {
       data: { isCompliant: compliant },
     });
     this.logger.log(`EtherfuseBankAccount ${account.id} compliant → ${compliant}`);
+  }
+
+  // ─── Sandbox helpers ────────────────────────────────────────────────────────
+
+  async sandboxSimulatePayment(orderId: string, userId: string) {
+    const isSandbox = this.config.get<string>('ETHERFUSE_BASE_URL', '')
+      .includes('sand');
+    if (!isSandbox) {
+      throw new ForbiddenException('This endpoint is only available in the sandbox environment');
+    }
+
+    const customer = await this.requireCustomer(userId);
+
+    const order = await this.prisma.etherfuseOrder.findFirst({
+      where: { id: orderId, customerId: customer.id },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.direction !== EtherfuseOrderDirection.ONRAMP) {
+      throw new BadRequestException('Simulate payment is only applicable to on-ramp orders');
+    }
+    if (!order.etherfuseOrderId) {
+      throw new BadRequestException('Order has no Etherfuse order ID yet');
+    }
+
+    await this.etherfuse.sandboxSimulateFiatReceived(order.etherfuseOrderId);
+    this.logger.log(`Sandbox: simulated fiat received for order ${order.id} (Etherfuse: ${order.etherfuseOrderId})`);
+
+    return { simulated: true, orderId: order.id, etherfuseOrderId: order.etherfuseOrderId };
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
