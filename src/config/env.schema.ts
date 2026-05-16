@@ -39,4 +39,7 @@ export const envSchema = Joi.object({
   ETHERFUSE_API_KEY: Joi.string().optional(),
   ETHERFUSE_BASE_URL: Joi.string().uri().optional(),
   ETHERFUSE_WEBHOOK_SECRET: Joi.string().optional(),
+
+  // Vaults
+  ALLOWED_VAULT_IDS: Joi.string().default(''),
 });

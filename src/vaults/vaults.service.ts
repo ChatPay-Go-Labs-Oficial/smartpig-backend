@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -15,11 +16,16 @@ export class VaultsService {
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
     private readonly vaultSyncJob: VaultSyncJob,
+    private readonly config: ConfigService,
   ) { }
 
   async listVaults() {
+    const allowedIds = this.config.get<string>('ALLOWED_VAULT_IDS', '').split(',').filter(Boolean);
     return this.prisma.vaultCatalog.findMany({
-      where: { isActive: true, id: { in: ['cmoz2caya000m4fzcaug219yh'] } },
+      where: {
+        isActive: true,
+        ...(allowedIds.length > 0 ? { id: { in: allowedIds } } : {}),
+      },
       orderBy: { name: 'asc' },
       select: {
         id: true,
