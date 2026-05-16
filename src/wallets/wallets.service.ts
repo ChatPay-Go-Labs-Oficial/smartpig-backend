@@ -38,13 +38,18 @@ export class WalletsService {
     });
     if (!user) throw new NotFoundException(`User ${dto.userId} not found`);
 
-    // Prevent duplicate wallet for the same user
-    const existing = await this.prisma.walletAccount.findFirst({
-      where: { userId: dto.userId, stellarAddress: dto.stellarAddress },
-      select: { id: true, isActive: true },
+    // Prevent duplicate wallet (stellarAddress is globally unique)
+    const existing = await this.prisma.walletAccount.findUnique({
+      where: { stellarAddress: dto.stellarAddress },
+      select: { id: true, userId: true, isActive: true },
     });
 
     if (existing) {
+      if (existing.userId !== dto.userId) {
+        throw new ConflictException(
+          `Wallet ${dto.stellarAddress} is already registered to another user`,
+        );
+      }
       if (existing.isActive) {
         throw new ConflictException(
           `Wallet ${dto.stellarAddress} already registered for user ${dto.userId}`,

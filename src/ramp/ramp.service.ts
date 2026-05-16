@@ -295,6 +295,10 @@ export class RampService {
       cover_fees: dto.coverFees ?? false,
     });
 
+    // Ensure the sender wallet has a USDB trustline before delegation.
+    // Returns an unsigned XDR if the trustline is missing; null if already set up.
+    const trustlineXdr = await this.blindpay.createAssetTrustline(dto.senderWalletAddress);
+
     // Prepare Stellar delegation (returns unsigned XDR for the user to sign)
     const delegation = await this.blindpay.prepareStellarDelegation(
       quote.id,
@@ -322,6 +326,9 @@ export class RampService {
       amountUsdc: txn.amountUsdc,
       amountBrl: txn.amountBrl,
       unsignedDelegationXdr: txn.unsignedDelegationXdr,
+      // Present only when the sender wallet still needs a USDB trustline.
+      // Mobile must sign + submit this XDR before signing the delegation XDR.
+      trustlineXdr: trustlineXdr ?? undefined,
     };
   }
 
