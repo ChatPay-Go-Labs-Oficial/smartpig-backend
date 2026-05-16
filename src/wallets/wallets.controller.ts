@@ -10,7 +10,9 @@ import {
 import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { WalletsService } from './wallets.service';
+import { StellarService } from './stellar.service';
 import { CreateWalletDto } from './dto/create-wallet.dto';
+import { TrustlineXdrDto } from './dto/trustline-xdr.dto';
 
 class ListWalletsQuery {
   @ApiProperty({ description: 'ID of the user whose wallets to list' })
@@ -22,7 +24,10 @@ class ListWalletsQuery {
 @ApiTags('Wallets')
 @Controller('wallets')
 export class WalletsController {
-  constructor(private readonly walletsService: WalletsService) {}
+  constructor(
+    private readonly walletsService: WalletsService,
+    private readonly stellarService: StellarService,
+  ) {}
 
   /**
    * GET /wallets?userId=...
@@ -102,6 +107,38 @@ export class WalletsController {
   @ApiResponse({ status: 404, description: 'Wallet not found.' })
   getWallet(@Param('id') id: string) {
     return this.walletsService.getWallet(id);
+  }
+
+  /**
+   * POST /wallets/trustline/xdr
+   * Generates an unsigned XDR transaction for adding USDC as a trusted asset
+   * on the given Stellar account. The client must sign and submit it.
+   */
+  @Post('trustline/xdr')
+  @ApiOperation({
+    summary: 'Generate USDC trustline XDR',
+    description:
+      'Builds an unsigned Stellar transaction (XDR) with a ChangeTrust operation ' +
+      'for USDC (issuer: GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5). ' +
+      'The client signs the XDR with the account private key and submits it to the Stellar network.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Unsigned XDR generated successfully.',
+    schema: {
+      example: {
+        unsignedXdr: 'AAAAAgAAAAB...',
+        asset: 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid Stellar address or account not found on network.' })
+  async buildUsdcTrustlineXdr(@Body() dto: TrustlineXdrDto) {
+    const unsignedXdr = await this.stellarService.buildUsdcTrustlineXdr(dto.stellarAddress);
+    return {
+      unsignedXdr,
+      asset: 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+    };
   }
 
   /**
