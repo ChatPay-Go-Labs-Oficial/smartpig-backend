@@ -15,11 +15,11 @@ export class VaultsService {
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
     private readonly vaultSyncJob: VaultSyncJob,
-  ) {}
+  ) { }
 
   async listVaults() {
     return this.prisma.vaultCatalog.findMany({
-      where: { isActive: true },
+      where: { isActive: true, id: { in: ['cmoz2caya000m4fzcaug219yh'] } },
       orderBy: { name: 'asc' },
       select: {
         id: true,
