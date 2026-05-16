@@ -126,7 +126,7 @@ model RefreshToken {
 model WalletAccount {
   id             String   @id @default(cuid())
   userId         String
-  stellarAddress String
+  stellarAddress String   @unique
   label          String?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
@@ -135,7 +135,6 @@ model WalletAccount {
   depositIntents    DepositIntent[]
   withdrawalIntents WithdrawalIntent[]
 
-  @@unique([userId, stellarAddress])
   @@index([userId])
   @@map("wallet_accounts")
 }
