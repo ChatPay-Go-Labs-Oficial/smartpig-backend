@@ -12,6 +12,7 @@ const userSelect = {
   name: true,
   email: true,
   avatarUrl: true,
+  isOnboarded: true,
   createdAt: true,
   updatedAt: true,
 };
