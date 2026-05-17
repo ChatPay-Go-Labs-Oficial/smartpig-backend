@@ -1,6 +1,6 @@
-# SmartPig Backend — Documentação
+# PigFi Backend — Documentação
 
-Bem-vindo à documentação técnica do backend do **SmartPig**, um app de finanças pessoais com integração a vaults DeFi via [DeFindex](https://defindex.io).
+Bem-vindo à documentação técnica do backend do **PigFi**, um app de finanças pessoais com integração a vaults DeFi via [DeFindex](https://defindex.io).
 
 ## Índice
 
