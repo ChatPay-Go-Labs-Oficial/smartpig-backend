@@ -255,8 +255,11 @@ export class CreateOfframpDto {
 }
 
 export class SubmitOfframpDto {
-  @ApiProperty({ description: 'Transaction hash from signing the delegation XDR' })
+  @ApiProperty({ description: 'The internal user ID' })
   @IsString()
-  /** Transaction hash from signing + submitting the delegation XDR */
+  userId: string;
+
+  @ApiProperty({ description: 'Signed XDR transaction from signing the delegation envelope' })
+  @IsString()
   signedDelegationHash: string;
 }
