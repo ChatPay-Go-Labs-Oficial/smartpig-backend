@@ -1,5 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Min,
+} from 'class-validator';
 
 // ─── Terms of Service ─────────────────────────────────────────────────────────
 
@@ -26,7 +35,10 @@ export class CreateReceiverDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'User email address', example: 'user@example.com' })
+  @ApiProperty({
+    description: 'User email address',
+    example: 'user@example.com',
+  })
   @IsEmail()
   email: string;
 
@@ -46,7 +58,11 @@ export class CreateReceiverDto {
   taxId?: string;
 
   /** ISO 3166-1 alpha-2 country code. Defaults to 'BR'. */
-  @ApiProperty({ description: 'ISO country code', default: 'BR', required: false })
+  @ApiProperty({
+    description: 'ISO country code',
+    default: 'BR',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   country?: string;
@@ -145,7 +161,10 @@ export class CreateBankAccountDto {
   userId: string;
 
   /** Display name for this bank account */
-  @ApiProperty({ description: 'Friendly name for the account', example: 'Main Bank Account' })
+  @ApiProperty({
+    description: 'Friendly name for the account',
+    example: 'Main Bank Account',
+  })
   @IsString()
   name: string;
 
@@ -225,7 +244,10 @@ export class OfframpQuoteDto {
   @Min(1)
   amountUsdc: number;
 
-  @ApiProperty({ description: 'Whether to cover fees from the amount', required: false })
+  @ApiProperty({
+    description: 'Whether to cover fees from the amount',
+    required: false,
+  })
   @IsOptional()
   coverFees?: boolean;
 }
@@ -249,7 +271,10 @@ export class CreateOfframpDto {
   @Min(1)
   amountUsdc: number;
 
-  @ApiProperty({ description: 'Whether to cover fees from the amount', required: false })
+  @ApiProperty({
+    description: 'Whether to cover fees from the amount',
+    required: false,
+  })
   @IsOptional()
   coverFees?: boolean;
 }
@@ -259,7 +284,9 @@ export class SubmitOfframpDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Signed XDR transaction from signing the delegation envelope' })
+  @ApiProperty({
+    description: 'Signed XDR transaction from signing the delegation envelope',
+  })
   @IsString()
   signedDelegationHash: string;
 }

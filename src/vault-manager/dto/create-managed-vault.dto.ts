@@ -69,7 +69,10 @@ export class VaultAssetDto {
   @Min(0)
   amount: number;
 
-  @ApiProperty({ type: [VaultStrategyDto], description: 'List of strategies for this asset' })
+  @ApiProperty({
+    type: [VaultStrategyDto],
+    description: 'List of strategies for this asset',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => VaultStrategyDto)
@@ -91,7 +94,10 @@ export class CreateManagedVaultDto {
   @IsNotEmpty()
   callerAddress: string;
 
-  @ApiProperty({ description: 'Name of the new vault', example: 'Smart Savings Vault' })
+  @ApiProperty({
+    description: 'Name of the new vault',
+    example: 'Smart Savings Vault',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -102,7 +108,10 @@ export class CreateManagedVaultDto {
   symbol: string;
 
   /** Management fee in basis points, e.g. 25 = 0.25% */
-  @ApiProperty({ description: 'Management fee in basis points (1 bp = 0.01%)', example: 50 })
+  @ApiProperty({
+    description: 'Management fee in basis points (1 bp = 0.01%)',
+    example: 50,
+  })
   @IsInt()
   @Min(0)
   @Max(10000)
@@ -113,18 +122,28 @@ export class CreateManagedVaultDto {
   @Type(() => VaultRolesDto)
   roles: VaultRolesDto;
 
-  @ApiProperty({ type: [VaultAssetDto], description: 'List of assets in the vault' })
+  @ApiProperty({
+    type: [VaultAssetDto],
+    description: 'List of assets in the vault',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => VaultAssetDto)
   assets: VaultAssetDto[];
 
-  @ApiProperty({ description: 'Whether the vault is upgradable', default: true, required: false })
+  @ApiProperty({
+    description: 'Whether the vault is upgradable',
+    default: true,
+    required: false,
+  })
   @IsBoolean()
   @IsOptional()
   upgradable?: boolean;
 
-  @ApiProperty({ description: 'Optional description of the vault', required: false })
+  @ApiProperty({
+    description: 'Optional description of the vault',
+    required: false,
+  })
   @IsString()
   @IsOptional()
   description?: string;

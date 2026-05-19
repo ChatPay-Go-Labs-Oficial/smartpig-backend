@@ -2,7 +2,10 @@ import { HttpException, HttpStatus, Logger } from '@nestjs/common';
 
 export class BlindPayUpstreamError extends HttpException {
   constructor(statusCode: number, message: string) {
-    super(`BlindPay upstream error (${statusCode}): ${message}`, HttpStatus.BAD_GATEWAY);
+    super(
+      `BlindPay upstream error (${statusCode}): ${message}`,
+      HttpStatus.BAD_GATEWAY,
+    );
   }
 }
 
@@ -28,15 +31,20 @@ export function mapBlindPayError(error: unknown): never {
     // Plain object error (e.g. { statusCode, message })
     const plain = error as Record<string, unknown>;
     if (typeof plain['statusCode'] === 'number') {
-      const message = String(plain['message'] ?? plain['error'] ?? 'Unknown error');
+      const message = String(
+        plain['message'] ?? plain['error'] ?? 'Unknown error',
+      );
       logger.error(`BlindPay error ${plain['statusCode']}: ${message}`);
-      throw new BlindPayUpstreamError(plain['statusCode'] as number, message);
+      throw new BlindPayUpstreamError(plain['statusCode'], message);
     }
   }
 
   if (error instanceof Error) {
     logger.error(`BlindPay unexpected error: ${error.message}`);
-    throw new HttpException(`BlindPay error: ${error.message}`, HttpStatus.BAD_GATEWAY);
+    throw new HttpException(
+      `BlindPay error: ${error.message}`,
+      HttpStatus.BAD_GATEWAY,
+    );
   }
 
   logger.error(`BlindPay unknown error: ${JSON.stringify(error)}`);

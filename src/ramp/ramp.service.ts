@@ -29,7 +29,7 @@ export class RampService {
     private readonly prisma: PrismaService,
     private readonly blindpay: BlindPayService,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   private get network(): 'stellar' | 'stellar_testnet' {
     const env = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
@@ -42,7 +42,10 @@ export class RampService {
 
   /** USDC on mainnet, USDB on dev/testnet (BlindPay doesn't support USDC in dev) */
   private get rampToken(): 'USDC' | 'USDB' {
-    return this.config.get<string>('BLINDPAY_TOKEN', this.network === 'stellar' ? 'USDC' : 'USDB') as 'USDC' | 'USDB';
+    return this.config.get<string>(
+      'BLINDPAY_TOKEN',
+      this.network === 'stellar' ? 'USDC' : 'USDB',
+    ) as 'USDC' | 'USDB';
   }
 
   // ─── Receiver ──────────────────────────────────────────────────────────────
@@ -81,14 +84,24 @@ export class RampService {
       data: {
         userId: dto.userId,
         blindpayReceiverId: bpReceiver.id,
-        name: [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email,
+        name:
+          [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email,
         taxId: dto.taxId,
       },
     });
   }
 
-  async uploadKycFile(fileBuffer: Buffer, originalName: string, mimeType: string): Promise<string> {
-    return this.blindpay.uploadFile(fileBuffer, originalName, mimeType, 'onboarding');
+  async uploadKycFile(
+    fileBuffer: Buffer,
+    originalName: string,
+    mimeType: string,
+  ): Promise<string> {
+    return this.blindpay.uploadFile(
+      fileBuffer,
+      originalName,
+      mimeType,
+      'onboarding',
+    );
   }
 
   // ─── Terms of Service ──────────────────────────────────────────────────────
@@ -96,7 +109,10 @@ export class RampService {
   async initiateTos(dto: InitiateTosDto): Promise<{ tosUrl: string }> {
     // BlindPay requires a UUID v4 as idempotency_key
     const idempotencyKey = randomUUID();
-    const tosUrl = await this.blindpay.initiateTos(idempotencyKey, dto.redirectUrl || undefined);
+    const tosUrl = await this.blindpay.initiateTos(
+      idempotencyKey,
+      dto.redirectUrl || undefined,
+    );
     return { tosUrl };
   }
 
@@ -105,7 +121,8 @@ export class RampService {
       where: { userId },
       include: { bankAccounts: true, blockchainWallets: true },
     });
-    if (!receiver) throw new NotFoundException('Receiver not found for this user');
+    if (!receiver)
+      throw new NotFoundException('Receiver not found for this user');
     return receiver;
   }
 
@@ -115,7 +132,8 @@ export class RampService {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
     });
-    if (!receiver) throw new NotFoundException('Receiver not found — create it first');
+    if (!receiver)
+      throw new NotFoundException('Receiver not found — create it first');
 
     const bpAccount = await this.blindpay.createBankAccount(
       receiver.blindpayReceiverId,
@@ -153,7 +171,8 @@ export class RampService {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
     });
-    if (!receiver) throw new NotFoundException('Receiver not found — create it first');
+    if (!receiver)
+      throw new NotFoundException('Receiver not found — create it first');
 
     const bpWallet = await this.blindpay.createBlockchainWallet(
       receiver.blindpayReceiverId,
@@ -175,7 +194,9 @@ export class RampService {
 
     // Request trustline XDR so the client can sign and submit it to Stellar.
     // The wallet must have a USDB trustline before it can receive on-ramp funds.
-    const trustlineXdr = await this.blindpay.createAssetTrustline(dto.stellarAddress);
+    const trustlineXdr = await this.blindpay.createAssetTrustline(
+      dto.stellarAddress,
+    );
 
     return { ...wallet, trustlineXdr };
   }
@@ -227,7 +248,10 @@ export class RampService {
     // TESTNET ONLY: simulate USDB delivery — BlindPay dev env never auto-completes
     // tracking_complete for Stellar. Remove when going to mainnet.
     if (this.isTestnet) {
-      await this.blindpay.mintUsdbStellar(wallet.address, String(quote.receiver_amount ?? 10));
+      await this.blindpay.mintUsdbStellar(
+        wallet.address,
+        String(quote.receiver_amount ?? 10),
+      );
     }
 
     return this.prisma.onrampTransaction.create({
@@ -297,7 +321,9 @@ export class RampService {
 
     // Ensure the sender wallet has a USDB trustline before delegation.
     // Returns an unsigned XDR if the trustline is missing; null if already set up.
-    const trustlineXdr = await this.blindpay.createAssetTrustline(dto.senderWalletAddress);
+    const trustlineXdr = await this.blindpay.createAssetTrustline(
+      dto.senderWalletAddress,
+    );
 
     // Prepare Stellar delegation (returns unsigned XDR for the user to sign)
     const delegation = await this.blindpay.prepareStellarDelegation(
@@ -440,7 +466,9 @@ export class RampService {
       where: { id: txn.id },
       data: {
         status,
-        completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(status) ? new Date() : undefined,
+        completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(status)
+          ? new Date()
+          : undefined,
       },
     });
     this.logger.log(`Onramp ${txn.id} updated to ${status}`);
@@ -460,7 +488,9 @@ export class RampService {
       where: { id: txn.id },
       data: {
         status,
-        completedAt: ['COMPLETED', 'FAILED'].includes(status) ? new Date() : undefined,
+        completedAt: ['COMPLETED', 'FAILED'].includes(status)
+          ? new Date()
+          : undefined,
       },
     });
     this.logger.log(`Offramp ${txn.id} updated to ${status}`);
@@ -468,20 +498,29 @@ export class RampService {
 
   private mapPayinStatus(bpStatus: string): RampStatus {
     switch (bpStatus) {
-      case 'completed': return RampStatus.COMPLETED;
-      case 'failed': return RampStatus.FAILED;
-      case 'refunded': return RampStatus.REFUNDED;
-      case 'on_hold': return RampStatus.PROCESSING;
-      default: return RampStatus.PROCESSING;
+      case 'completed':
+        return RampStatus.COMPLETED;
+      case 'failed':
+        return RampStatus.FAILED;
+      case 'refunded':
+        return RampStatus.REFUNDED;
+      case 'on_hold':
+        return RampStatus.PROCESSING;
+      default:
+        return RampStatus.PROCESSING;
     }
   }
 
   private mapPayoutStatus(bpStatus: string): RampStatus {
     switch (bpStatus) {
-      case 'completed': return RampStatus.COMPLETED;
-      case 'failed': return RampStatus.FAILED;
-      case 'on_hold': return RampStatus.PROCESSING;
-      default: return RampStatus.PROCESSING;
+      case 'completed':
+        return RampStatus.COMPLETED;
+      case 'failed':
+        return RampStatus.FAILED;
+      case 'on_hold':
+        return RampStatus.PROCESSING;
+      default:
+        return RampStatus.PROCESSING;
     }
   }
 }

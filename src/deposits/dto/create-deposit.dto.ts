@@ -1,14 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsDecimal,
-  IsNotEmpty,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsDecimal, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class CreateDepositDto {
   @ApiProperty({
-    description: 'Unique key to prevent duplicate processing of the same intent',
+    description:
+      'Unique key to prevent duplicate processing of the same intent',
     example: 'd290f1ee-6c54-4b01-90e6-d701748f0851',
   })
   @IsString()

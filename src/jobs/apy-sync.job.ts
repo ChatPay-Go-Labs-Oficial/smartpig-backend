@@ -47,7 +47,9 @@ export class ApySyncJob {
         });
         updated++;
       } catch (err) {
-        this.logger.warn(`APY sync failed for vault ${vault.name}: ${(err as Error).message}`);
+        this.logger.warn(
+          `APY sync failed for vault ${vault.name}: ${(err as Error).message}`,
+        );
       }
     }
 

@@ -125,12 +125,13 @@ model RefreshToken {
 // ─────────────────────────────────────────────
 
 model WalletAccount {
-  id             String   @id @default(cuid())
-  userId         String
-  stellarAddress String   @unique
-  label          String?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id                  String   @id @default(cuid())
+  userId              String
+  stellarAddress      String   @unique
+  smartAccountAddress String?  @unique
+  label               String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
 
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   depositIntents    DepositIntent[]

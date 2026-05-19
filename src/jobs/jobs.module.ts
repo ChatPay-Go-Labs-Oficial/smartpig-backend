@@ -9,6 +9,12 @@ import { VaultSyncJob } from './vault-sync.job';
 
 @Module({
   imports: [ScheduleModule.forRoot(), DefindexModule],
-  providers: [ReconciliationJob, ApySyncJob, PortfolioSnapshotJob, ExpiredIntentsJob, VaultSyncJob],
+  providers: [
+    ReconciliationJob,
+    ApySyncJob,
+    PortfolioSnapshotJob,
+    ExpiredIntentsJob,
+    VaultSyncJob,
+  ],
 })
 export class JobsModule {}

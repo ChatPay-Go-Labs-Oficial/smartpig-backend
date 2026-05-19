@@ -44,7 +44,9 @@ export class StellarService {
     try {
       account = await this.server.loadAccount(stellarAddress);
     } catch (err) {
-      this.logger.warn(`Account not found on Stellar network: ${stellarAddress}`);
+      this.logger.warn(
+        `Account not found on Stellar network: ${stellarAddress}`,
+      );
       throw new BadRequestException(
         `Stellar account ${stellarAddress} not found on the network. ` +
           'The account must be funded before a trustline can be created.',

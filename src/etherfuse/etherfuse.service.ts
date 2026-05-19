@@ -32,7 +32,10 @@ export class EtherfuseService implements OnModuleInit {
 
   onModuleInit() {
     const apiKey = this.config.getOrThrow<string>('ETHERFUSE_API_KEY');
-    const baseUrl = this.config.get<string>('ETHERFUSE_BASE_URL', 'https://api.etherfuse.com');
+    const baseUrl = this.config.get<string>(
+      'ETHERFUSE_BASE_URL',
+      'https://api.etherfuse.com',
+    );
 
     // Etherfuse uses API key directly — no Bearer prefix
     this.http = axios.create({
@@ -54,9 +57,14 @@ export class EtherfuseService implements OnModuleInit {
 
   // ─── Organizations ──────────────────────────────────────────────────────────
 
-  async createChildOrg(params: CreateChildOrgParams): Promise<CreateChildOrgResponse> {
+  async createChildOrg(
+    params: CreateChildOrgParams,
+  ): Promise<CreateChildOrgResponse> {
     try {
-      const { data } = await this.http.post<CreateChildOrgResponse>('/ramp/organization', params);
+      const { data } = await this.http.post<CreateChildOrgResponse>(
+        '/ramp/organization',
+        params,
+      );
       return data;
     } catch (err) {
       mapEtherfuseError(err);
@@ -73,7 +81,10 @@ export class EtherfuseService implements OnModuleInit {
     }
   }
 
-  async uploadKycDocument(customerId: string, params: UploadKycDocumentParams): Promise<void> {
+  async uploadKycDocument(
+    customerId: string,
+    params: UploadKycDocumentParams,
+  ): Promise<void> {
     try {
       const form = new FormData();
       const fileBuffer = Buffer.from(params.content, 'base64');
@@ -85,21 +96,31 @@ export class EtherfuseService implements OnModuleInit {
       form.append('documentType', params.documentType);
 
       const apiKey = this.config.getOrThrow<string>('ETHERFUSE_API_KEY');
-      const baseUrl = this.config.get<string>('ETHERFUSE_BASE_URL', 'https://api.etherfuse.com');
+      const baseUrl = this.config.get<string>(
+        'ETHERFUSE_BASE_URL',
+        'https://api.etherfuse.com',
+      );
 
-      await axios.post(`${baseUrl}/ramp/customer/${customerId}/kyc/documents`, form, {
-        headers: {
-          ...form.getHeaders(),
-          Authorization: apiKey,
+      await axios.post(
+        `${baseUrl}/ramp/customer/${customerId}/kyc/documents`,
+        form,
+        {
+          headers: {
+            ...form.getHeaders(),
+            Authorization: apiKey,
+          },
+          timeout: 30_000,
         },
-        timeout: 30_000,
-      });
+      );
     } catch (err) {
       mapEtherfuseError(err);
     }
   }
 
-  async getKycStatus(customerId: string, pubkey: string): Promise<KycStatusResponse> {
+  async getKycStatus(
+    customerId: string,
+    pubkey: string,
+  ): Promise<KycStatusResponse> {
     try {
       const { data } = await this.http.get<KycStatusResponse>(
         `/ramp/customer/${customerId}/kyc/${pubkey}`,
@@ -112,9 +133,14 @@ export class EtherfuseService implements OnModuleInit {
 
   // ─── Presigned URL ──────────────────────────────────────────────────────────
 
-  async generatePresignedUrl(params: GeneratePresignedUrlParams): Promise<GeneratePresignedUrlResponse> {
+  async generatePresignedUrl(
+    params: GeneratePresignedUrlParams,
+  ): Promise<GeneratePresignedUrlResponse> {
     try {
-      const { data } = await this.http.post<GeneratePresignedUrlResponse>('/ramp/onboarding-url', params);
+      const { data } = await this.http.post<GeneratePresignedUrlResponse>(
+        '/ramp/onboarding-url',
+        params,
+      );
       return data;
     } catch (err) {
       mapEtherfuseError(err);
@@ -123,7 +149,9 @@ export class EtherfuseService implements OnModuleInit {
 
   // ─── Agreements ─────────────────────────────────────────────────────────────
 
-  async acceptElectronicSignature(params: AcceptAgreementParams): Promise<void> {
+  async acceptElectronicSignature(
+    params: AcceptAgreementParams,
+  ): Promise<void> {
     try {
       await this.http.post('/ramp/agreements/electronic-signature', {
         presignedUrl: params.presignedUrl,
@@ -169,7 +197,9 @@ export class EtherfuseService implements OnModuleInit {
     }
   }
 
-  async listBankAccounts(customerId: string): Promise<EtherfuseBankAccountResponse[]> {
+  async listBankAccounts(
+    customerId: string,
+  ): Promise<EtherfuseBankAccountResponse[]> {
     try {
       const { data } = await this.http.get<unknown>(
         `/ramp/customer/${customerId}/bank-accounts`,
@@ -183,8 +213,11 @@ export class EtherfuseService implements OnModuleInit {
         obj['bank_accounts'] ??
         obj['data'] ??
         obj['accounts'];
-      if (Array.isArray(nested)) return nested as EtherfuseBankAccountResponse[];
-      this.logger.warn(`Unexpected listBankAccounts response shape: ${JSON.stringify(data)}`);
+      if (Array.isArray(nested))
+        return nested as EtherfuseBankAccountResponse[];
+      this.logger.warn(
+        `Unexpected listBankAccounts response shape: ${JSON.stringify(data)}`,
+      );
       return [];
     } catch (err) {
       mapEtherfuseError(err);
@@ -222,7 +255,10 @@ export class EtherfuseService implements OnModuleInit {
 
   async getQuote(params: GetQuoteParams): Promise<QuoteResponse> {
     try {
-      const { data } = await this.http.post<QuoteResponse>('/ramp/quote', params);
+      const { data } = await this.http.post<QuoteResponse>(
+        '/ramp/quote',
+        params,
+      );
       return data;
     } catch (err) {
       mapEtherfuseError(err);
@@ -233,7 +269,10 @@ export class EtherfuseService implements OnModuleInit {
 
   async createOrder(params: CreateOrderParams): Promise<CreateOrderResponse> {
     try {
-      const { data } = await this.http.post<CreateOrderResponse>('/ramp/order', params);
+      const { data } = await this.http.post<CreateOrderResponse>(
+        '/ramp/order',
+        params,
+      );
       return data;
     } catch (err) {
       mapEtherfuseError(err);
@@ -242,7 +281,9 @@ export class EtherfuseService implements OnModuleInit {
 
   async getOrder(orderId: string): Promise<OrderDetailsResponse> {
     try {
-      const { data } = await this.http.get<OrderDetailsResponse>(`/ramp/order/${orderId}`);
+      const { data } = await this.http.get<OrderDetailsResponse>(
+        `/ramp/order/${orderId}`,
+      );
       return data;
     } catch (err) {
       mapEtherfuseError(err);
@@ -251,7 +292,9 @@ export class EtherfuseService implements OnModuleInit {
 
   async sandboxSimulateFiatReceived(etherfuseOrderId: string): Promise<void> {
     try {
-      await this.http.post('/ramp/order/fiat_received', { orderId: etherfuseOrderId });
+      await this.http.post('/ramp/order/fiat_received', {
+        orderId: etherfuseOrderId,
+      });
     } catch (err) {
       mapEtherfuseError(err);
     }

@@ -16,7 +16,10 @@ export class CreateWalletDto {
   @MaxLength(64)
   stellarAddress: string;
 
-  @ApiProperty({ description: 'Optional label for the wallet', required: false })
+  @ApiProperty({
+    description: 'Optional label for the wallet',
+    required: false,
+  })
   @IsString()
   @IsOptional()
   @MaxLength(64)

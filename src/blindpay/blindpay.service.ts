@@ -27,11 +27,14 @@ export class BlindPayService implements OnModuleInit {
   private http: AxiosInstance;
   private instanceId: string;
 
-  constructor(private readonly config: ConfigService) { }
+  constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
     const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
-    const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
+    const baseUrl = this.config.get<string>(
+      'BLINDPAY_BASE_URL',
+      'https://api.blindpay.com',
+    );
     this.instanceId = this.config.getOrThrow<string>('BLINDPAY_INSTANCE_ID');
 
     this.http = axios.create({
@@ -44,11 +47,15 @@ export class BlindPayService implements OnModuleInit {
     });
 
     this.http.interceptors.request.use((config) => {
-      this.logger.debug(`BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`);
+      this.logger.debug(
+        `BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`,
+      );
       return config;
     });
 
-    this.logger.log(`BlindPay client initialized (instance: ${this.instanceId})`);
+    this.logger.log(
+      `BlindPay client initialized (instance: ${this.instanceId})`,
+    );
   }
 
   // ─── File Upload ───────────────────────────────────────────────────────────
@@ -65,11 +72,17 @@ export class BlindPayService implements OnModuleInit {
   ): Promise<string> {
     try {
       const form = new FormData();
-      form.append('file', fileBuffer, { filename: originalName, contentType: mimeType });
+      form.append('file', fileBuffer, {
+        filename: originalName,
+        contentType: mimeType,
+      });
       form.append('bucket', bucket);
 
       const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
-      const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
+      const baseUrl = this.config.get<string>(
+        'BLINDPAY_BASE_URL',
+        'https://api.blindpay.com',
+      );
 
       const { data } = await axios.post<{ file_url: string }>(
         `${baseUrl}/v1/upload`,
@@ -95,7 +108,10 @@ export class BlindPayService implements OnModuleInit {
    * Returns a URL the end-user must visit to accept the ToS.
    * After acceptance, BlindPay redirects to redirectUrl with ?tos_id=to_...
    */
-  async initiateTos(idempotencyKey: string, redirectUrl?: string): Promise<string> {
+  async initiateTos(
+    idempotencyKey: string,
+    redirectUrl?: string,
+  ): Promise<string> {
     try {
       const body: Record<string, string> = { idempotency_key: idempotencyKey };
       if (redirectUrl) body.redirect_url = redirectUrl;
@@ -112,7 +128,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Receivers ─────────────────────────────────────────────────────────────
 
-  async createReceiver(params: CreateReceiverParams): Promise<BlindPayReceiver> {
+  async createReceiver(
+    params: CreateReceiverParams,
+  ): Promise<BlindPayReceiver> {
     try {
       const { data } = await this.http.post<BlindPayReceiver>(
         `/instances/${this.instanceId}/receivers`,
@@ -137,7 +155,10 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
-  async createBankAccount(receiverId: string, params: CreateBankAccountParams): Promise<BlindPayBankAccount> {
+  async createBankAccount(
+    receiverId: string,
+    params: CreateBankAccountParams,
+  ): Promise<BlindPayBankAccount> {
     try {
       const { data } = await this.http.post<BlindPayBankAccount>(
         `/instances/${this.instanceId}/receivers/${receiverId}/bank-accounts`,
@@ -167,7 +188,8 @@ export class BlindPayService implements OnModuleInit {
     params: CreateBlockchainWalletParams,
   ): Promise<BlindPayBlockchainWallet> {
     try {
-      const isStellar = params.network === 'stellar' || params.network === 'stellar_testnet';
+      const isStellar =
+        params.network === 'stellar' || params.network === 'stellar_testnet';
 
       // Stellar networks require is_account_abstraction=true and address directly.
       // EVM networks require signature-based registration (signature_tx_hash).
@@ -197,7 +219,9 @@ export class BlindPayService implements OnModuleInit {
       return data.xdr ?? null;
     } catch (err) {
       // Non-fatal: trustline may already exist or not be needed
-      this.logger.warn(`create-asset-trustline failed for ${walletAddress}: ${err?.message}`);
+      this.logger.warn(
+        `create-asset-trustline failed for ${walletAddress}: ${err?.message}`,
+      );
       return null;
     }
   }
@@ -223,7 +247,9 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
-  async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
+  async listBlockchainWallets(
+    receiverId: string,
+  ): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(
         `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
@@ -236,7 +262,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payout Quotes ─────────────────────────────────────────────────────────
 
-  async createPayoutQuote(params: CreatePayoutQuoteParams): Promise<BlindPayPayoutQuote> {
+  async createPayoutQuote(
+    params: CreatePayoutQuoteParams,
+  ): Promise<BlindPayPayoutQuote> {
     try {
       const { data } = await this.http.post<BlindPayPayoutQuote>(
         `/instances/${this.instanceId}/quotes`,
@@ -267,7 +295,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payouts ───────────────────────────────────────────────────────────────
 
-  async createPayoutStellar(params: CreatePayoutStellarParams): Promise<BlindPayPayout> {
+  async createPayoutStellar(
+    params: CreatePayoutStellarParams,
+  ): Promise<BlindPayPayout> {
     try {
       const { data } = await this.http.post<BlindPayPayout>(
         `/instances/${this.instanceId}/payouts/stellar`,
@@ -292,7 +322,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payin Quotes ──────────────────────────────────────────────────────────
 
-  async createPayinQuote(params: CreatePayinQuoteParams): Promise<BlindPayPayinQuote> {
+  async createPayinQuote(
+    params: CreatePayinQuoteParams,
+  ): Promise<BlindPayPayinQuote> {
     try {
       const { data } = await this.http.post<BlindPayPayinQuote>(
         `/instances/${this.instanceId}/payin-quotes`,

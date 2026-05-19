@@ -13,12 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
@@ -165,7 +160,9 @@ export class RampController {
   }
 
   @Post('ramp/offramp/:id/delegation')
-  @ApiOperation({ summary: 'Refresh delegation XDR (when previous one expired)' })
+  @ApiOperation({
+    summary: 'Refresh delegation XDR (when previous one expired)',
+  })
   refreshOfframpDelegation(
     @Param('id') id: string,
     @Body('userId') userId: string,
@@ -175,10 +172,7 @@ export class RampController {
 
   @Post('ramp/offramp/:id/submit')
   @ApiOperation({ summary: 'Submit signed XDR for off-ramp' })
-  submitOfframp(
-    @Param('id') id: string,
-    @Body() dto: SubmitOfframpDto,
-  ) {
+  submitOfframp(@Param('id') id: string, @Body() dto: SubmitOfframpDto) {
     return this.rampService.submitOfframp(id, dto.userId, dto);
   }
 
@@ -205,15 +199,24 @@ export class RampController {
 
     const event = body['webhook_event'] as string | undefined;
     if (event?.startsWith('payin.')) {
-      await this.rampService.handlePayinWebhook(body['id'] as string, body['status'] as string);
+      await this.rampService.handlePayinWebhook(
+        body['id'] as string,
+        body['status'] as string,
+      );
     } else if (event?.startsWith('payout.')) {
-      await this.rampService.handlePayoutWebhook(body['id'] as string, body['status'] as string);
+      await this.rampService.handlePayoutWebhook(
+        body['id'] as string,
+        body['status'] as string,
+      );
     }
 
     return { received: true };
   }
 
-  private verifyWebhookSignature(rawBody: Buffer | undefined, signature: string) {
+  private verifyWebhookSignature(
+    rawBody: Buffer | undefined,
+    signature: string,
+  ) {
     const secret = this.config.get<string>('BLINDPAY_WEBHOOK_SECRET');
     if (!secret) return; // Skip verification if secret not configured
 
@@ -221,7 +224,9 @@ export class RampController {
       throw new UnauthorizedException('Missing webhook signature');
     }
 
-    const expectedSig = createHmac('sha256', secret).update(rawBody).digest('hex');
+    const expectedSig = createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
     const sigBuffer = Buffer.from(signature.replace(/^sha256=/, ''));
     const expectedBuffer = Buffer.from(expectedSig);
 

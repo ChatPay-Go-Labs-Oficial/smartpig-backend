@@ -187,7 +187,11 @@ export interface BlindPayPayin {
 // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
 export interface BlindPayWebhookPayin {
-  webhook_event: 'payin.new' | 'payin.completed' | 'payin.failed' | 'payin.refunded';
+  webhook_event:
+    | 'payin.new'
+    | 'payin.completed'
+    | 'payin.failed'
+    | 'payin.refunded';
   id: string;
   status: string;
   pix_code: string | null;

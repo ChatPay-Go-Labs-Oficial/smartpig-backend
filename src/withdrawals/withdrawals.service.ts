@@ -120,7 +120,10 @@ export class WithdrawalsService {
       throw new BadRequestException(`Withdrawal intent ${id} has expired`);
     }
 
-    const { txHash } = await this.orchestrator.submitWithdrawal(id, dto.signedXdr);
+    const { txHash } = await this.orchestrator.submitWithdrawal(
+      id,
+      dto.signedXdr,
+    );
     this.logger.log(`Withdrawal ${id} submitted to chain → txHash=${txHash}`);
     return { id, txHash, status: IntentStatus.SUBMITTED };
   }
@@ -142,7 +145,8 @@ export class WithdrawalsService {
       where: { id },
       select: { ...intentSelect, expiresAt: true },
     });
-    if (!intent) throw new NotFoundException(`Withdrawal intent ${id} not found`);
+    if (!intent)
+      throw new NotFoundException(`Withdrawal intent ${id} not found`);
     return intent;
   }
 }

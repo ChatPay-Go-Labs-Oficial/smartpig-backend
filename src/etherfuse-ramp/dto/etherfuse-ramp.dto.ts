@@ -27,7 +27,10 @@ export class CreateEtherfuseCustomerDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Optional display name for the Etherfuse org', required: false })
+  @ApiProperty({
+    description: 'Optional display name for the Etherfuse org',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   displayName?: string;
@@ -144,7 +147,10 @@ export class AcceptAgreementDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Presigned URL obtained from POST /etherfuse/onboarding/presigned-url' })
+  @ApiProperty({
+    description:
+      'Presigned URL obtained from POST /etherfuse/onboarding/presigned-url',
+  })
   @IsString()
   presignedUrl: string;
 }
@@ -164,7 +170,9 @@ export class CreatePixBankAccountDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Presigned URL from POST /etherfuse/onboarding/presigned-url' })
+  @ApiProperty({
+    description: 'Presigned URL from POST /etherfuse/onboarding/presigned-url',
+  })
   @IsString()
   presignedUrl: string;
 
@@ -243,11 +251,17 @@ export class GetEtherfuseQuoteDto {
   @IsIn(['onramp', 'offramp'])
   direction: 'onramp' | 'offramp';
 
-  @ApiProperty({ description: 'Source asset (fiat code for onramp, e.g. MXN; crypto identifier for offramp)' })
+  @ApiProperty({
+    description:
+      'Source asset (fiat code for onramp, e.g. MXN; crypto identifier for offramp)',
+  })
   @IsString()
   sourceAsset: string;
 
-  @ApiProperty({ description: 'Target asset (crypto identifier for onramp; fiat code for offramp, e.g. MXN)' })
+  @ApiProperty({
+    description:
+      'Target asset (crypto identifier for onramp; fiat code for offramp, e.g. MXN)',
+  })
   @IsString()
   targetAsset: string;
 
@@ -255,7 +269,10 @@ export class GetEtherfuseQuoteDto {
   @IsString()
   sourceAmount: string;
 
-  @ApiProperty({ description: "Customer's Stellar wallet address", required: false })
+  @ApiProperty({
+    description: "Customer's Stellar wallet address",
+    required: false,
+  })
   @IsOptional()
   @IsString()
   walletAddress?: string;

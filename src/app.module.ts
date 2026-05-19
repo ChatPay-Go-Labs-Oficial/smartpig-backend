@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './infra/prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { WalletsModule } from './wallets/wallets.module';
@@ -19,6 +21,13 @@ import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
   imports: [
     ConfigModule,
     PrismaModule,
+    RedisModule,
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 60,
+      },
+    ]),
     AuthModule,
     UsersModule,
     WalletsModule,

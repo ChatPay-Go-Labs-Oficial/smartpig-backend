@@ -1,4 +1,8 @@
-import { VaultInfoResponse, VaultBalanceResponse, VaultApyResponse } from '@defindex/sdk';
+import {
+  VaultInfoResponse,
+  VaultBalanceResponse,
+  VaultApyResponse,
+} from '@defindex/sdk';
 import { VaultInfoDto, VaultBalanceDto, VaultApyDto } from './dto/defindex.dto';
 
 export class DefindexMapper {
@@ -16,16 +20,18 @@ export class DefindexMapper {
       assetSymbol: primaryAsset?.symbol ?? null,
       tvl: primaryFunds?.total_amount ?? null,
       apy: raw.apy,
-      assets: raw.assets?.map((a) => ({
-        address: a.address,
-        name: a.name,
-        symbol: a.symbol,
-        strategies: a.strategies?.map((s) => ({
-          address: s.address,
-          name: s.name,
-          paused: s.paused,
+      assets:
+        raw.assets?.map((a) => ({
+          address: a.address,
+          name: a.name,
+          symbol: a.symbol,
+          strategies:
+            a.strategies?.map((s) => ({
+              address: s.address,
+              name: s.name,
+              paused: s.paused,
+            })) ?? [],
         })) ?? [],
-      })) ?? [],
     };
   }
 

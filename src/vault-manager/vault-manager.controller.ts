@@ -1,5 +1,11 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { VaultManagerService } from './vault-manager.service';
 import { CreateManagedVaultDto } from './dto/create-managed-vault.dto';
 import { SubmitManagedVaultDto } from './dto/submit-managed-vault.dto';
@@ -22,7 +28,8 @@ export class VaultManagerController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Vault creation initiated. The unsignedXdr must be signed and submitted back.',
+    description:
+      'Vault creation initiated. The unsignedXdr must be signed and submitted back.',
     schema: {
       example: {
         id: 'cmp7vault001',
@@ -36,8 +43,14 @@ export class VaultManagerController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid request body (e.g. missing name or symbol).' })
-  @ApiResponse({ status: 409, description: 'A vault with the same symbol already exists.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid request body (e.g. missing name or symbol).',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'A vault with the same symbol already exists.',
+  })
   createVault(@Body() dto: CreateManagedVaultDto) {
     return this.vaultManagerService.createVault(dto);
   }
@@ -53,7 +66,11 @@ export class VaultManagerController {
     description:
       'Submits the signed transaction to finalize vault creation on-chain.',
   })
-  @ApiParam({ name: 'id', description: 'Managed vault ID (cuid)', example: 'cmp7vault001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Managed vault ID (cuid)',
+    example: 'cmp7vault001',
+  })
   @ApiResponse({
     status: 201,
     description: 'Vault creation confirmed on-chain.',
@@ -69,9 +86,15 @@ export class VaultManagerController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid or missing signedXdr in request body.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid or missing signedXdr in request body.',
+  })
   @ApiResponse({ status: 404, description: 'Managed vault not found.' })
-  @ApiResponse({ status: 409, description: 'Vault is not in the expected PENDING_SIGNATURE state.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Vault is not in the expected PENDING_SIGNATURE state.',
+  })
   submitVault(@Param('id') id: string, @Body() dto: SubmitManagedVaultDto) {
     return this.vaultManagerService.submitVault(id, dto);
   }
@@ -82,7 +105,11 @@ export class VaultManagerController {
    */
   @Get()
   @ApiOperation({ summary: 'List managed vaults for a user' })
-  @ApiQuery({ name: 'userId', description: 'ID of the user whose managed vaults to list', example: 'nuw8uz50x4swu6b476uf4lla' })
+  @ApiQuery({
+    name: 'userId',
+    description: 'ID of the user whose managed vaults to list',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of managed vaults for the user.',
@@ -111,7 +138,11 @@ export class VaultManagerController {
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get managed vault details' })
-  @ApiParam({ name: 'id', description: 'Managed vault ID (cuid)', example: 'cmp7vault001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Managed vault ID (cuid)',
+    example: 'cmp7vault001',
+  })
   @ApiResponse({
     status: 200,
     description: 'Managed vault details returned successfully.',

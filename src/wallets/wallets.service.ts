@@ -61,7 +61,9 @@ export class WalletsService {
         data: { isActive: true, label: dto.label ?? null },
         select: walletSelect,
       });
-      this.logger.log(`Wallet ${existing.id} re-activated for user ${dto.userId}`);
+      this.logger.log(
+        `Wallet ${existing.id} re-activated for user ${dto.userId}`,
+      );
       return reactivated;
     }
 

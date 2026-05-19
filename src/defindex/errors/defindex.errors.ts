@@ -39,7 +39,11 @@ export function mapDefindexError(error: unknown): never {
     'statusCode' in error &&
     typeof (error as Record<string, unknown>).statusCode === 'number'
   ) {
-    const apiErr = error as { statusCode: number; message?: string; error?: string };
+    const apiErr = error as {
+      statusCode: number;
+      message?: string;
+      error?: string;
+    };
     const msg = apiErr.message ?? apiErr.error ?? 'Unknown DeFindex API error';
 
     logger.warn(`DeFindex API error (${apiErr.statusCode}): ${msg}`);
@@ -69,14 +73,17 @@ export function mapDefindexError(error: unknown): never {
 
   // DeFindex contract-level error (e.g. Soroban HostError: Storage, MissingValue).
   // The API returns {message, errorCode, error} without a statusCode field.
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'errorCode' in error
-  ) {
-    const contractErr = error as { message?: string; errorCode?: number; error?: string };
-    const msg = contractErr.message ?? contractErr.error ?? 'DeFindex contract error';
-    logger.warn(`DeFindex contract error (code=${contractErr.errorCode ?? 'unknown'}): ${msg}`);
+  if (typeof error === 'object' && error !== null && 'errorCode' in error) {
+    const contractErr = error as {
+      message?: string;
+      errorCode?: number;
+      error?: string;
+    };
+    const msg =
+      contractErr.message ?? contractErr.error ?? 'DeFindex contract error';
+    logger.warn(
+      `DeFindex contract error (code=${contractErr.errorCode ?? 'unknown'}): ${msg}`,
+    );
     throw new BadGatewayException(`DeFindex contract error: ${msg}`);
   }
 
@@ -113,7 +120,9 @@ export function mapDefindexError(error: unknown): never {
           'DeFindex rate limit exceeded. Try again shortly.',
         );
       default:
-        throw new BadGatewayException(`DeFindex upstream error (${status ?? 'unknown'}): ${msg}`);
+        throw new BadGatewayException(
+          `DeFindex upstream error (${status ?? 'unknown'}): ${msg}`,
+        );
     }
   }
 
@@ -132,6 +141,8 @@ export function mapDefindexError(error: unknown): never {
     );
   }
 
-  logger.error(`Unexpected DeFindex error (non-Error object): ${JSON.stringify(error)}`);
+  logger.error(
+    `Unexpected DeFindex error (non-Error object): ${JSON.stringify(error)}`,
+  );
   throw new InternalServerErrorException('Unknown error from DeFindex.');
 }

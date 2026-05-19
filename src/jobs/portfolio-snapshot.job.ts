@@ -68,6 +68,8 @@ export class PortfolioSnapshotJob {
       }
     }
 
-    this.logger.log(`Portfolio snapshot complete: ${snapshots} record(s) created`);
+    this.logger.log(
+      `Portfolio snapshot complete: ${snapshots} record(s) created`,
+    );
   }
 }

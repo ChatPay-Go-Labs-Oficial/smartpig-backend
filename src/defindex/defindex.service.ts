@@ -138,13 +138,27 @@ export class DefindexService {
     }
   }
 
-  async generateDepositXdr(params: GenerateDepositXdrDto): Promise<XdrResponseDto> {
-    const { vaultAddress, callerAddress, amounts, slippageBps, invest, network } = params;
+  async generateDepositXdr(
+    params: GenerateDepositXdrDto,
+  ): Promise<XdrResponseDto> {
+    const {
+      vaultAddress,
+      callerAddress,
+      amounts,
+      slippageBps,
+      invest,
+      network,
+    } = params;
     try {
       const raw = await withRetry(() =>
         this.sdk.depositToVault(
           vaultAddress,
-          { caller: callerAddress, amounts, slippageBps, invest: invest ?? true },
+          {
+            caller: callerAddress,
+            amounts,
+            slippageBps,
+            invest: invest ?? true,
+          },
           network,
         ),
       );
@@ -159,8 +173,11 @@ export class DefindexService {
     }
   }
 
-  async generateWithdrawXdr(params: GenerateWithdrawXdrDto): Promise<XdrResponseDto> {
-    const { vaultAddress, callerAddress, shareAmount, slippageBps, network } = params;
+  async generateWithdrawXdr(
+    params: GenerateWithdrawXdrDto,
+  ): Promise<XdrResponseDto> {
+    const { vaultAddress, callerAddress, shareAmount, slippageBps, network } =
+      params;
     try {
       const raw = await withRetry(() =>
         this.sdk.withdrawShares(
@@ -175,9 +192,7 @@ export class DefindexService {
         isSmartWallet: raw.isSmartWallet,
       };
     } catch (err) {
-      this.logger.warn(
-        `generateWithdrawXdr failed for vault=${vaultAddress}`,
-      );
+      this.logger.warn(`generateWithdrawXdr failed for vault=${vaultAddress}`);
       mapDefindexError(err);
     }
   }
@@ -200,7 +215,9 @@ export class DefindexService {
     }
   }
 
-  async createVault(params: CreateVaultParamsDto): Promise<CreateVaultResultDto> {
+  async createVault(
+    params: CreateVaultParamsDto,
+  ): Promise<CreateVaultResultDto> {
     const net = this.defindexConfig.defaultNetwork;
     try {
       const data = await withRetry(() =>

@@ -10,17 +10,23 @@ const APY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 @Injectable()
 export class VaultsService {
   private readonly logger = new Logger(VaultsService.name);
-  private readonly apyCache = new Map<string, { apy: number; expiresAt: number }>();
+  private readonly apyCache = new Map<
+    string,
+    { apy: number; expiresAt: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
     private readonly vaultSyncJob: VaultSyncJob,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   async listVaults() {
-    const allowedIds = this.config.get<string>('ALLOWED_VAULT_IDS', '').split(',').filter(Boolean);
+    const allowedIds = this.config
+      .get<string>('ALLOWED_VAULT_IDS', '')
+      .split(',')
+      .filter(Boolean);
     return this.prisma.vaultCatalog.findMany({
       where: {
         isActive: true,
@@ -66,7 +72,9 @@ export class VaultsService {
       const liveInfo = await this.defindex.getVaultInfo(vault.defindexVaultId);
       return { ...vault, liveInfo };
     } catch (err) {
-      this.logger.warn(`Could not fetch live vault info for ${id}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Could not fetch live vault info for ${id}: ${(err as Error).message}`,
+      );
       return vault;
     }
   }
@@ -89,13 +97,20 @@ export class VaultsService {
           where: { id },
           data: { apy: new Decimal(apy), lastSyncedAt: new Date() },
         })
-        .catch((e) => this.logger.error(`Failed to persist APY for vault ${id}`, e));
+        .catch((e) =>
+          this.logger.error(`Failed to persist APY for vault ${id}`, e),
+        );
 
       return { vaultId: id, apy, cached: false };
     } catch (err) {
       // Fallback to stored APY
       if (vault.apy !== null) {
-        return { vaultId: id, apy: Number(vault.apy), cached: true, stale: true };
+        return {
+          vaultId: id,
+          apy: Number(vault.apy),
+          cached: true,
+          stale: true,
+        };
       }
       throw err;
     }
@@ -103,7 +118,10 @@ export class VaultsService {
 
   async getVaultBalance(id: string, walletAddress: string) {
     const vault = await this.findActiveVaultOrThrow(id);
-    const balance = await this.defindex.getVaultBalance(vault.defindexVaultId, walletAddress);
+    const balance = await this.defindex.getVaultBalance(
+      vault.defindexVaultId,
+      walletAddress,
+    );
     return { vaultId: id, walletAddress, ...balance };
   }
 
@@ -117,7 +135,8 @@ export class VaultsService {
       where: { id },
       select: { id: true, defindexVaultId: true, apy: true, isActive: true },
     });
-    if (!vault || !vault.isActive) throw new NotFoundException(`Vault ${id} not found`);
+    if (!vault || !vault.isActive)
+      throw new NotFoundException(`Vault ${id} not found`);
     return vault;
   }
 }

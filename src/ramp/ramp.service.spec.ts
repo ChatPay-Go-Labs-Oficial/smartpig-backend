@@ -49,7 +49,10 @@ const mockPrisma = {
   },
 };
 
-const mockConfig = { get: jest.fn().mockReturnValue('testnet'), getOrThrow: jest.fn() };
+const mockConfig = {
+  get: jest.fn().mockReturnValue('testnet'),
+  getOrThrow: jest.fn(),
+};
 
 describe('RampService', () => {
   let service: RampService;
@@ -82,12 +85,24 @@ describe('RampService', () => {
     it('creates receiver when none exists', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
       mockBlindPayService.createReceiver.mockResolvedValue({ id: 'bp_r1' });
-      mockPrisma.blindPayReceiver.create.mockResolvedValue({ id: 'r1', blindpayReceiverId: 'bp_r1' });
+      mockPrisma.blindPayReceiver.create.mockResolvedValue({
+        id: 'r1',
+        blindpayReceiverId: 'bp_r1',
+      });
 
-      const result = await service.createReceiver({ userId: 'u1', email: 'alice@example.com', firstName: 'Alice' });
+      const result = await service.createReceiver({
+        userId: 'u1',
+        email: 'alice@example.com',
+        firstName: 'Alice',
+      });
       expect(result.blindpayReceiverId).toBe('bp_r1');
       expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'individual', kyc_type: 'standard', email: 'alice@example.com', country: 'BR' }),
+        expect.objectContaining({
+          type: 'individual',
+          kyc_type: 'standard',
+          email: 'alice@example.com',
+          country: 'BR',
+        }),
       );
     });
   });
@@ -95,7 +110,9 @@ describe('RampService', () => {
   describe('getReceiver', () => {
     it('throws NotFoundException if not found', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
-      await expect(service.getReceiver('u1')).rejects.toThrow(NotFoundException);
+      await expect(service.getReceiver('u1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -105,7 +122,11 @@ describe('RampService', () => {
     it('throws if receiver not found', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
       await expect(
-        service.createOnramp({ userId: 'u1', blockchainWalletId: 'w1', amountBrl: 1000 }),
+        service.createOnramp({
+          userId: 'u1',
+          blockchainWalletId: 'w1',
+          amountBrl: 1000,
+        }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -113,7 +134,11 @@ describe('RampService', () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
       mockPrisma.blindPayBlockchainWallet.findUnique.mockResolvedValue(null);
       await expect(
-        service.createOnramp({ userId: 'u1', blockchainWalletId: 'w1', amountBrl: 1000 }),
+        service.createOnramp({
+          userId: 'u1',
+          blockchainWalletId: 'w1',
+          amountBrl: 1000,
+        }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -147,7 +172,9 @@ describe('RampService', () => {
 
       expect(result.pixCode).toBe('00020101...');
       expect(result.status).toBe(RampStatus.AWAITING_PAYMENT);
-      expect(mockBlindPayService.createPayinStellar).toHaveBeenCalledWith({ payin_quote_id: 'pq_1' });
+      expect(mockBlindPayService.createPayinStellar).toHaveBeenCalledWith({
+        payin_quote_id: 'pq_1',
+      });
     });
   });
 
@@ -203,7 +230,10 @@ describe('RampService', () => {
     it('throws if transaction not found', async () => {
       mockPrisma.offrampTransaction.findFirst.mockResolvedValue(null);
       await expect(
-        service.submitOfframp('of1', 'u1', { userId: 'u1', signedDelegationHash: 'abc123' }),
+        service.submitOfframp('of1', 'u1', {
+          userId: 'u1',
+          signedDelegationHash: 'abc123',
+        }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -213,7 +243,10 @@ describe('RampService', () => {
         status: RampStatus.COMPLETED,
       });
       await expect(
-        service.submitOfframp('of1', 'u1', { userId: 'u1', signedDelegationHash: 'abc123' }),
+        service.submitOfframp('of1', 'u1', {
+          userId: 'u1',
+          signedDelegationHash: 'abc123',
+        }),
       ).rejects.toThrow(BadRequestException);
     });
 

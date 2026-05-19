@@ -7,7 +7,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiProperty,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { WalletsService } from './wallets.service';
 import { StellarService } from './stellar.service';
@@ -35,7 +42,11 @@ export class WalletsController {
    */
   @Get()
   @ApiOperation({ summary: 'List wallets for a user' })
-  @ApiQuery({ name: 'userId', description: 'ID of the user whose wallets to list', example: 'nuw8uz50x4swu6b476uf4lla' })
+  @ApiQuery({
+    name: 'userId',
+    description: 'ID of the user whose wallets to list',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of wallets for the user.',
@@ -44,7 +55,8 @@ export class WalletsController {
         {
           id: 'cmp63d000jivmcajyxlkpy',
           userId: 'nuw8uz50x4swu6b476uf4lla',
-          stellarAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+          stellarAddress:
+            'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
           label: 'My main wallet',
           isActive: true,
           createdAt: '2026-05-15T12:00:00.000Z',
@@ -52,7 +64,10 @@ export class WalletsController {
       ],
     },
   })
-  @ApiResponse({ status: 400, description: 'Missing or invalid userId query parameter.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing or invalid userId query parameter.',
+  })
   listWallets(@Query() query: ListWalletsQuery) {
     return this.walletsService.listWallets(query.userId);
   }
@@ -70,15 +85,24 @@ export class WalletsController {
       example: {
         id: 'cmp63d000jivmcajyxlkpy',
         userId: 'nuw8uz50x4swu6b476uf4lla',
-        stellarAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        stellarAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         label: 'My main wallet',
         isActive: true,
         createdAt: '2026-05-15T12:00:00.000Z',
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid request body (e.g. missing stellarAddress or userId).' })
-  @ApiResponse({ status: 409, description: 'Wallet with this Stellar address already exists for the user.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Invalid request body (e.g. missing stellarAddress or userId).',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Wallet with this Stellar address already exists for the user.',
+  })
   createWallet(@Body() dto: CreateWalletDto) {
     return this.walletsService.createWallet(dto);
   }
@@ -89,7 +113,11 @@ export class WalletsController {
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get wallet details' })
-  @ApiParam({ name: 'id', description: 'Wallet ID (cuid)', example: 'cmp63d000jivmcajyxlkpy' })
+  @ApiParam({
+    name: 'id',
+    description: 'Wallet ID (cuid)',
+    example: 'cmp63d000jivmcajyxlkpy',
+  })
   @ApiResponse({
     status: 200,
     description: 'Wallet details returned successfully.',
@@ -97,7 +125,8 @@ export class WalletsController {
       example: {
         id: 'cmp63d000jivmcajyxlkpy',
         userId: 'nuw8uz50x4swu6b476uf4lla',
-        stellarAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        stellarAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         label: 'My main wallet',
         isActive: true,
         createdAt: '2026-05-15T12:00:00.000Z',
@@ -132,9 +161,14 @@ export class WalletsController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid Stellar address or account not found on network.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid Stellar address or account not found on network.',
+  })
   async buildUsdcTrustlineXdr(@Body() dto: TrustlineXdrDto) {
-    const unsignedXdr = await this.stellarService.buildUsdcTrustlineXdr(dto.stellarAddress);
+    const unsignedXdr = await this.stellarService.buildUsdcTrustlineXdr(
+      dto.stellarAddress,
+    );
     return {
       unsignedXdr,
       asset: 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
@@ -147,7 +181,11 @@ export class WalletsController {
    */
   @Delete(':id')
   @ApiOperation({ summary: 'Deactivate a wallet' })
-  @ApiParam({ name: 'id', description: 'Wallet ID (cuid)', example: 'cmp63d000jivmcajyxlkpy' })
+  @ApiParam({
+    name: 'id',
+    description: 'Wallet ID (cuid)',
+    example: 'cmp63d000jivmcajyxlkpy',
+  })
   @ApiResponse({
     status: 200,
     description: 'Wallet deactivated successfully.',
@@ -155,7 +193,8 @@ export class WalletsController {
       example: {
         id: 'cmp63d000jivmcajyxlkpy',
         userId: 'nuw8uz50x4swu6b476uf4lla',
-        stellarAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        stellarAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         label: 'My main wallet',
         isActive: false,
         createdAt: '2026-05-15T12:00:00.000Z',

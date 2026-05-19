@@ -14,7 +14,11 @@ export class UsersController {
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get user profile' })
-  @ApiParam({ name: 'id', description: 'User ID (cuid)', example: 'nuw8uz50x4swu6b476uf4lla' })
+  @ApiParam({
+    name: 'id',
+    description: 'User ID (cuid)',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
   @ApiResponse({
     status: 200,
     description: 'User profile returned successfully.',
@@ -41,7 +45,11 @@ export class UsersController {
    */
   @Patch(':id')
   @ApiOperation({ summary: 'Update user profile' })
-  @ApiParam({ name: 'id', description: 'User ID (cuid)', example: 'nuw8uz50x4swu6b476uf4lla' })
+  @ApiParam({
+    name: 'id',
+    description: 'User ID (cuid)',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
   @ApiResponse({
     status: 200,
     description: 'User profile updated successfully.',
@@ -69,8 +77,15 @@ export class UsersController {
    */
   @Delete(':id')
   @ApiOperation({ summary: 'Delete user account' })
-  @ApiParam({ name: 'id', description: 'User ID (cuid)', example: 'nuw8uz50x4swu6b476uf4lla' })
-  @ApiResponse({ status: 200, description: 'User account deleted successfully.' })
+  @ApiParam({
+    name: 'id',
+    description: 'User ID (cuid)',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'User account deleted successfully.',
+  })
   @ApiResponse({ status: 404, description: 'User not found.' })
   deleteUser(@Param('id') id: string) {
     return this.usersService.deleteUser(id);

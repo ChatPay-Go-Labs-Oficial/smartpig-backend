@@ -67,7 +67,9 @@ export class DefindexOrchestrator {
       data: { signedXdr, status: IntentStatus.SIGNED_XDR_RECEIVED },
     });
 
-    const result = await this.defindex.submitSignedTransaction({ xdr: signedXdr });
+    const result = await this.defindex.submitSignedTransaction({
+      xdr: signedXdr,
+    });
 
     await this.prisma.depositIntent.update({
       where: { id: intentId },
@@ -103,7 +105,9 @@ export class DefindexOrchestrator {
       data: { signedXdr, status: IntentStatus.SIGNED_XDR_RECEIVED },
     });
 
-    const result = await this.defindex.submitSignedTransaction({ xdr: signedXdr });
+    const result = await this.defindex.submitSignedTransaction({
+      xdr: signedXdr,
+    });
 
     await this.prisma.withdrawalIntent.update({
       where: { id: intentId },
