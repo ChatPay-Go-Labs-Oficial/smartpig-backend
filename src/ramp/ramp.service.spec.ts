@@ -203,7 +203,7 @@ describe('RampService', () => {
     it('throws if transaction not found', async () => {
       mockPrisma.offrampTransaction.findFirst.mockResolvedValue(null);
       await expect(
-        service.submitOfframp('of1', 'u1', { signedDelegationHash: 'abc123' }),
+        service.submitOfframp('of1', 'u1', { userId: 'u1', signedDelegationHash: 'abc123' }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -213,7 +213,7 @@ describe('RampService', () => {
         status: RampStatus.COMPLETED,
       });
       await expect(
-        service.submitOfframp('of1', 'u1', { signedDelegationHash: 'abc123' }),
+        service.submitOfframp('of1', 'u1', { userId: 'u1', signedDelegationHash: 'abc123' }),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -236,6 +236,7 @@ describe('RampService', () => {
       });
 
       const result = await service.submitOfframp('of1', 'u1', {
+        userId: 'u1',
         signedDelegationHash: 'abc123',
       });
 

@@ -332,6 +332,57 @@ export class RampService {
     };
   }
 
+  // ─── Off-ramp: Refresh delegation XDR ──────────────────────────────────────
+
+  async refreshOfframpDelegation(id: string, userId: string) {
+    const txn = await this.prisma.offrampTransaction.findFirst({
+      where: { id, userId },
+    });
+    if (!txn) throw new NotFoundException('Off-ramp transaction not found');
+    if (txn.status !== RampStatus.DELEGATION_NEEDED) {
+      throw new BadRequestException(
+        `Cannot refresh delegation in status ${txn.status}`,
+      );
+    }
+
+    const bankAccount = await this.prisma.blindPayBankAccount.findUnique({
+      where: { id: txn.bankAccountId },
+    });
+    if (!bankAccount) throw new NotFoundException('Bank account not found');
+
+    // Create a fresh quote (the previous one may have expired)
+    const quote = await this.blindpay.createPayoutQuote({
+      bank_account_id: bankAccount.blindpayBankAccountId,
+      currency_type: 'sender',
+      network: this.network,
+      token: this.rampToken,
+      request_amount: Number(txn.amountUsdc),
+    });
+
+    // Create a fresh Stellar delegation with the new quote
+    const delegation = await this.blindpay.prepareStellarDelegation(
+      quote.id,
+      txn.senderWalletAddress,
+    );
+
+    await this.prisma.offrampTransaction.update({
+      where: { id },
+      data: {
+        blindpayQuoteId: quote.id,
+        unsignedDelegationXdr: delegation.transaction_hash,
+        amountBrl: quote.receiver_amount,
+      },
+    });
+
+    return {
+      id: txn.id,
+      status: txn.status,
+      amountUsdc: Number(txn.amountUsdc),
+      amountBrl: Number(quote.receiver_amount),
+      unsignedDelegationXdr: delegation.transaction_hash,
+    };
+  }
+
   // ─── Off-ramp: Submit signed delegation ────────────────────────────────────
 
   async submitOfframp(id: string, userId: string, dto: SubmitOfframpDto) {

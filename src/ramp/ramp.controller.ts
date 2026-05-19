@@ -164,11 +164,20 @@ export class RampController {
     return this.rampService.createOfframp(dto);
   }
 
+  @Post('ramp/offramp/:id/delegation')
+  @ApiOperation({ summary: 'Refresh delegation XDR (when previous one expired)' })
+  refreshOfframpDelegation(
+    @Param('id') id: string,
+    @Body('userId') userId: string,
+  ) {
+    return this.rampService.refreshOfframpDelegation(id, userId);
+  }
+
   @Post('ramp/offramp/:id/submit')
   @ApiOperation({ summary: 'Submit signed XDR for off-ramp' })
   submitOfframp(
     @Param('id') id: string,
-    @Body() dto: SubmitOfframpDto & { userId: string },
+    @Body() dto: SubmitOfframpDto,
   ) {
     return this.rampService.submitOfframp(id, dto.userId, dto);
   }
