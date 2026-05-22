@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { VaultsService } from './vaults.service';
 
 class BalanceQuery {
@@ -10,6 +10,11 @@ class BalanceQuery {
   @IsString()
   @IsNotEmpty()
   walletAddress: string;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  userId?: string;
 }
 
 @ApiTags('Vaults')

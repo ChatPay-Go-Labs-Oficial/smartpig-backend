@@ -40,6 +40,10 @@ export const envSchema = Joi.object({
   ETHERFUSE_BASE_URL: Joi.string().uri().optional(),
   ETHERFUSE_WEBHOOK_SECRET: Joi.string().optional(),
 
+  // Privy — wallet-based auth (required)
+  PRIVY_APP_ID: Joi.string().required(),
+  PRIVY_APP_SECRET: Joi.string().required(),
+
   // Vaults
   ALLOWED_VAULT_IDS: Joi.string().default(''),
 });
