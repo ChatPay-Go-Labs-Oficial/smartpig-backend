@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { WalletLoginDto } from './dto/wallet-login.dto';
+import { Public } from './privy/public.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -14,6 +15,7 @@ export class AuthController {
    * Returns the user profile and wallet info.
    * isNewUser=true when the account was just created.
    */
+  @Public()
   @Post('wallet')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -24,7 +26,8 @@ export class AuthController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Login successful. Returns user profile, wallet info, and whether the account was just created.',
+    description:
+      'Login successful. Returns user profile, wallet info, and whether the account was just created.',
     schema: {
       example: {
         user: {
@@ -35,14 +38,19 @@ export class AuthController {
         },
         wallet: {
           id: 'cmp63d000jivmcajyxlkpy',
-          stellarAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+          stellarAddress:
+            'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
           label: null,
         },
         isNewUser: true,
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid request body (e.g. missing or malformed stellarAddress).' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Invalid request body (e.g. missing or malformed stellarAddress).',
+  })
   walletLogin(@Body() dto: WalletLoginDto) {
     return this.authService.walletLogin(dto);
   }
