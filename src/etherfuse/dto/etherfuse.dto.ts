@@ -53,10 +53,11 @@ export interface SubmitKycParams {
 
 export interface UploadKycDocumentParams {
   pubkey: string;
-  /** base64-encoded file content */
-  content: string;
-  documentType: 'selfie' | 'id_front' | 'id_back';
-  contentType: string;
+  documentType: 'selfie' | 'document';
+  images: Array<{
+    label: 'selfie' | 'id_front' | 'id_back';
+    image: string; /** base64 data URL, e.g. "data:image/jpeg;base64,..." */
+  }>;
 }
 
 export interface KycStatusResponse {

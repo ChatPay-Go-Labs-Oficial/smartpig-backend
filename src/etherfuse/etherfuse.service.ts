@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
-import FormData from 'form-data';
 import { mapEtherfuseError } from './etherfuse.errors';
 import {
   AcceptAgreementParams,
@@ -75,25 +74,7 @@ export class EtherfuseService implements OnModuleInit {
 
   async uploadKycDocument(customerId: string, params: UploadKycDocumentParams): Promise<void> {
     try {
-      const form = new FormData();
-      const fileBuffer = Buffer.from(params.content, 'base64');
-      form.append('file', fileBuffer, {
-        filename: `${params.documentType}.${params.contentType.split('/')[1] ?? 'jpg'}`,
-        contentType: params.contentType,
-      });
-      form.append('pubkey', params.pubkey);
-      form.append('documentType', params.documentType);
-
-      const apiKey = this.config.getOrThrow<string>('ETHERFUSE_API_KEY');
-      const baseUrl = this.config.get<string>('ETHERFUSE_BASE_URL', 'https://api.etherfuse.com');
-
-      await axios.post(`${baseUrl}/ramp/customer/${customerId}/kyc/documents`, form, {
-        headers: {
-          ...form.getHeaders(),
-          Authorization: apiKey,
-        },
-        timeout: 30_000,
-      });
+      await this.http.post(`/ramp/customer/${customerId}/kyc/documents`, params);
     } catch (err) {
       mapEtherfuseError(err);
     }

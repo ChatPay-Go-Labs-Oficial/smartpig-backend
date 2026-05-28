@@ -62,9 +62,9 @@ export class NameDto {
 }
 
 export class IdNumberDto {
-  @ApiProperty({ enum: ['CURP', 'RFC'] })
-  @IsIn(['CURP', 'RFC'])
-  type: 'CURP' | 'RFC';
+  @ApiProperty({ enum: ['CPF', 'CURP', 'RFC'] })
+  @IsIn(['CPF', 'CURP', 'RFC'])
+  type: 'CPF' | 'CURP' | 'RFC';
 
   @ApiProperty()
   @IsString()

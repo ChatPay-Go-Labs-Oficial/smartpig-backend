@@ -128,11 +128,13 @@ export class EtherfuseRampService {
   ) {
     const customer = await this.requireCustomer(dto.userId);
 
+    const dataUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+    const efDocumentType = dto.documentType === 'selfie' ? 'selfie' : 'document';
+
     await this.etherfuse.uploadKycDocument(customer.etherfuseOrgId, {
       pubkey: dto.pubkey,
-      content: fileBuffer.toString('base64'),
-      documentType: dto.documentType,
-      contentType: mimeType,
+      documentType: efDocumentType,
+      images: [{ label: dto.documentType, image: dataUrl }],
     });
 
     return { success: true };
