@@ -580,10 +580,10 @@ export class EtherfuseRampService {
   // ─── Sandbox helpers ────────────────────────────────────────────────────────
 
   async sandboxSimulatePayment(orderId: string, userId: string) {
-    const isSandbox = this.config.get<string>('ETHERFUSE_BASE_URL', '')
-      .includes('sand');
-    if (!isSandbox) {
-      throw new ForbiddenException('This endpoint is only available in the sandbox environment');
+    const baseUrl = this.config.get<string>('ETHERFUSE_BASE_URL', '');
+    const isTestEnv = baseUrl.includes('sand') || baseUrl.includes('dev');
+    if (!isTestEnv) {
+      throw new ForbiddenException('This endpoint is only available in test environments (sandbox/devnet)');
     }
 
     const customer = await this.requireCustomer(userId);

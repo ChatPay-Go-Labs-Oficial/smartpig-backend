@@ -497,8 +497,8 @@ export class EtherfuseRampController {
 
   @Post('etherfuse/sandbox/onramp/:id/simulate-payment')
   @ApiOperation({
-    summary: '[SANDBOX ONLY] Simulate fiat payment received for an on-ramp order',
-    description: 'Triggers `POST /ramp/order/fiat_received` on the Etherfuse sandbox to advance the order to COMPLETED. Only available when `ETHERFUSE_BASE_URL` contains "sand".',
+    summary: '[SANDBOX/DEVNET ONLY] Simulate fiat payment received for an on-ramp order',
+    description: 'Triggers `POST /ramp/order/fiat_received` on the Etherfuse sandbox/devnet to advance the order to COMPLETED. Only available in test environments.',
   })
   @ApiParam({ name: 'id', description: 'Internal order ID or Etherfuse order ID' })
   @ApiResponse({
@@ -513,7 +513,7 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 400, description: 'Order is not an on-ramp' })
-  @ApiResponse({ status: 403, description: 'Only available in sandbox environment' })
+  @ApiResponse({ status: 403, description: 'Only available in test environments' })
   @ApiResponse({ status: 404, description: 'Order not found' })
   sandboxSimulatePayment(
     @Param('id') id: string,
