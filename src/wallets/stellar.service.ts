@@ -6,6 +6,7 @@ import {
   Networks,
   TransactionBuilder,
   Operation,
+  Transaction,
   BASE_FEE,
 } from '@stellar/stellar-sdk';
 
@@ -64,5 +65,22 @@ export class StellarService {
     const xdr = tx.toXDR();
     this.logger.log(`USDC trustline XDR built for account ${stellarAddress}`);
     return xdr;
+  }
+
+  /**
+   * Submits a signed Stellar transaction to the network.
+   * Returns the transaction hash on success.
+   */
+  async submitSignedXdr(signedXdr: string): Promise<{ hash: string }> {
+    try {
+      const transaction = new Transaction(signedXdr, this.networkPassphrase);
+      const result = await this.server.submitTransaction(transaction);
+      this.logger.log(`Transaction submitted: ${result.hash}`);
+      return { hash: result.hash };
+    } catch (err: any) {
+      const message = err?.response?.data?.extras?.result_codes?.tx ?? err?.message ?? 'Unknown error';
+      this.logger.error(`Failed to submit transaction: ${message}`);
+      throw new BadRequestException(`Transaction failed: ${message}`);
+    }
   }
 }

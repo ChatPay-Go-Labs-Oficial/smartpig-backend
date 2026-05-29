@@ -142,6 +142,26 @@ export class WalletsController {
   }
 
   /**
+   * POST /wallets/trustline/submit
+   * Submits a signed ChangeTrust XDR to the Stellar network.
+   */
+  @Post('trustline/submit')
+  @ApiOperation({
+    summary: 'Submit signed USDC trustline XDR',
+    description:
+      'Submits a signed `ChangeTrust` transaction (XDR) for the USDC asset to the Stellar network.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Trustline transaction submitted successfully.',
+    schema: { example: { hash: 'abc123...' } },
+  })
+  @ApiResponse({ status: 400, description: 'Transaction submission failed.' })
+  async submitTrustlineXdr(@Body() dto: TrustlineXdrDto & { signedXdr: string }) {
+    return this.stellarService.submitSignedXdr(dto.signedXdr);
+  }
+
+  /**
    * DELETE /wallets/:id
    * Deactivate a wallet (soft delete).
    */
