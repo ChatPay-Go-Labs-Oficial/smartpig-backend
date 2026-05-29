@@ -309,6 +309,22 @@ export class EtherfuseRampController {
     return this.service.syncBankAccounts(dto.userId);
   }
 
+  // ─── Assets ─────────────────────────────────────────────────────────────────
+
+  @Get('etherfuse/assets')
+  @ApiOperation({
+    summary: 'List available assets for on/off-ramp',
+    description: 'Returns available crypto and fiat assets for the given blockchain and currency.',
+  })
+  @ApiQuery({ name: 'currency', required: true, description: 'Fiat currency code (e.g. brl, mxn)' })
+  @ApiResponse({ status: 200, description: 'List of available assets' })
+  listAssets(
+    @Query('currency') currency: string,
+    @Query('wallet') wallet?: string,
+  ) {
+    return this.service.listAssets('stellar', currency, wallet);
+  }
+
   // ─── Quotes ─────────────────────────────────────────────────────────────────
 
   @Post('etherfuse/quote')

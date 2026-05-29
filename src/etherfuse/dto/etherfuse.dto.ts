@@ -255,6 +255,21 @@ export interface OrderDetailsResponse {
   [key: string]: unknown;
 }
 
+// ─── Assets ────────────────────────────────────────────────────────────────────
+
+export interface EtherfuseAsset {
+  symbol: string;
+  identifier: string;
+  name: string;
+  currency: string;
+  balance: string | null;
+  image: string | null;
+}
+
+export interface EtherfuseAssetsResponse {
+  assets: EtherfuseAsset[];
+}
+
 // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
 export interface EtherfuseWebhookPayload {

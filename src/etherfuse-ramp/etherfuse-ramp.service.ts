@@ -611,6 +611,12 @@ export class EtherfuseRampService {
     return { simulated: true, orderId: order.id, etherfuseOrderId: order.etherfuseOrderId };
   }
 
+  // ─── Assets ─────────────────────────────────────────────────────────────────
+
+  async listAssets(blockchain: string, currency: string, wallet?: string) {
+    return this.etherfuse.getAssets(blockchain, currency, wallet);
+  }
+
   // ─── Private helpers ────────────────────────────────────────────────────────
 
   private async requireCustomer(userId: string) {

@@ -9,6 +9,8 @@ import {
   CreateChildOrgResponse,
   CreateOrderParams,
   CreateOrderResponse,
+  EtherfuseAsset,
+  EtherfuseAssetsResponse,
   EtherfuseBankAccountResponse,
   GeneratePresignedUrlParams,
   GeneratePresignedUrlResponse,
@@ -233,6 +235,21 @@ export class EtherfuseService implements OnModuleInit {
   async sandboxSimulateFiatReceived(etherfuseOrderId: string): Promise<void> {
     try {
       await this.http.post('/ramp/order/fiat_received', { orderId: etherfuseOrderId });
+    } catch (err) {
+      mapEtherfuseError(err);
+    }
+  }
+
+  async getAssets(
+    blockchain: string,
+    currency: string,
+    wallet?: string,
+  ): Promise<EtherfuseAsset[]> {
+    try {
+      const params: Record<string, string> = { blockchain, currency };
+      if (wallet) params.wallet = wallet;
+      const { data } = await this.http.get<EtherfuseAssetsResponse>('/ramp/assets', { params });
+      return data.assets ?? [];
     } catch (err) {
       mapEtherfuseError(err);
     }
