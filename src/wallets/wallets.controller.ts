@@ -162,6 +162,26 @@ export class WalletsController {
   }
 
   /**
+   * GET /wallets/:address/balance
+   * Fetches Stellar account balances for the given wallet address.
+   */
+  @Get(':address/balance')
+  @ApiOperation({
+    summary: 'Get wallet balances from Stellar network',
+    description: 'Returns all non-zero asset balances for a Stellar account.',
+  })
+  @ApiParam({ name: 'address', description: 'Stellar public key (G...)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Wallet balances',
+    schema: { example: { balances: [{ asset: 'USDC:issuer...', balance: '1.99' }] } },
+  })
+  async getWalletBalance(@Param('address') address: string) {
+    const balances = await this.stellarService.getWalletBalances(address);
+    return { balances };
+  }
+
+  /**
    * DELETE /wallets/:id
    * Deactivate a wallet (soft delete).
    */

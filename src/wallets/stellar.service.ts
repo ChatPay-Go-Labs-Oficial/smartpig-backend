@@ -94,4 +94,30 @@ export class StellarService {
       throw new BadRequestException(`Transaction failed: ${detail}`);
     }
   }
+
+  /**
+   * Fetches the account balances from the Stellar network.
+   * Returns all non-zero balances for the given account.
+   */
+  async getWalletBalances(stellarAddress: string): Promise<{ asset: string; balance: string }[]> {
+    try {
+      const account = await this.server.loadAccount(stellarAddress);
+      const balances = account.balances
+        .filter((b: any) => {
+          const bal = parseFloat(b.balance);
+          return bal > 0;
+        })
+        .map((b: any) => ({
+          asset: b.asset_type === 'native'
+            ? 'XLM'
+            : `${b.asset_code}:${b.asset_issuer}`,
+          balance: b.balance,
+        }));
+      this.logger.log(`Wallet balances fetched for ${stellarAddress}: ${balances.length} assets`);
+      return balances;
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch balances for ${stellarAddress}: ${err.message}`);
+      return [];
+    }
+  }
 }
