@@ -65,13 +65,26 @@ export class EtherfuseRampService {
       },
     });
 
-    return this.prisma.etherfuseCustomer.create({
+    const customer = await this.prisma.etherfuseCustomer.create({
       data: {
         userId: dto.userId,
         etherfuseOrgId: org.organizationId,
         kycStatus: EtherfuseKycStatus.NOT_STARTED,
       },
     });
+
+    // Atualiza User com nome e email fornecidos no onboarding
+    const userUpdate: Record<string, string> = {};
+    if (nameParts) userUpdate.name = nameParts;
+    if (dto.email) userUpdate.email = dto.email;
+    if (Object.keys(userUpdate).length > 0) {
+      await this.prisma.user.update({
+        where: { id: dto.userId },
+        data: userUpdate,
+      });
+    }
+
+    return customer;
   }
 
   async getCustomer(userId: string) {
