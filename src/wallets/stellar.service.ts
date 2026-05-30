@@ -1,12 +1,12 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
 import {
   Asset,
   Horizon,
   Networks,
   TransactionBuilder,
   Operation,
-  Transaction,
   BASE_FEE,
 } from '@stellar/stellar-sdk';
 
@@ -68,19 +68,29 @@ export class StellarService {
   }
 
   /**
-   * Submits a signed Stellar transaction to the network.
-   * Returns the transaction hash on success.
+   * Submits a signed Stellar transaction to the network via the Horizon HTTP API.
+   * Uses direct HTTP call instead of Transaction constructor to avoid SDK
+   * parsing issues with certain operation types (e.g. ChangeTrust).
    */
   async submitSignedXdr(signedXdr: string): Promise<{ hash: string }> {
     try {
-      const transaction = new Transaction(signedXdr, this.networkPassphrase);
-      const result = await this.server.submitTransaction(transaction);
-      this.logger.log(`Transaction submitted: ${result.hash}`);
-      return { hash: result.hash };
+      const horizonUrl = this.server.serverURL.toString();
+      const url = `${horizonUrl}transactions`;
+      const body = new URLSearchParams({ tx: signedXdr });
+      const { data } = await axios.post<{ hash: string }>(url, body.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      });
+      this.logger.log(`Transaction submitted: ${data.hash}`);
+      return { hash: data.hash };
     } catch (err: any) {
-      const message = err?.response?.data?.extras?.result_codes?.tx ?? err?.message ?? 'Unknown error';
-      this.logger.error(`Failed to submit transaction: ${message}`);
-      throw new BadRequestException(`Transaction failed: ${message}`);
+      const resp = err?.response?.data as Record<string, unknown> | undefined;
+      const extras = resp?.extras as Record<string, unknown> | undefined;
+      const resultCodes = extras?.result_codes as Record<string, unknown> | undefined;
+      const txCode = resultCodes?.tx as string ?? '';
+      const opCodes = resultCodes?.operations as string[] ?? [];
+      const detail = txCode || opCodes.join(', ') || err?.message || 'Unknown error';
+      this.logger.error(`Failed to submit transaction: ${detail}`);
+      throw new BadRequestException(`Transaction failed: ${detail}`);
     }
   }
 }
