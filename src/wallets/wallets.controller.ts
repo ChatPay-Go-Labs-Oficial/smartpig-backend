@@ -12,7 +12,7 @@ import { IsNotEmpty, IsString } from 'class-validator';
 import { WalletsService } from './wallets.service';
 import { StellarService } from './stellar.service';
 import { CreateWalletDto } from './dto/create-wallet.dto';
-import { TrustlineXdrDto } from './dto/trustline-xdr.dto';
+import { TrustlineXdrDto, SubmitTrustlineXdrDto } from './dto/trustline-xdr.dto';
 
 class ListWalletsQuery {
   @ApiProperty({ description: 'ID of the user whose wallets to list' })
@@ -157,7 +157,7 @@ export class WalletsController {
     schema: { example: { hash: 'abc123...' } },
   })
   @ApiResponse({ status: 400, description: 'Transaction submission failed.' })
-  async submitTrustlineXdr(@Body() dto: TrustlineXdrDto & { signedXdr: string }) {
+  async submitTrustlineXdr(@Body() dto: SubmitTrustlineXdrDto) {
     return this.stellarService.submitSignedXdr(dto.signedXdr);
   }
 

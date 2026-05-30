@@ -12,3 +12,20 @@ export class TrustlineXdrDto {
   @Matches(/^G[A-Z2-7]{55}$/, { message: 'stellarAddress must be a valid Stellar public key' })
   stellarAddress: string;
 }
+
+export class SubmitTrustlineXdrDto {
+  @ApiProperty({ description: 'Signed Stellar transaction XDR (base64)' })
+  @IsString()
+  @IsNotEmpty()
+  signedXdr: string;
+
+  @ApiProperty({
+    description: 'Stellar public key',
+    example: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @Length(56, 56)
+  @Matches(/^G[A-Z2-7]{55}$/)
+  stellarAddress: string;
+}
