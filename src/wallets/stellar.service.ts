@@ -21,18 +21,19 @@ export class StellarService {
   private readonly logger = new Logger(StellarService.name);
   private readonly server: Horizon.Server;
   private readonly networkPassphrase: string;
+  private readonly horizonUrl: string;
 
   constructor(private readonly config: ConfigService) {
     const network = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
     const isMainnet = network === 'mainnet';
 
     this.networkPassphrase = isMainnet ? Networks.PUBLIC : Networks.TESTNET;
-    const horizonUrl = isMainnet
+    this.horizonUrl = isMainnet
       ? 'https://horizon.stellar.org'
       : 'https://horizon-testnet.stellar.org';
 
-    this.server = new Horizon.Server(horizonUrl);
-    this.logger.log(`StellarService initialized on ${network} (${horizonUrl})`);
+    this.server = new Horizon.Server(this.horizonUrl);
+    this.logger.log(`StellarService initialized on ${network} (${this.horizonUrl})`);
   }
 
   /**
@@ -74,8 +75,7 @@ export class StellarService {
    */
   async submitSignedXdr(signedXdr: string): Promise<{ hash: string }> {
     try {
-      const horizonUrl = this.server.serverURL.toString();
-      const url = horizonUrl.endsWith('/') ? `${horizonUrl}transactions` : `${horizonUrl}/transactions`;
+      const url = `${this.horizonUrl}/transactions`;
       const body = new URLSearchParams({ tx: signedXdr });
       const { data } = await axios.post<{ hash: string }>(url, body.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
