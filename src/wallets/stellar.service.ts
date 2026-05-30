@@ -75,7 +75,7 @@ export class StellarService {
   async submitSignedXdr(signedXdr: string): Promise<{ hash: string }> {
     try {
       const horizonUrl = this.server.serverURL.toString();
-      const url = `${horizonUrl}transactions`;
+      const url = horizonUrl.endsWith('/') ? `${horizonUrl}transactions` : `${horizonUrl}/transactions`;
       const body = new URLSearchParams({ tx: signedXdr });
       const { data } = await axios.post<{ hash: string }>(url, body.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -84,11 +84,12 @@ export class StellarService {
       return { hash: data.hash };
     } catch (err: any) {
       const resp = err?.response?.data as Record<string, unknown> | undefined;
+      this.logger.error(`Horizon error response: ${JSON.stringify(resp)}`);
       const extras = resp?.extras as Record<string, unknown> | undefined;
       const resultCodes = extras?.result_codes as Record<string, unknown> | undefined;
       const txCode = resultCodes?.tx as string ?? '';
-      const opCodes = resultCodes?.operations as string[] ?? [];
-      const detail = txCode || opCodes.join(', ') || err?.message || 'Unknown error';
+      const opCodes = resultCodes?.operations as unknown[] ?? [];
+      const detail = txCode || opCodes.join(', ') || resp?.title || err?.message || 'Unknown error';
       this.logger.error(`Failed to submit transaction: ${detail}`);
       throw new BadRequestException(`Transaction failed: ${detail}`);
     }
