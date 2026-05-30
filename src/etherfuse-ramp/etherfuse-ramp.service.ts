@@ -519,6 +519,35 @@ export class EtherfuseRampService {
     return order;
   }
 
+  async syncOrderFromEtherfuse(id: string, userId: string) {
+    const customer = await this.requireCustomer(userId);
+    const order = await this.prisma.etherfuseOrder.findFirst({
+      where: {
+        customerId: customer.id,
+        OR: [{ id }, { etherfuseOrderId: id }],
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (!order.etherfuseOrderId) throw new BadRequestException('Order has no Etherfuse order ID');
+
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId) as any;
+    const efStatus: string = details?.status ?? '';
+    const mapped = this.mapEtherfuseStatus(efStatus);
+
+    if (mapped && order.status !== mapped) {
+      await this.prisma.etherfuseOrder.update({
+        where: { id: order.id },
+        data: {
+          status: mapped,
+          completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(mapped) ? new Date() : undefined,
+        },
+      });
+      this.logger.log(`Order ${order.id} synced: ${order.status} → ${mapped}`);
+    }
+
+    return this.prisma.etherfuseOrder.findUnique({ where: { id: order.id } });
+  }
+
   // ─── Webhook ────────────────────────────────────────────────────────────────
 
   async handleOrderUpdated(etherfuseOrderId: string, status: string) {
@@ -649,6 +678,25 @@ export class EtherfuseRampService {
       case 'refunded': return EtherfuseOrderStatus.REFUNDED;
       case 'processing': return EtherfuseOrderStatus.PROCESSING;
       default: return EtherfuseOrderStatus.PROCESSING;
+    }
+  }
+
+  private mapEtherfuseStatus(efStatus: string): EtherfuseOrderStatus | null {
+    switch (efStatus) {
+      case 'completed':
+      case 'finalized':
+        return EtherfuseOrderStatus.COMPLETED;
+      case 'funded':
+        return EtherfuseOrderStatus.PROCESSING;
+      case 'failed':
+        return EtherfuseOrderStatus.FAILED;
+      case 'refunded':
+        return EtherfuseOrderStatus.REFUNDED;
+      case 'created':
+      case 'processing':
+        return EtherfuseOrderStatus.PROCESSING;
+      default:
+        return null;
     }
   }
 }

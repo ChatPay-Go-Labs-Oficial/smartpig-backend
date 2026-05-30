@@ -493,6 +493,20 @@ export class EtherfuseRampController {
     return this.service.getOrder(id, userId);
   }
 
+  @Post('etherfuse/orders/:id/sync')
+  @ApiOperation({
+    summary: 'Sync order status from Etherfuse',
+    description: 'Fetches the latest order status from the Etherfuse API and updates the local database. Useful when webhooks are not configured or in development.',
+  })
+  @ApiResponse({ status: 200, description: 'Order synced' })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  syncOrder(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+  ) {
+    return this.service.syncOrderFromEtherfuse(id, dto.userId);
+  }
+
   // ─── Sandbox ────────────────────────────────────────────────────────────────
 
   @Post('etherfuse/sandbox/onramp/:id/simulate-payment')
