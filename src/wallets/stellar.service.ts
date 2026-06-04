@@ -7,6 +7,7 @@ import {
   Keypair,
   Networks,
   TransactionBuilder,
+  Transaction,
   Operation,
   BASE_FEE,
 } from '@stellar/stellar-sdk';
@@ -20,11 +21,8 @@ const TESOURO_ISSUER =
 // 10 minutes for the user to sign and submit
 const TX_TIMEOUT_SECONDS = 600;
 
-// Fee for activation: up to 5 operations
-const ACTIVATION_FEE = '100000';
-
-// Minimum account starting balance (base reserve = 0.5 XLM as of Protocol 19+)
-const MIN_STARTING_BALANCE = '0.5';
+// Base fee for FeeBump: 500 stroops (5 operations × 100)
+const FEE_BUMP_FEE = '500';
 
 @Injectable()
 export class StellarService {
@@ -32,6 +30,7 @@ export class StellarService {
   private readonly server: Horizon.Server;
   private readonly networkPassphrase: string;
   private readonly horizonUrl: string;
+  private treasuryKeypair: Keypair | null = null;
 
   constructor(private readonly config: ConfigService) {
     const network = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
@@ -46,6 +45,17 @@ export class StellarService {
     this.logger.log(
       `StellarService initialized on ${network} (${this.horizonUrl})`,
     );
+  }
+
+  private loadTreasury(): Keypair {
+    if (this.treasuryKeypair) return this.treasuryKeypair;
+    const secret = this.config.get<string>('TREASURY_STELLAR_SECRET');
+    if (!secret)
+      throw new BadRequestException(
+        'TREASURY_STELLAR_SECRET is not configured',
+      );
+    this.treasuryKeypair = Keypair.fromSecret(secret);
+    return this.treasuryKeypair;
   }
 
   /**
@@ -124,28 +134,27 @@ export class StellarService {
   }
 
   /**
-   * Builds a partially-signed XDR for account activation via sponsored reserves.
-   * The transaction is pre-signed by the treasury account. The user must add
-   * their signature before submission.
+   * Builds a partially-signed inner XDR for sponsored account activation.
+   * Transaction fee is set to "0" — the FeeBump covers the real fee.
+   *
+   * The inner transaction is pre-signed by Treasury. The user must add their
+   * signature via Privy before returning for FeeBump wrapping + submission.
    *
    * Flow:
-   *   1. CreateAccount (Treasury → User, 0.5 XLM starting balance)
-   *   2. BeginSponsoringFutureReserves (Treasury sponsors User)
+   *   1. BeginSponsoringFutureReserves (Treasury → User)
+   *   2. CreateAccount (Treasury → User, startingBalance: 0)
    *   3. ChangeTrust USDC (User)
    *   4. ChangeTrust TESOURO (User)
    *   5. EndSponsoringFutureReserves (User)
    *
-   * If the account already exists on-chain, only operations 2-5 are included.
+   * Cost per user:
+   *   - 0.5 XLM locked (conta base, patrocinado)
+   *   - 1.0 XLM locked (2 trustlines, patrocinado)
+   *   - ~0.001 XLM fee (pago via FeeBump pela Treasury)
+   *   Total: 0 XLM transferido, 1.5 XLM bloqueado (recuperável)
    */
   async buildActivationXdr(userAddress: string): Promise<string> {
-    const treasurySecret = this.config.get<string>('TREASURY_STELLAR_SECRET');
-    if (!treasurySecret) {
-      throw new BadRequestException(
-        'TREASURY_STELLAR_SECRET is not configured',
-      );
-    }
-
-    const treasuryKeypair = Keypair.fromSecret(treasurySecret);
+    const treasuryKeypair = this.loadTreasury();
     const treasuryPublicKey = treasuryKeypair.publicKey();
 
     this.logger.log(
@@ -165,57 +174,68 @@ export class StellarService {
     }
 
     const accountExists = await this.accountExistsOnChain(userAddress);
-
     const usdc = new Asset(USDC_CODE, USDC_ISSUER);
     const tesouro = new Asset(TESOURO_CODE, TESOURO_ISSUER);
 
+    // Inner transaction: fee "0" (FeeBump cobrirá)
     const builder = new TransactionBuilder(treasuryAccount, {
-      fee: ACTIVATION_FEE,
+      fee: '0',
       networkPassphrase: this.networkPassphrase,
     });
 
-    if (!accountExists) {
-      builder.addOperation(
-        Operation.createAccount({
-          destination: userAddress,
-          startingBalance: MIN_STARTING_BALANCE,
-          source: treasuryPublicKey,
-        }),
-      );
-      this.logger.log(`Activation: CreateAccount for ${userAddress}`);
-    } else {
+    if (accountExists) {
       this.logger.log(
-        `Activation: account ${userAddress} already exists, skipping CreateAccount`,
+        `Activation: account ${userAddress} already exists, skipping sponsorship`,
       );
+      builder
+        .addOperation(
+          Operation.changeTrust({
+            asset: usdc,
+            source: userAddress,
+          }),
+        )
+        .addOperation(
+          Operation.changeTrust({
+            asset: tesouro,
+            source: userAddress,
+          }),
+        );
+    } else {
+      builder
+        .addOperation(
+          Operation.beginSponsoringFutureReserves({
+            sponsoredId: userAddress,
+          }),
+        )
+        .addOperation(
+          Operation.createAccount({
+            destination: userAddress,
+            startingBalance: '0',
+            source: treasuryPublicKey,
+          }),
+        )
+        .addOperation(
+          Operation.changeTrust({
+            asset: usdc,
+            source: userAddress,
+          }),
+        )
+        .addOperation(
+          Operation.changeTrust({
+            asset: tesouro,
+            source: userAddress,
+          }),
+        )
+        .addOperation(
+          Operation.endSponsoringFutureReserves({
+            source: userAddress,
+          }),
+        );
     }
-
-    builder
-      .addOperation(
-        Operation.beginSponsoringFutureReserves({
-          sponsoredId: treasuryPublicKey,
-          source: userAddress,
-        }),
-      )
-      .addOperation(
-        Operation.changeTrust({
-          asset: usdc,
-          source: userAddress,
-        }),
-      )
-      .addOperation(
-        Operation.changeTrust({
-          asset: tesouro,
-          source: userAddress,
-        }),
-      )
-      .addOperation(
-        Operation.endSponsoringFutureReserves({
-          source: userAddress,
-        }),
-      );
 
     const tx = builder.setTimeout(TX_TIMEOUT_SECONDS).build();
 
+    // Treasury signs the inner transaction (autoriza o patrocínio)
     tx.sign(treasuryKeypair);
 
     const xdr = tx.toEnvelope().toXDR('base64');
@@ -223,6 +243,55 @@ export class StellarService {
       `Activation XDR built for ${userAddress} (accountExists=${accountExists}, treasury-signed)`,
     );
     return xdr;
+  }
+
+  /**
+   * Wraps a fully-signed inner transaction in a FeeBump and submits it.
+   * The Treasury pays the fee via FeeBump.
+   */
+  async submitFeeBumpTransaction(
+    innerSignedXdr: string,
+  ): Promise<{ hash: string }> {
+    const treasuryKeypair = this.loadTreasury();
+
+    // Parse the inner signed XDR as a Transaction
+    const innerTx = new Transaction(innerSignedXdr, this.networkPassphrase);
+
+    const feeBump = TransactionBuilder.buildFeeBumpTransaction(
+      treasuryKeypair,
+      FEE_BUMP_FEE,
+      innerTx,
+      this.networkPassphrase,
+    );
+
+    feeBump.sign(treasuryKeypair);
+
+    try {
+      const result = await this.server.submitTransaction(feeBump);
+      const hash = result.hash;
+      this.logger.log(`FeeBump transaction submitted: ${hash}`);
+      return { hash };
+    } catch (err: any) {
+      const resp = err?.response?.data as Record<string, unknown> | undefined;
+      this.logger.error(`FeeBump error response: ${JSON.stringify(resp)}`);
+      const extras = resp?.extras as Record<string, unknown> | undefined;
+      const resultCodes = extras?.result_codes as
+        | Record<string, unknown>
+        | undefined;
+      const txCode = (resultCodes?.tx as string) ?? '';
+      const opCodes = (resultCodes?.operations as unknown[]) ?? [];
+      const rawDetail =
+        txCode ||
+        opCodes.join(', ') ||
+        resp?.title ||
+        err?.message ||
+        'Unknown error';
+      const humanMessage = translateStellarError(rawDetail);
+      this.logger.error(
+        `Failed to submit FeeBump: ${humanMessage} (raw: ${rawDetail})`,
+      );
+      throw new BadRequestException(`Transaction failed: ${humanMessage}`);
+    }
   }
 
   /**
@@ -273,7 +342,7 @@ export class StellarService {
 
 function translateStellarError(code: string): string {
   if (code.includes('op_low_reserve')) {
-    return 'Saldo insuficiente na conta Treasury. Adicione XLM à conta patrocinadora.';
+    return 'Saldo insuficiente na conta Treasury para patrocinar reservas. Adicione XLM à conta patrocinadora.';
   }
   if (
     code.includes('op_no_source_account') ||

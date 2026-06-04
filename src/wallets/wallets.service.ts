@@ -140,7 +140,7 @@ export class WalletsService {
       throw new ConflictException(`Wallet ${dto.walletAccountId} is already activated`);
     }
 
-    const { hash } = await this.stellarService.submitSignedXdr(dto.signedXdr);
+    const { hash } = await this.stellarService.submitFeeBumpTransaction(dto.signedXdr);
 
     await this.prisma.walletAccount.update({
       where: { id: dto.walletAccountId },
