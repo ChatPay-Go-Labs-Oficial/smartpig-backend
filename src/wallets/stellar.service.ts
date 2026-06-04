@@ -14,7 +14,8 @@ import {
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const USDC_CODE = 'USDC';
 const TESOURO_CODE = 'TESOURO';
-const TESOURO_ISSUER = 'GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4';
+const TESOURO_ISSUER =
+  'GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4';
 
 // 10 minutes for the user to sign and submit
 const TX_TIMEOUT_SECONDS = 600;
@@ -42,7 +43,9 @@ export class StellarService {
       : 'https://horizon-testnet.stellar.org';
 
     this.server = new Horizon.Server(this.horizonUrl);
-    this.logger.log(`StellarService initialized on ${network} (${this.horizonUrl})`);
+    this.logger.log(
+      `StellarService initialized on ${network} (${this.horizonUrl})`,
+    );
   }
 
   /**
@@ -54,8 +57,10 @@ export class StellarService {
     let account: Horizon.AccountResponse;
     try {
       account = await this.server.loadAccount(stellarAddress);
-    } catch (err) {
-      this.logger.warn(`Account not found on Stellar network: ${stellarAddress}`);
+    } catch {
+      this.logger.warn(
+        `Account not found on Stellar network: ${stellarAddress}`,
+      );
       throw new BadRequestException(
         `Stellar account ${stellarAddress} not found on the network. ` +
           'The account must be funded before a trustline can be created.',
@@ -86,21 +91,35 @@ export class StellarService {
     try {
       const url = `${this.horizonUrl}/transactions`;
       const body = new URLSearchParams({ tx: signedXdr });
-      const { data } = await axios.post<{ hash: string }>(url, body.toString(), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
+      const { data } = await axios.post<{ hash: string }>(
+        url,
+        body.toString(),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        },
+      );
       this.logger.log(`Transaction submitted: ${data.hash}`);
       return { hash: data.hash };
     } catch (err: any) {
       const resp = err?.response?.data as Record<string, unknown> | undefined;
       this.logger.error(`Horizon error response: ${JSON.stringify(resp)}`);
       const extras = resp?.extras as Record<string, unknown> | undefined;
-      const resultCodes = extras?.result_codes as Record<string, unknown> | undefined;
-      const txCode = resultCodes?.tx as string ?? '';
-      const opCodes = resultCodes?.operations as unknown[] ?? [];
-      const detail = txCode || opCodes.join(', ') || resp?.title || err?.message || 'Unknown error';
-      this.logger.error(`Failed to submit transaction: ${detail}`);
-      throw new BadRequestException(`Transaction failed: ${detail}`);
+      const resultCodes = extras?.result_codes as
+        | Record<string, unknown>
+        | undefined;
+      const txCode = (resultCodes?.tx as string) ?? '';
+      const opCodes = (resultCodes?.operations as unknown[]) ?? [];
+      const rawDetail =
+        txCode ||
+        opCodes.join(', ') ||
+        resp?.title ||
+        err?.message ||
+        'Unknown error';
+      const humanMessage = translateStellarError(rawDetail as string);
+      this.logger.error(
+        `Failed to submit transaction: ${humanMessage} (raw: ${rawDetail})`,
+      );
+      throw new BadRequestException(`Transaction failed: ${humanMessage}`);
     }
   }
 
@@ -121,19 +140,25 @@ export class StellarService {
   async buildActivationXdr(userAddress: string): Promise<string> {
     const treasurySecret = this.config.get<string>('TREASURY_STELLAR_SECRET');
     if (!treasurySecret) {
-      throw new BadRequestException('TREASURY_STELLAR_SECRET is not configured');
+      throw new BadRequestException(
+        'TREASURY_STELLAR_SECRET is not configured',
+      );
     }
 
     const treasuryKeypair = Keypair.fromSecret(treasurySecret);
     const treasuryPublicKey = treasuryKeypair.publicKey();
 
-    this.logger.log(`Loading treasury account ${treasuryPublicKey} from Horizon`);
+    this.logger.log(
+      `Loading treasury account ${treasuryPublicKey} from Horizon`,
+    );
 
     let treasuryAccount: Horizon.AccountResponse;
     try {
       treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
-    } catch (err) {
-      this.logger.error(`Treasury account ${treasuryPublicKey} not found on network`);
+    } catch {
+      this.logger.error(
+        `Treasury account ${treasuryPublicKey} not found on network`,
+      );
       throw new BadRequestException(
         `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
       );
@@ -154,17 +179,21 @@ export class StellarService {
         Operation.createAccount({
           destination: userAddress,
           startingBalance: MIN_STARTING_BALANCE,
+          source: treasuryPublicKey,
         }),
       );
       this.logger.log(`Activation: CreateAccount for ${userAddress}`);
     } else {
-      this.logger.log(`Activation: account ${userAddress} already exists, skipping CreateAccount`);
+      this.logger.log(
+        `Activation: account ${userAddress} already exists, skipping CreateAccount`,
+      );
     }
 
     builder
       .addOperation(
         Operation.beginSponsoringFutureReserves({
-          sponsoredId: userAddress,
+          sponsoredId: treasuryPublicKey,
+          source: userAddress,
         }),
       )
       .addOperation(
@@ -193,7 +222,7 @@ export class StellarService {
     this.logger.log(
       `Activation XDR built for ${userAddress} (accountExists=${accountExists}, treasury-signed)`,
     );
-    return xdr as string;
+    return xdr;
   }
 
   /**
@@ -212,7 +241,9 @@ export class StellarService {
    * Fetches the account balances from the Stellar network.
    * Returns all non-zero balances for the given account.
    */
-  async getWalletBalances(stellarAddress: string): Promise<{ asset: string; balance: string }[]> {
+  async getWalletBalances(
+    stellarAddress: string,
+  ): Promise<{ asset: string; balance: string }[]> {
     try {
       const account = await this.server.loadAccount(stellarAddress);
       const balances = account.balances
@@ -221,16 +252,46 @@ export class StellarService {
           return bal > 0;
         })
         .map((b: any) => ({
-          asset: b.asset_type === 'native'
-            ? 'XLM'
-            : `${b.asset_code}:${b.asset_issuer}`,
+          asset:
+            b.asset_type === 'native'
+              ? 'XLM'
+              : `${b.asset_code}:${b.asset_issuer}`,
           balance: b.balance,
         }));
-      this.logger.log(`Wallet balances fetched for ${stellarAddress}: ${balances.length} assets`);
+      this.logger.log(
+        `Wallet balances fetched for ${stellarAddress}: ${balances.length} assets`,
+      );
       return balances;
     } catch (err: any) {
-      this.logger.warn(`Failed to fetch balances for ${stellarAddress}: ${err.message}`);
+      this.logger.warn(
+        `Failed to fetch balances for ${stellarAddress}: ${err.message}`,
+      );
       return [];
     }
   }
+}
+
+function translateStellarError(code: string): string {
+  if (code.includes('op_low_reserve')) {
+    return 'Saldo insuficiente na conta Treasury. Adicione XLM à conta patrocinadora.';
+  }
+  if (
+    code.includes('op_no_source_account') ||
+    code.includes('op_no_destination')
+  ) {
+    return 'Conta de origem ou destino não encontrada na rede Stellar.';
+  }
+  if (code.includes('op_already_exists')) {
+    return 'A trustline já existe para este ativo.';
+  }
+  if (code.includes('tx_insufficient_fee')) {
+    return 'Taxa de transação insuficiente.';
+  }
+  if (code.includes('tx_insufficient_balance')) {
+    return 'Saldo insuficiente para completar a transação.';
+  }
+  if (code.includes('tx_bad_auth')) {
+    return 'Assinatura inválida. Verifique se o XDR foi assinado corretamente.';
+  }
+  return code;
 }
