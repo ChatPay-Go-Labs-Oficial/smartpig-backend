@@ -130,6 +130,7 @@ model WalletAccount {
   stellarAddress String   @unique
   label          String?
   isActive       Boolean  @default(true)
+  isActivated    Boolean  @default(false)
   createdAt      DateTime @default(now())
 
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -4,6 +4,7 @@ import axios from 'axios';
 import {
   Asset,
   Horizon,
+  Keypair,
   Networks,
   TransactionBuilder,
   Operation,
@@ -12,9 +13,17 @@ import {
 
 const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 const USDC_CODE = 'USDC';
+const TESOURO_CODE = 'TESOURO';
+const TESOURO_ISSUER = 'GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4';
 
 // 10 minutes for the user to sign and submit
 const TX_TIMEOUT_SECONDS = 600;
+
+// Fee for activation: up to 5 operations
+const ACTIVATION_FEE = '100000';
+
+// Minimum account starting balance (base reserve = 0.5 XLM as of Protocol 19+)
+const MIN_STARTING_BALANCE = '0.5';
 
 @Injectable()
 export class StellarService {
@@ -92,6 +101,110 @@ export class StellarService {
       const detail = txCode || opCodes.join(', ') || resp?.title || err?.message || 'Unknown error';
       this.logger.error(`Failed to submit transaction: ${detail}`);
       throw new BadRequestException(`Transaction failed: ${detail}`);
+    }
+  }
+
+  /**
+   * Builds a partially-signed XDR for account activation via sponsored reserves.
+   * The transaction is pre-signed by the treasury account. The user must add
+   * their signature before submission.
+   *
+   * Flow:
+   *   1. CreateAccount (Treasury → User, 0.5 XLM starting balance)
+   *   2. BeginSponsoringFutureReserves (Treasury sponsors User)
+   *   3. ChangeTrust USDC (User)
+   *   4. ChangeTrust TESOURO (User)
+   *   5. EndSponsoringFutureReserves (User)
+   *
+   * If the account already exists on-chain, only operations 2-5 are included.
+   */
+  async buildActivationXdr(userAddress: string): Promise<string> {
+    const treasurySecret = this.config.get<string>('TREASURY_STELLAR_SECRET');
+    if (!treasurySecret) {
+      throw new BadRequestException('TREASURY_STELLAR_SECRET is not configured');
+    }
+
+    const treasuryKeypair = Keypair.fromSecret(treasurySecret);
+    const treasuryPublicKey = treasuryKeypair.publicKey();
+
+    this.logger.log(`Loading treasury account ${treasuryPublicKey} from Horizon`);
+
+    let treasuryAccount: Horizon.AccountResponse;
+    try {
+      treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
+    } catch (err) {
+      this.logger.error(`Treasury account ${treasuryPublicKey} not found on network`);
+      throw new BadRequestException(
+        `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
+      );
+    }
+
+    const accountExists = await this.accountExistsOnChain(userAddress);
+
+    const usdc = new Asset(USDC_CODE, USDC_ISSUER);
+    const tesouro = new Asset(TESOURO_CODE, TESOURO_ISSUER);
+
+    const builder = new TransactionBuilder(treasuryAccount, {
+      fee: ACTIVATION_FEE,
+      networkPassphrase: this.networkPassphrase,
+    });
+
+    if (!accountExists) {
+      builder.addOperation(
+        Operation.createAccount({
+          destination: userAddress,
+          startingBalance: MIN_STARTING_BALANCE,
+        }),
+      );
+      this.logger.log(`Activation: CreateAccount for ${userAddress}`);
+    } else {
+      this.logger.log(`Activation: account ${userAddress} already exists, skipping CreateAccount`);
+    }
+
+    builder
+      .addOperation(
+        Operation.beginSponsoringFutureReserves({
+          sponsoredId: userAddress,
+        }),
+      )
+      .addOperation(
+        Operation.changeTrust({
+          asset: usdc,
+          source: userAddress,
+        }),
+      )
+      .addOperation(
+        Operation.changeTrust({
+          asset: tesouro,
+          source: userAddress,
+        }),
+      )
+      .addOperation(
+        Operation.endSponsoringFutureReserves({
+          source: userAddress,
+        }),
+      );
+
+    const tx = builder.setTimeout(TX_TIMEOUT_SECONDS).build();
+
+    tx.sign(treasuryKeypair);
+
+    const xdr = tx.toEnvelope().toXDR('base64');
+    this.logger.log(
+      `Activation XDR built for ${userAddress} (accountExists=${accountExists}, treasury-signed)`,
+    );
+    return xdr as string;
+  }
+
+  /**
+   * Checks whether a Stellar account exists on-chain by attempting to load it.
+   */
+  private async accountExistsOnChain(address: string): Promise<boolean> {
+    try {
+      await this.server.loadAccount(address);
+      return true;
+    } catch {
+      return false;
     }
   }
 

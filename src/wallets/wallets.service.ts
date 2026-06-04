@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { StellarService } from './stellar.service';
 import { CreateWalletDto } from './dto/create-wallet.dto';
+import { ActivateWalletDto, SubmitActivationDto } from './dto/activate-wallet.dto';
 
 const walletSelect = {
   id: true,
@@ -13,6 +15,7 @@ const walletSelect = {
   stellarAddress: true,
   label: true,
   isActive: true,
+  isActivated: true,
   createdAt: true,
 };
 
@@ -20,7 +23,10 @@ const walletSelect = {
 export class WalletsService {
   private readonly logger = new Logger(WalletsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stellarService: StellarService,
+  ) {}
 
   async listWallets(userId: string) {
     return this.prisma.walletAccount.findMany({
@@ -101,5 +107,47 @@ export class WalletsService {
 
     this.logger.log(`Wallet ${id} deactivated`);
     return { id, isActive: false };
+  }
+
+  async activateWallet(dto: ActivateWalletDto) {
+    const wallet = await this.prisma.walletAccount.findUnique({
+      where: { id: dto.walletAccountId },
+      select: { id: true, userId: true, stellarAddress: true, isActivated: true },
+    });
+
+    if (!wallet) throw new NotFoundException(`Wallet ${dto.walletAccountId} not found`);
+    if (wallet.userId !== dto.userId) {
+      throw new NotFoundException(`Wallet ${dto.walletAccountId} not found for user ${dto.userId}`);
+    }
+    if (wallet.isActivated) {
+      throw new ConflictException(`Wallet ${dto.walletAccountId} is already activated`);
+    }
+
+    const unsignedXdr = await this.stellarService.buildActivationXdr(dto.stellarAddress);
+
+    this.logger.log(`Activation XDR generated for wallet ${dto.walletAccountId}`);
+    return { unsignedXdr };
+  }
+
+  async submitActivation(dto: SubmitActivationDto) {
+    const wallet = await this.prisma.walletAccount.findUnique({
+      where: { id: dto.walletAccountId },
+      select: { id: true, isActivated: true },
+    });
+
+    if (!wallet) throw new NotFoundException(`Wallet ${dto.walletAccountId} not found`);
+    if (wallet.isActivated) {
+      throw new ConflictException(`Wallet ${dto.walletAccountId} is already activated`);
+    }
+
+    const { hash } = await this.stellarService.submitSignedXdr(dto.signedXdr);
+
+    await this.prisma.walletAccount.update({
+      where: { id: dto.walletAccountId },
+      data: { isActivated: true },
+    });
+
+    this.logger.log(`Wallet ${dto.walletAccountId} activated, tx: ${hash}`);
+    return { success: true, txHash: hash };
   }
 }

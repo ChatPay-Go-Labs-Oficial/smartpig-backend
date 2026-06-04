@@ -37,6 +37,7 @@ export class AuthService {
           isActive: existingWallet.isActive,
         },
         isNewUser: false,
+        needsActivation: !existingWallet.isActivated,
       };
     }
 
@@ -71,6 +72,7 @@ export class AuthService {
         isActive: result.wallet.isActive,
       },
       isNewUser: true,
+      needsActivation: true,
     };
   }
 }

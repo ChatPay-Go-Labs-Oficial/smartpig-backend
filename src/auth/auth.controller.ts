@@ -43,6 +43,7 @@ export class AuthController {
           label: null,
         },
         isNewUser: true,
+        needsActivation: true,
       },
     },
   })

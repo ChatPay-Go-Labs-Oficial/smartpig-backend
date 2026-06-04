@@ -44,6 +44,9 @@ export const envSchema = Joi.object({
   PRIVY_APP_ID: Joi.string().required(),
   PRIVY_APP_SECRET: Joi.string().required(),
 
+  // Treasury — sponsored Stellar account activation
+  TREASURY_STELLAR_SECRET: Joi.string().required(),
+
   // Vaults
   ALLOWED_VAULT_IDS: Joi.string().default(''),
 });

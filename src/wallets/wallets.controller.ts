@@ -13,6 +13,7 @@ import { WalletsService } from './wallets.service';
 import { StellarService } from './stellar.service';
 import { CreateWalletDto } from './dto/create-wallet.dto';
 import { TrustlineXdrDto, SubmitTrustlineXdrDto } from './dto/trustline-xdr.dto';
+import { ActivateWalletDto, SubmitActivationDto } from './dto/activate-wallet.dto';
 
 class ListWalletsQuery {
   @ApiProperty({ description: 'ID of the user whose wallets to list' })
@@ -179,6 +180,61 @@ export class WalletsController {
   async getWalletBalance(@Param('address') address: string) {
     const balances = await this.stellarService.getWalletBalances(address);
     return { balances };
+  }
+
+  /**
+   * POST /wallets/activate
+   * Generates a partially-signed activation XDR for a new Stellar account.
+   * Creates the account on-chain (CreateAccount), sponsors reserves for trustlines,
+   * and sets up USDC + TESOURO trustlines. Pre-signed by the treasury account.
+   */
+  @Post('activate')
+  @ApiOperation({
+    summary: 'Generate account activation XDR',
+    description:
+      'Builds a Stellar transaction that creates the account on-chain (if needed), ' +
+      'sponsors reserves via BeginSponsoringFutureReserves, opens trustlines for USDC and TESOURO, ' +
+      'and ends sponsorship. The XDR is pre-signed by the treasury account. ' +
+      'The user must sign and submit via POST /wallets/activate/submit.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Activation XDR generated (pre-signed by treasury).',
+    schema: {
+      example: {
+        unsignedXdr: 'AAAAAgAAAAB...',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid request or treasury not configured.' })
+  @ApiResponse({ status: 404, description: 'Wallet not found.' })
+  @ApiResponse({ status: 409, description: 'Wallet already activated.' })
+  async activateWallet(@Body() dto: ActivateWalletDto) {
+    return this.walletsService.activateWallet(dto);
+  }
+
+  /**
+   * POST /wallets/activate/submit
+   * Submits the fully-signed activation XDR to the Stellar network.
+   * Marks the wallet as activated on success.
+   */
+  @Post('activate/submit')
+  @ApiOperation({
+    summary: 'Submit signed activation XDR',
+    description:
+      'Submits the fully-signed activation transaction (treasury + user signatures) to the Stellar network. ' +
+      'Marks the wallet as activated on success.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Activation transaction submitted successfully.',
+    schema: { example: { success: true, txHash: 'abc123...' } },
+  })
+  @ApiResponse({ status: 400, description: 'Transaction submission failed.' })
+  @ApiResponse({ status: 404, description: 'Wallet not found.' })
+  @ApiResponse({ status: 409, description: 'Wallet already activated.' })
+  async submitActivation(@Body() dto: SubmitActivationDto) {
+    return this.walletsService.submitActivation(dto);
   }
 
   /**
