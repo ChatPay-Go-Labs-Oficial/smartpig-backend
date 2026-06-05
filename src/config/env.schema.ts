@@ -47,6 +47,9 @@ export const envSchema = Joi.object({
   // Treasury — sponsored Stellar account activation
   TREASURY_STELLAR_SECRET: Joi.string().required(),
 
+  // Admin API Key for administrative routes
+  ADMIN_API_KEY: Joi.string().optional(),
+
   // Vaults
   ALLOWED_VAULT_IDS: Joi.string().default(''),
 });

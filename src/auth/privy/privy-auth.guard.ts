@@ -4,14 +4,16 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { InvalidAuthTokenError } from '@privy-io/node';
 import type { AuthenticatedRequest } from './authenticated-request.interface';
+import { IS_ADMIN_KEY } from './admin.decorator';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { PrivyAuthService } from './privy-auth.service';
 
 interface TokenExtraction {
-  headers?: { authorization?: string };
+  headers?: { authorization?: string; 'x-admin-key'?: string };
 }
 
 @Injectable()
@@ -19,6 +21,7 @@ export class PrivyAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly privyAuthService: PrivyAuthService,
+    private readonly configService: ConfigService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -29,6 +32,21 @@ export class PrivyAuthGuard implements CanActivate {
 
     if (isPublic) {
       return true;
+    }
+
+    const isAdmin = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isAdmin) {
+      const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+      const adminKey = this.extractAdminKey(request);
+
+      if (adminKey && adminKey === this.configService.get<string>('ADMIN_API_KEY')) {
+        request.user = { id: 'admin' };
+        return true;
+      }
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -60,5 +78,9 @@ export class PrivyAuthGuard implements CanActivate {
     if (scheme?.toLowerCase() !== 'bearer' || !token) return null;
 
     return token;
+  }
+
+  private extractAdminKey(request: TokenExtraction): string | null {
+    return request.headers?.['x-admin-key'] ?? null;
   }
 }

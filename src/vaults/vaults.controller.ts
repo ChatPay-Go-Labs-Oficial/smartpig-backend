@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Admin } from '../auth/privy/admin.decorator';
 import { VaultsService } from './vaults.service';
 
 class BalanceQuery {
@@ -18,6 +19,7 @@ class BalanceQuery {
 }
 
 @ApiTags('Vaults')
+@Admin()
 @Controller('vaults')
 export class VaultsController {
   constructor(private readonly vaultsService: VaultsService) {}
