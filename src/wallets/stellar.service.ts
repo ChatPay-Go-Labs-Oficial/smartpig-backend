@@ -5,18 +5,11 @@ import {
   Asset,
   Horizon,
   Keypair,
-  Networks,
   TransactionBuilder,
   Transaction,
   Operation,
   BASE_FEE,
 } from '@stellar/stellar-sdk';
-
-const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
-const USDC_CODE = 'USDC';
-const TESOURO_CODE = 'TESOURO';
-const TESOURO_ISSUER =
-  'GC3CW7EDYRTWQ635VDIGY6S4ZUF5L6TQ7AA4MWS7LEQDBLUSZXV7UPS4';
 
 // 10 minutes for the user to sign and submit
 const TX_TIMEOUT_SECONDS = 600;
@@ -30,21 +23,45 @@ export class StellarService {
   private readonly server: Horizon.Server;
   private readonly networkPassphrase: string;
   private readonly horizonUrl: string;
+  private readonly usdcAsset: Asset;
+  private readonly tesouroAsset: Asset | null;
   private treasuryKeypair: Keypair | null = null;
 
   constructor(private readonly config: ConfigService) {
     const network = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
-    const isMainnet = network === 'mainnet';
+    this.networkPassphrase = this.config.getOrThrow<string>(
+      'STELLAR_NETWORK_PASSPHRASE',
+    );
+    this.horizonUrl = this.config.getOrThrow<string>('STELLAR_HORIZON_URL');
+    this.usdcAsset = new Asset(
+      this.config.getOrThrow<string>('STELLAR_USDC_ASSET_CODE'),
+      this.config.getOrThrow<string>('STELLAR_USDC_ISSUER'),
+    );
 
-    this.networkPassphrase = isMainnet ? Networks.PUBLIC : Networks.TESTNET;
-    this.horizonUrl = isMainnet
-      ? 'https://horizon.stellar.org'
-      : 'https://horizon-testnet.stellar.org';
+    const tesouroCode = this.config.get<string>('STELLAR_TESOURO_ASSET_CODE');
+    const tesouroIssuer = this.config.get<string>('STELLAR_TESOURO_ISSUER');
+    if (Boolean(tesouroCode) !== Boolean(tesouroIssuer)) {
+      throw new Error(
+        'STELLAR_TESOURO_ASSET_CODE and STELLAR_TESOURO_ISSUER must be configured together',
+      );
+    }
+    this.tesouroAsset =
+      tesouroCode && tesouroIssuer
+        ? new Asset(tesouroCode, tesouroIssuer)
+        : null;
 
     this.server = new Horizon.Server(this.horizonUrl);
     this.logger.log(
-      `StellarService initialized on ${network} (${this.horizonUrl})`,
+      `StellarService initialized on ${network} (${this.horizonUrl}), USDC=${this.getUsdcAssetId()}, TESOURO=${this.tesouroAsset ? this.assetId(this.tesouroAsset) : 'disabled'}`,
     );
+  }
+
+  getUsdcAssetId(): string {
+    return this.assetId(this.usdcAsset);
+  }
+
+  private assetId(asset: Asset): string {
+    return `${asset.getCode()}:${asset.getIssuer()}`;
   }
 
   private loadTreasury(): Keypair {
@@ -77,13 +94,11 @@ export class StellarService {
       );
     }
 
-    const usdc = new Asset(USDC_CODE, USDC_ISSUER);
-
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
-      .addOperation(Operation.changeTrust({ asset: usdc }))
+      .addOperation(Operation.changeTrust({ asset: this.usdcAsset }))
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
 
@@ -144,14 +159,14 @@ export class StellarService {
    *   1. BeginSponsoringFutureReserves (Treasury → User)
    *   2. CreateAccount (Treasury → User, startingBalance: 0)
    *   3. ChangeTrust USDC (User)
-   *   4. ChangeTrust TESOURO (User)
+   *   4. ChangeTrust TESOURO (User, only when configured)
    *   5. EndSponsoringFutureReserves (User)
    *
    * Cost per user:
    *   - 0.5 XLM locked (conta base, patrocinado)
-   *   - 1.0 XLM locked (2 trustlines, patrocinado)
+   *   - 0.5 XLM per configured trustline (patrocinado)
    *   - ~0.001 XLM fee (pago via FeeBump pela Treasury)
-   *   Total: 0 XLM transferido, 1.5 XLM bloqueado (recuperável)
+   *   Total: 0 XLM transferido; reserva bloqueada varia conforme as trustlines configuradas
    */
   async buildActivationXdr(userAddress: string): Promise<string> {
     const treasuryKeypair = this.loadTreasury();
@@ -174,9 +189,6 @@ export class StellarService {
     }
 
     const accountExists = await this.accountExistsOnChain(userAddress);
-    const usdc = new Asset(USDC_CODE, USDC_ISSUER);
-    const tesouro = new Asset(TESOURO_CODE, TESOURO_ISSUER);
-
     // Inner transaction: fee "0" (FeeBump cobrirá)
     const builder = new TransactionBuilder(treasuryAccount, {
       fee: '0',
@@ -187,19 +199,20 @@ export class StellarService {
       this.logger.log(
         `Activation: account ${userAddress} already exists, skipping sponsorship`,
       );
-      builder
-        .addOperation(
+      builder.addOperation(
+        Operation.changeTrust({
+          asset: this.usdcAsset,
+          source: userAddress,
+        }),
+      );
+      if (this.tesouroAsset) {
+        builder.addOperation(
           Operation.changeTrust({
-            asset: usdc,
-            source: userAddress,
-          }),
-        )
-        .addOperation(
-          Operation.changeTrust({
-            asset: tesouro,
+            asset: this.tesouroAsset,
             source: userAddress,
           }),
         );
+      }
     } else {
       builder
         .addOperation(
@@ -216,21 +229,23 @@ export class StellarService {
         )
         .addOperation(
           Operation.changeTrust({
-            asset: usdc,
-            source: userAddress,
-          }),
-        )
-        .addOperation(
-          Operation.changeTrust({
-            asset: tesouro,
-            source: userAddress,
-          }),
-        )
-        .addOperation(
-          Operation.endSponsoringFutureReserves({
+            asset: this.usdcAsset,
             source: userAddress,
           }),
         );
+      if (this.tesouroAsset) {
+        builder.addOperation(
+          Operation.changeTrust({
+            asset: this.tesouroAsset,
+            source: userAddress,
+          }),
+        );
+      }
+      builder.addOperation(
+        Operation.endSponsoringFutureReserves({
+          source: userAddress,
+        }),
+      );
     }
 
     const tx = builder.setTimeout(TX_TIMEOUT_SECONDS).build();

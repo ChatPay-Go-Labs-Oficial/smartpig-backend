@@ -40,6 +40,14 @@ export const envSchema = Joi.object({
   ETHERFUSE_BASE_URL: Joi.string().uri().optional(),
   ETHERFUSE_WEBHOOK_SECRET: Joi.string().optional(),
 
+  // Stellar
+  STELLAR_HORIZON_URL: Joi.string().uri().required(),
+  STELLAR_NETWORK_PASSPHRASE: Joi.string().required(),
+  STELLAR_USDC_ASSET_CODE: Joi.string().default('USDC'),
+  STELLAR_USDC_ISSUER: Joi.string().required(),
+  STELLAR_TESOURO_ASSET_CODE: Joi.string().optional(),
+  STELLAR_TESOURO_ISSUER: Joi.string().optional(),
+
   // Privy — wallet-based auth (required)
   PRIVY_APP_ID: Joi.string().required(),
   PRIVY_APP_SECRET: Joi.string().required(),

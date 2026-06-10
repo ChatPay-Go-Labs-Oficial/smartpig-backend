@@ -120,7 +120,7 @@ export class WalletsController {
     summary: 'Generate USDC trustline XDR',
     description:
       'Builds an unsigned Stellar transaction (XDR) with a ChangeTrust operation ' +
-      'for USDC (issuer: GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5). ' +
+      'for the USDC asset configured for the active Stellar network. ' +
       'The client signs the XDR with the account private key and submits it to the Stellar network.',
   })
   @ApiResponse({
@@ -129,7 +129,7 @@ export class WalletsController {
     schema: {
       example: {
         unsignedXdr: 'AAAAAgAAAAB...',
-        asset: 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+        asset: 'USDC:configured-issuer',
       },
     },
   })
@@ -138,7 +138,7 @@ export class WalletsController {
     const unsignedXdr = await this.stellarService.buildUsdcTrustlineXdr(dto.stellarAddress);
     return {
       unsignedXdr,
-      asset: 'USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+      asset: this.stellarService.getUsdcAssetId(),
     };
   }
 
@@ -186,14 +186,15 @@ export class WalletsController {
    * POST /wallets/activate
    * Generates a partially-signed activation XDR for a new Stellar account.
    * Creates the account on-chain (CreateAccount), sponsors reserves for trustlines,
-   * and sets up USDC + TESOURO trustlines. Pre-signed by the treasury account.
+   * and sets up the configured trustlines. Pre-signed by the treasury account.
    */
   @Post('activate')
   @ApiOperation({
     summary: 'Generate account activation XDR',
     description:
       'Builds a Stellar transaction that creates the account on-chain (if needed), ' +
-      'sponsors reserves via BeginSponsoringFutureReserves, opens trustlines for USDC and TESOURO, ' +
+      'sponsors reserves via BeginSponsoringFutureReserves, opens the configured USDC trustline ' +
+      'and optionally TESOURO when configured for the active network, ' +
       'and ends sponsorship. The XDR is pre-signed by the treasury account. ' +
       'The user must sign and submit via POST /wallets/activate/submit.',
   })
