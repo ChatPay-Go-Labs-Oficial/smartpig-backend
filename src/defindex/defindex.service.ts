@@ -21,6 +21,37 @@ import {
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 100;
 
+function getHttpStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+
+  if (
+    'statusCode' in error &&
+    typeof (error as Record<string, unknown>).statusCode === 'number'
+  ) {
+    return (error as { statusCode: number }).statusCode;
+  }
+
+  if ('response' in error) {
+    const response = (error as { response?: { status?: unknown } }).response;
+    return typeof response?.status === 'number' ? response.status : undefined;
+  }
+
+  return undefined;
+}
+
+function shouldRetry(error: unknown): boolean {
+  const status = getHttpStatus(error);
+  if (status !== undefined) return status >= 500;
+
+  if (!(error instanceof Error)) return false;
+  return (
+    error.message.includes('timeout') ||
+    error.message.includes('ETIMEDOUT') ||
+    error.message.includes('ECONNRESET') ||
+    error.message.includes('ECONNREFUSED')
+  );
+}
+
 async function withRetry<T>(
   fn: () => Promise<T>,
   attempts = MAX_ATTEMPTS,
@@ -31,11 +62,11 @@ async function withRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      if (attempt < attempts) {
-        await new Promise((r) =>
-          setTimeout(r, BASE_DELAY_MS * Math.pow(4, attempt - 1)),
-        );
-      }
+      if (attempt >= attempts || !shouldRetry(err)) break;
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, BASE_DELAY_MS * Math.pow(2, attempt - 1)),
+      );
     }
   }
   throw lastError;
@@ -45,6 +76,11 @@ async function withRetry<T>(
 export class DefindexService {
   private readonly logger = new Logger(DefindexService.name);
   private readonly httpClient: AxiosInstance;
+  private readonly vaultInfoCache = new Map<
+    string,
+    { value: VaultInfoDto; expiresAt: number }
+  >();
+  private readonly vaultInfoRequests = new Map<string, Promise<VaultInfoDto>>();
 
   constructor(private readonly defindexConfig: DefindexConfig) {
     this.httpClient = axios.create({
@@ -102,9 +138,31 @@ export class DefindexService {
   }
 
   async getVaultInfo(vaultAddress: string): Promise<VaultInfoDto> {
+    const cached = this.vaultInfoCache.get(vaultAddress);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    const pending = this.vaultInfoRequests.get(vaultAddress);
+    if (pending) return pending;
+
+    const request = this.fetchVaultInfo(vaultAddress);
+    this.vaultInfoRequests.set(vaultAddress, request);
+
+    try {
+      return await request;
+    } finally {
+      this.vaultInfoRequests.delete(vaultAddress);
+    }
+  }
+
+  private async fetchVaultInfo(vaultAddress: string): Promise<VaultInfoDto> {
     try {
       const raw = await withRetry(() => this.sdk.getVaultInfo(vaultAddress));
-      return DefindexMapper.toVaultInfo(vaultAddress, raw);
+      const info = DefindexMapper.toVaultInfo(vaultAddress, raw);
+      this.vaultInfoCache.set(vaultAddress, {
+        value: info,
+        expiresAt: Date.now() + this.defindexConfig.vaultInfoCacheTtlMs,
+      });
+      return info;
     } catch (err) {
       this.logger.warn(`getVaultInfo failed for ${vaultAddress}`);
       mapDefindexError(err);
@@ -138,13 +196,27 @@ export class DefindexService {
     }
   }
 
-  async generateDepositXdr(params: GenerateDepositXdrDto): Promise<XdrResponseDto> {
-    const { vaultAddress, callerAddress, amounts, slippageBps, invest, network } = params;
+  async generateDepositXdr(
+    params: GenerateDepositXdrDto,
+  ): Promise<XdrResponseDto> {
+    const {
+      vaultAddress,
+      callerAddress,
+      amounts,
+      slippageBps,
+      invest,
+      network,
+    } = params;
     try {
       const raw = await withRetry(() =>
         this.sdk.depositToVault(
           vaultAddress,
-          { caller: callerAddress, amounts, slippageBps, invest: invest ?? true },
+          {
+            caller: callerAddress,
+            amounts,
+            slippageBps,
+            invest: invest ?? true,
+          },
           network,
         ),
       );
@@ -159,8 +231,11 @@ export class DefindexService {
     }
   }
 
-  async generateWithdrawXdr(params: GenerateWithdrawXdrDto): Promise<XdrResponseDto> {
-    const { vaultAddress, callerAddress, shareAmount, slippageBps, network } = params;
+  async generateWithdrawXdr(
+    params: GenerateWithdrawXdrDto,
+  ): Promise<XdrResponseDto> {
+    const { vaultAddress, callerAddress, shareAmount, slippageBps, network } =
+      params;
     try {
       const raw = await withRetry(() =>
         this.sdk.withdrawShares(
@@ -175,9 +250,7 @@ export class DefindexService {
         isSmartWallet: raw.isSmartWallet,
       };
     } catch (err) {
-      this.logger.warn(
-        `generateWithdrawXdr failed for vault=${vaultAddress}`,
-      );
+      this.logger.warn(`generateWithdrawXdr failed for vault=${vaultAddress}`);
       mapDefindexError(err);
     }
   }
@@ -200,7 +273,9 @@ export class DefindexService {
     }
   }
 
-  async createVault(params: CreateVaultParamsDto): Promise<CreateVaultResultDto> {
+  async createVault(
+    params: CreateVaultParamsDto,
+  ): Promise<CreateVaultResultDto> {
     const net = this.defindexConfig.defaultNetwork;
     try {
       const data = await withRetry(() =>

@@ -23,7 +23,10 @@ Reconcilia transações que foram submetidas mas ainda estão como `PENDING`. Pa
 
 ### ApySyncJob
 **Arquivo:** `apy-sync.job.ts`
-**Frequência:** A cada 10 minutos (`0 */10 * * * *`)
+**Frequência:** A cada 10 minutos, começando no minuto 5 (`0 5/10 * * * *`)
+
+O deslocamento de cinco minutos evita que este job dispute o rate limit com o
+`VaultSyncJob`, executado nos minutos 0 e 30.
 
 Para cada vault ativo no banco:
 1. Chama `DefindexService.getVaultInfo()` — uma única chamada que retorna APY e TVL

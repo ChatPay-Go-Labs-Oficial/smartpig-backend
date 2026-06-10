@@ -7,13 +7,21 @@ export class DefindexConfig {
   readonly sdk: DefindexSDK;
   readonly defaultNetwork: SupportedNetworks;
   readonly timeoutMs: number;
+  readonly vaultInfoCacheTtlMs: number;
   readonly apiKey: string;
   readonly baseUrl: string;
 
   constructor(private readonly config: ConfigService) {
     this.timeoutMs = this.config.get<number>('DEFINDEX_TIMEOUT_MS', 10000);
+    this.vaultInfoCacheTtlMs = this.config.get<number>(
+      'DEFINDEX_VAULT_INFO_CACHE_TTL_MS',
+      5 * 60 * 1000,
+    );
     this.apiKey = this.config.get<string>('DEFINDEX_API_KEY', '');
-    this.baseUrl = this.config.get<string>('DEFINDEX_BASE_URL', 'https://api.defindex.io');
+    this.baseUrl = this.config.get<string>(
+      'DEFINDEX_BASE_URL',
+      'https://api.defindex.io',
+    );
 
     const rawNetwork = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
     this.defaultNetwork =

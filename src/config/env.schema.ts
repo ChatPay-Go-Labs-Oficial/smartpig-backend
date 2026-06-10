@@ -23,6 +23,7 @@ export const envSchema = Joi.object({
   DEFINDEX_API_KEY: Joi.string().optional(),
   DEFINDEX_BASE_URL: Joi.string().uri().optional(),
   DEFINDEX_TIMEOUT_MS: Joi.number().default(10000),
+  DEFINDEX_VAULT_INFO_CACHE_TTL_MS: Joi.number().min(0).default(300000),
   DEFINDEX_NETWORK: Joi.string().valid('testnet', 'mainnet').default('testnet'),
 
   // Redis

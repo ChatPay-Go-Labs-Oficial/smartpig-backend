@@ -20,7 +20,7 @@ Encapsula toda a comunicação com o protocolo DeFindex via SDK oficial (`@defin
 ## DefindexService
 
 Ponto central de chamadas ao SDK. Todos os métodos:
-1. Executam com retry automático (3 tentativas, backoff exponencial)
+1. Executam com retry automático para erros `5xx` e falhas de rede
 2. Mapeiam erros do SDK para exceções NestJS via `mapDefindexError`
 
 | Método | Descrição |
@@ -42,9 +42,13 @@ Ponto central de chamadas ao SDK. Todos os métodos:
 ```
 Tentativa 1: imediata
 Tentativa 2: aguarda 100ms
-Tentativa 3: aguarda 400ms
-(máx 3 tentativas, backoff base 100ms × 4^(n-1))
+Tentativa 3: aguarda 200ms
+(máx 3 tentativas; erros HTTP 4xx, incluindo 429, não são repetidos)
 ```
+
+`getVaultInfo()` mantém cache in-memory por 5 minutos e consolida chamadas
+simultâneas para o mesmo endereço. O TTL pode ser alterado com
+`DEFINDEX_VAULT_INFO_CACHE_TTL_MS`.
 
 ## DefindexOrchestrator
 

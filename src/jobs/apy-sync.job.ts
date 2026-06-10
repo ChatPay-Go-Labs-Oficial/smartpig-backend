@@ -20,7 +20,7 @@ export class ApySyncJob {
     private readonly defindex: DefindexService,
   ) {}
 
-  @Cron('0 */10 * * * *') // every 10 minutes
+  @Cron('0 5/10 * * * *') // every 10 minutes, offset from vault discovery
   async syncApyForAllVaults() {
     const vaults = await this.prisma.vaultCatalog.findMany({
       where: { isActive: true },
@@ -47,7 +47,9 @@ export class ApySyncJob {
         });
         updated++;
       } catch (err) {
-        this.logger.warn(`APY sync failed for vault ${vault.name}: ${(err as Error).message}`);
+        this.logger.warn(
+          `APY sync failed for vault ${vault.name}: ${(err as Error).message}`,
+        );
       }
     }
 
