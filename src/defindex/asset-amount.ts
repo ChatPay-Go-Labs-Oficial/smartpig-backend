@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 
+export const DEFINDEX_SHARE_DECIMALS = 7;
+
 export function toAssetUnits(
   amount: Decimal | string,
   assetDecimals: number,

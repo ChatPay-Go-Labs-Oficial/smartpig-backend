@@ -156,11 +156,22 @@ export class DepositsService {
   }
 
   async listDeposits(userId: string) {
-    return this.prisma.depositIntent.findMany({
+    const deposits = await this.prisma.depositIntent.findMany({
       where: { userId },
-      select: intentSelect,
+      select: {
+        ...intentSelect,
+        transaction: { select: { status: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
+
+    return deposits.map(({ transaction, ...deposit }) => ({
+      ...deposit,
+      status:
+        transaction?.status === 'CONFIRMED'
+          ? IntentStatus.CONFIRMED
+          : deposit.status,
+    }));
   }
 
   private async findIntentOrThrow(id: string) {

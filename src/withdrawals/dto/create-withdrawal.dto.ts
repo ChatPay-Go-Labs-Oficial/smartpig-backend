@@ -3,7 +3,8 @@ import { IsDecimal, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 export class CreateWithdrawalDto {
   @ApiProperty({
-    description: 'Unique key to prevent duplicate processing of the same intent',
+    description:
+      'Unique key to prevent duplicate processing of the same intent',
     example: 'd290f1ee-6c54-4b01-90e6-d701748f0851',
   })
   @IsString()
@@ -41,12 +42,12 @@ export class CreateWithdrawalDto {
 
   /**
    * Amount of dfTokens (shares) to withdraw, as a decimal string.
-   * e.g. "50.00000000"
+   * e.g. "50.0000000"
    */
   @ApiProperty({
     description: 'Amount of shares (dfTokens) to withdraw',
-    example: '50.00000000',
+    example: '50.0000000',
   })
-  @IsDecimal({ decimal_digits: '0,8', force_decimal: false })
+  @IsDecimal({ decimal_digits: '0,7', force_decimal: false })
   shareAmount: string;
 }

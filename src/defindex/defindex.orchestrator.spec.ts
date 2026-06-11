@@ -42,18 +42,54 @@ describe('DefindexOrchestrator', () => {
     });
   });
 
+  it('sends withdrawal shares to DeFindex in minimum dfToken units', async () => {
+    const generateWithdrawXdr = jest
+      .fn()
+      .mockResolvedValue({ xdr: 'unsigned-withdraw-xdr' });
+    const prisma = {
+      withdrawalIntent: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'withdrawal-1',
+          shareAmount: new Decimal('1.5'),
+          vault: { defindexVaultId: 'vault-address' },
+          walletAccount: { stellarAddress: 'wallet-address' },
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as unknown as PrismaService;
+    const defindex = { generateWithdrawXdr } as unknown as DefindexService;
+    const orchestrator = new DefindexOrchestrator(
+      defindex,
+      prisma,
+      {} as StellarService,
+    );
+
+    await expect(orchestrator.buildWithdrawXdr('withdrawal-1')).resolves.toBe(
+      'unsigned-withdraw-xdr',
+    );
+    expect(generateWithdrawXdr).toHaveBeenCalledWith({
+      vaultAddress: 'vault-address',
+      callerAddress: 'wallet-address',
+      shareAmount: 15_000_000,
+    });
+  });
+
   it('wraps a signed deposit in a treasury-sponsored fee bump', async () => {
     const updateDepositIntent = jest.fn().mockResolvedValue({});
     const prisma = {
       depositIntent: {
         findUniqueOrThrow: jest.fn().mockResolvedValue({
           unsignedXdr: 'unsigned-xdr',
+          userId: 'user-1',
         }),
         update: updateDepositIntent,
       },
       transactionRecord: {
         create: jest.fn().mockResolvedValue({}),
       },
+      $transaction: jest.fn((operations: Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
     } as unknown as PrismaService;
     const submitSignedTransaction = jest.fn().mockResolvedValue({
       txHash: 'tx-hash',
@@ -85,6 +121,10 @@ describe('DefindexOrchestrator', () => {
         status: 'SIGNED_XDR_RECEIVED',
       },
     });
+    expect(updateDepositIntent).toHaveBeenCalledWith({
+      where: { id: 'deposit-1' },
+      data: { status: 'CONFIRMED' },
+    });
   });
 
   it('wraps a signed withdrawal in a treasury-sponsored fee bump', async () => {
@@ -99,6 +139,9 @@ describe('DefindexOrchestrator', () => {
       transactionRecord: {
         create: jest.fn().mockResolvedValue({}),
       },
+      $transaction: jest.fn((operations: Promise<unknown>[]) =>
+        Promise.all(operations),
+      ),
     } as unknown as PrismaService;
     const submitSignedTransaction = jest.fn().mockResolvedValue({
       txHash: 'withdraw-tx-hash',

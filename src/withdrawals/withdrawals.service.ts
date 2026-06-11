@@ -11,6 +11,10 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexOrchestrator } from '../defindex/defindex.orchestrator';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
+import {
+  DEFINDEX_SHARE_DECIMALS,
+  toAssetUnits,
+} from '../defindex/asset-amount';
 
 const INTENT_TTL_HOURS = 24;
 
@@ -67,6 +71,9 @@ export class WithdrawalsService {
       );
     }
 
+    // DeFindex vault shares always use 7 decimal places.
+    toAssetUnits(dto.shareAmount, DEFINDEX_SHARE_DECIMALS);
+
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + INTENT_TTL_HOURS);
 
@@ -120,7 +127,10 @@ export class WithdrawalsService {
       throw new BadRequestException(`Withdrawal intent ${id} has expired`);
     }
 
-    const { txHash } = await this.orchestrator.submitWithdrawal(id, dto.signedXdr);
+    const { txHash } = await this.orchestrator.submitWithdrawal(
+      id,
+      dto.signedXdr,
+    );
     this.logger.log(`Withdrawal ${id} submitted to chain → txHash=${txHash}`);
     return { id, txHash, status: IntentStatus.SUBMITTED };
   }
@@ -130,11 +140,22 @@ export class WithdrawalsService {
   }
 
   async listWithdrawals(userId: string) {
-    return this.prisma.withdrawalIntent.findMany({
+    const withdrawals = await this.prisma.withdrawalIntent.findMany({
       where: { userId },
-      select: intentSelect,
+      select: {
+        ...intentSelect,
+        transaction: { select: { status: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
+
+    return withdrawals.map(({ transaction, ...withdrawal }) => ({
+      ...withdrawal,
+      status:
+        transaction?.status === 'CONFIRMED'
+          ? IntentStatus.CONFIRMED
+          : withdrawal.status,
+    }));
   }
 
   private async findIntentOrThrow(id: string) {
@@ -142,7 +163,8 @@ export class WithdrawalsService {
       where: { id },
       select: { ...intentSelect, expiresAt: true },
     });
-    if (!intent) throw new NotFoundException(`Withdrawal intent ${id} not found`);
+    if (!intent)
+      throw new NotFoundException(`Withdrawal intent ${id} not found`);
     return intent;
   }
 }
