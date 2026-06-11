@@ -67,6 +67,7 @@ export class VaultSyncJob {
             defindexVaultId: vault.address,
             name: vaultName,
             assetSymbol,
+            assetDecimals: 7,
             apy: vault.apy != null ? new Decimal(vault.apy) : null,
             tvl,
             isActive: true,
@@ -80,7 +81,7 @@ export class VaultSyncJob {
             isActive: true,
             lastSyncedAt: new Date(),
           },
-        });
+        } as never);
 
         upserted++;
       } catch (err) {

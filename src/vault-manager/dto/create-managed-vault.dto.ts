@@ -64,6 +64,18 @@ export class VaultAssetDto {
   @IsNotEmpty()
   symbol: string;
 
+  @ApiProperty({
+    description: 'Number of decimal places used by the asset',
+    example: 7,
+    default: 7,
+    required: false,
+  })
+  @IsInt()
+  @Min(0)
+  @Max(18)
+  @IsOptional()
+  decimals?: number;
+
   @ApiProperty({ description: 'Initial asset amount', default: 0 })
   @IsNumber()
   @Min(0)

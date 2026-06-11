@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from './defindex.service';
 import { IntentStatus } from '@prisma/client';
+import { toAssetUnits } from './asset-amount';
 
 /**
  * Orchestrates multi-step DeFindex flows that touch both the DB and the SDK.
@@ -23,11 +24,14 @@ export class DefindexOrchestrator {
       where: { id: intentId },
       include: { vault: true, walletAccount: true },
     });
+    const vault = intent.vault as typeof intent.vault & {
+      assetDecimals: number;
+    };
 
     const { xdr } = await this.defindex.generateDepositXdr({
-      vaultAddress: intent.vault.defindexVaultId,
+      vaultAddress: vault.defindexVaultId,
       callerAddress: intent.walletAccount.stellarAddress,
-      amounts: [Number(intent.amount)],
+      amounts: [toAssetUnits(intent.amount, vault.assetDecimals)],
     });
 
     await this.prisma.depositIntent.update({

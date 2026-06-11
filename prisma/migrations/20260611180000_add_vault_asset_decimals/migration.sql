@@ -1,0 +1,2 @@
+ALTER TABLE "vault_catalog"
+ADD COLUMN "assetDecimals" INTEGER NOT NULL DEFAULT 7;

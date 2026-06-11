@@ -27,7 +27,12 @@ export class VaultManagerService {
       symbol: dto.symbol,
       vaultFee: dto.vaultFeeBps,
       upgradable: dto.upgradable ?? true,
-      assets: dto.assets,
+      assets: dto.assets.map(({ address, symbol, amount, strategies }) => ({
+        address,
+        symbol,
+        amount,
+        strategies,
+      })),
     });
 
     const managed = await this.prisma.managedVault.create({
@@ -95,18 +100,23 @@ export class VaultManagerService {
         : managed.predictedVaultAddress;
 
     // Extract asset symbol from the stored assets JSON (first asset's symbol).
-    const assetsJson = managed.assets as Array<{ symbol?: string }>;
+    const assetsJson = managed.assets as Array<{
+      symbol?: string;
+      decimals?: number;
+    }>;
     const assetSymbol = assetsJson?.[0]?.symbol ?? 'UNKNOWN';
+    const assetDecimals = assetsJson?.[0]?.decimals ?? 7;
 
     let vaultCatalogId: string | undefined;
     if (vaultAddress) {
-      const catalog = await this.prisma.vaultCatalog.upsert({
+      const catalog = (await this.prisma.vaultCatalog.upsert({
         where: { defindexVaultId: vaultAddress },
         create: {
           defindexVaultId: vaultAddress,
           name: managed.name,
           description: managed.description,
           assetSymbol,
+          assetDecimals,
           isActive: true,
           lastSyncedAt: new Date(),
         },
@@ -114,10 +124,11 @@ export class VaultManagerService {
           name: managed.name,
           description: managed.description ?? undefined,
           assetSymbol,
+          assetDecimals,
           isActive: true,
         },
         select: { id: true },
-      });
+      } as never)) as { id: string };
       vaultCatalogId = catalog.id;
     }
 

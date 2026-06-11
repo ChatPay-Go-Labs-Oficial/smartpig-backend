@@ -11,6 +11,7 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexOrchestrator } from '../defindex/defindex.orchestrator';
 import { CreateDepositDto } from './dto/create-deposit.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
+import { toAssetUnits } from '../defindex/asset-amount';
 
 const INTENT_TTL_HOURS = 24;
 
@@ -50,13 +51,32 @@ export class DepositsService {
     }
 
     // Validate vault exists and is active
-    const vault = await this.prisma.vaultCatalog.findUnique({
+    const vault = (await this.prisma.vaultCatalog.findUnique({
       where: { id: dto.vaultId },
-      select: { id: true, isActive: true },
-    });
+      select: {
+        id: true,
+        isActive: true,
+        assetSymbol: true,
+        assetDecimals: true,
+      },
+    } as never)) as {
+      id: string;
+      isActive: boolean;
+      assetSymbol: string;
+      assetDecimals: number;
+    } | null;
     if (!vault || !vault.isActive) {
       throw new NotFoundException(`Vault ${dto.vaultId} not found or inactive`);
     }
+
+    if (dto.assetSymbol.toUpperCase() !== vault.assetSymbol.toUpperCase()) {
+      throw new BadRequestException(
+        `Vault ${dto.vaultId} accepts ${vault.assetSymbol}, not ${dto.assetSymbol}`,
+      );
+    }
+
+    // Validate precision and SDK numeric limits before persisting the intent.
+    toAssetUnits(dto.amount, vault.assetDecimals);
 
     // Validate wallet belongs to the user
     const wallet = await this.prisma.walletAccount.findFirst({
@@ -80,7 +100,7 @@ export class DepositsService {
         walletAccountId: dto.walletAccountId,
         vaultId: dto.vaultId,
         amount: new Decimal(dto.amount),
-        assetSymbol: dto.assetSymbol,
+        assetSymbol: vault.assetSymbol,
         expiresAt,
       },
     });

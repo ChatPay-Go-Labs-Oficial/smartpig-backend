@@ -150,6 +150,7 @@ model VaultCatalog {
   defindexVaultId  String   @unique
   name             String
   assetSymbol      String
+  assetDecimals    Int      @default(7)
   description      String?
   apy              Decimal? @db.Decimal(10, 4)
   tvl              Decimal? @db.Decimal(30, 8)
