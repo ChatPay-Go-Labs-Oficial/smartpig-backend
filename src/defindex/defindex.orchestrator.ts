@@ -3,6 +3,7 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from './defindex.service';
 import { IntentStatus } from '@prisma/client';
 import { toAssetUnits } from './asset-amount';
+import { StellarService } from '../wallets/stellar.service';
 
 /**
  * Orchestrates multi-step DeFindex flows that touch both the DB and the SDK.
@@ -17,6 +18,7 @@ export class DefindexOrchestrator {
   constructor(
     private readonly defindex: DefindexService,
     private readonly prisma: PrismaService,
+    private readonly stellar: StellarService,
   ) {}
 
   async buildDepositXdr(intentId: string): Promise<string | null> {
@@ -66,12 +68,29 @@ export class DefindexOrchestrator {
     intentId: string,
     signedXdr: string,
   ): Promise<{ txHash: string }> {
+    const intent = await this.prisma.depositIntent.findUniqueOrThrow({
+      where: { id: intentId },
+      select: { unsignedXdr: true },
+    });
+    if (!intent.unsignedXdr) {
+      throw new Error(`Deposit ${intentId} has no unsigned XDR`);
+    }
+    const sponsoredXdr = this.stellar.buildSponsoredFeeBumpXdr(
+      signedXdr,
+      intent.unsignedXdr,
+    );
+
     await this.prisma.depositIntent.update({
       where: { id: intentId },
-      data: { signedXdr, status: IntentStatus.SIGNED_XDR_RECEIVED },
+      data: {
+        signedXdr: sponsoredXdr,
+        status: IntentStatus.SIGNED_XDR_RECEIVED,
+      },
     });
 
-    const result = await this.defindex.submitSignedTransaction({ xdr: signedXdr });
+    const result = await this.defindex.submitSignedTransaction({
+      xdr: sponsoredXdr,
+    });
 
     await this.prisma.depositIntent.update({
       where: { id: intentId },
@@ -102,12 +121,29 @@ export class DefindexOrchestrator {
     intentId: string,
     signedXdr: string,
   ): Promise<{ txHash: string }> {
+    const intent = await this.prisma.withdrawalIntent.findUniqueOrThrow({
+      where: { id: intentId },
+      select: { unsignedXdr: true },
+    });
+    if (!intent.unsignedXdr) {
+      throw new Error(`Withdrawal ${intentId} has no unsigned XDR`);
+    }
+    const sponsoredXdr = this.stellar.buildSponsoredFeeBumpXdr(
+      signedXdr,
+      intent.unsignedXdr,
+    );
+
     await this.prisma.withdrawalIntent.update({
       where: { id: intentId },
-      data: { signedXdr, status: IntentStatus.SIGNED_XDR_RECEIVED },
+      data: {
+        signedXdr: sponsoredXdr,
+        status: IntentStatus.SIGNED_XDR_RECEIVED,
+      },
     });
 
-    const result = await this.defindex.submitSignedTransaction({ xdr: signedXdr });
+    const result = await this.defindex.submitSignedTransaction({
+      xdr: sponsoredXdr,
+    });
 
     await this.prisma.withdrawalIntent.update({
       where: { id: intentId },

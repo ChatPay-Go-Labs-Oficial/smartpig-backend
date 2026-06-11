@@ -48,6 +48,7 @@ export const envSchema = Joi.object({
   STELLAR_USDC_ISSUER: Joi.string().required(),
   STELLAR_TESOURO_ASSET_CODE: Joi.string().optional(),
   STELLAR_TESOURO_ISSUER: Joi.string().optional(),
+  STELLAR_FEE_BUMP_BASE_FEE: Joi.number().integer().min(100).default(500),
 
   // Privy — wallet-based auth (required)
   PRIVY_APP_ID: Joi.string().required(),
