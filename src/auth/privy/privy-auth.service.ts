@@ -30,4 +30,31 @@ export class PrivyAuthService {
     const claims = await this.client.utils().auth().verifyAccessToken(token);
     return { id: claims.user_id };
   }
+
+  async getStellarWalletAddresses(userId: string): Promise<string[]> {
+    if (!this.client) {
+      throw new Error('PrivyClient is not configured');
+    }
+
+    const user = await this.client.users()._get(userId);
+
+    return user.linked_accounts
+      .filter(
+        (account) =>
+          account.type === 'wallet' &&
+          'chain_type' in account &&
+          account.chain_type === 'stellar' &&
+          'address' in account &&
+          typeof account.address === 'string',
+      )
+      .sort((left, right) => {
+        const leftIndex =
+          'wallet_index' in left ? Number(left.wallet_index) : 0;
+        const rightIndex =
+          'wallet_index' in right ? Number(right.wallet_index) : 0;
+        return leftIndex - rightIndex;
+      })
+      .map((account) => ('address' in account ? String(account.address) : ''))
+      .filter(Boolean);
+  }
 }

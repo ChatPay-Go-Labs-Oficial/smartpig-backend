@@ -15,6 +15,8 @@ import {
 const TX_TIMEOUT_SECONDS = 600;
 
 const DEFAULT_FEE_BUMP_BASE_FEE = 500;
+const DEFAULT_FEE_BUMP_MULTIPLIER = 2;
+const MAX_FEE_BUMP_ATTEMPTS = 3;
 
 @Injectable()
 export class StellarService {
@@ -25,6 +27,7 @@ export class StellarService {
   private readonly usdcAsset: Asset;
   private readonly tesouroAsset: Asset | null;
   private readonly feeBumpBaseFee: string;
+  private readonly feeBumpMultiplier: number;
   private treasuryKeypair: Keypair | null = null;
 
   constructor(private readonly config: ConfigService) {
@@ -38,6 +41,10 @@ export class StellarService {
         'STELLAR_FEE_BUMP_BASE_FEE',
         DEFAULT_FEE_BUMP_BASE_FEE,
       ),
+    );
+    this.feeBumpMultiplier = this.config.get<number>(
+      'STELLAR_FEE_BUMP_MULTIPLIER',
+      DEFAULT_FEE_BUMP_MULTIPLIER,
     );
     this.usdcAsset = new Asset(
       this.config.getOrThrow<string>('STELLAR_USDC_ASSET_CODE'),
@@ -272,38 +279,72 @@ export class StellarService {
    */
   async submitFeeBumpTransaction(
     innerSignedXdr: string,
+    expectedUnsignedXdr?: string,
   ): Promise<{ hash: string }> {
-    const feeBumpXdr = this.buildSponsoredFeeBumpXdr(innerSignedXdr);
-    const feeBump = TransactionBuilder.fromXDR(
-      feeBumpXdr,
-      this.networkPassphrase,
-    );
+    let baseFee = await this.getRecommendedFeeBumpBaseFee();
+
+    for (let attempt = 1; attempt <= MAX_FEE_BUMP_ATTEMPTS; attempt += 1) {
+      const feeBumpXdr = this.buildSponsoredFeeBumpXdr(
+        innerSignedXdr,
+        expectedUnsignedXdr,
+        baseFee,
+      );
+      const feeBump = TransactionBuilder.fromXDR(
+        feeBumpXdr,
+        this.networkPassphrase,
+      );
+
+      try {
+        const result = await this.server.submitTransaction(feeBump);
+        const hash = result.hash;
+        this.logger.log(
+          `FeeBump transaction submitted: ${hash} (baseFee=${baseFee}, attempt=${attempt})`,
+        );
+        return { hash };
+      } catch (err: any) {
+        const error = parseStellarSubmissionError(err);
+        this.logger.error(
+          `FeeBump error response: ${JSON.stringify(error.response)}`,
+        );
+
+        if (
+          error.transactionCode === 'tx_insufficient_fee' &&
+          attempt < MAX_FEE_BUMP_ATTEMPTS
+        ) {
+          baseFee *= 2;
+          this.logger.warn(
+            `Retrying FeeBump with higher base fee ${baseFee} after tx_insufficient_fee`,
+          );
+          continue;
+        }
+
+        const humanMessage = translateStellarError(error.rawDetail);
+        this.logger.error(
+          `Failed to submit FeeBump: ${humanMessage} (raw: ${error.rawDetail})`,
+        );
+        throw new BadRequestException(`Transaction failed: ${humanMessage}`);
+      }
+    }
+
+    throw new BadRequestException('Transaction failed after fee retries');
+  }
+
+  private async getRecommendedFeeBumpBaseFee(): Promise<number> {
+    const configuredFee = Number(this.feeBumpBaseFee);
 
     try {
-      const result = await this.server.submitTransaction(feeBump);
-      const hash = result.hash;
-      this.logger.log(`FeeBump transaction submitted: ${hash}`);
-      return { hash };
-    } catch (err: any) {
-      const resp = err?.response?.data as Record<string, unknown> | undefined;
-      this.logger.error(`FeeBump error response: ${JSON.stringify(resp)}`);
-      const extras = resp?.extras as Record<string, unknown> | undefined;
-      const resultCodes = extras?.result_codes as
-        | Record<string, unknown>
-        | undefined;
-      const txCode = (resultCodes?.tx as string) ?? '';
-      const opCodes = (resultCodes?.operations as unknown[]) ?? [];
-      const rawDetail =
-        txCode ||
-        opCodes.join(', ') ||
-        resp?.title ||
-        err?.message ||
-        'Unknown error';
-      const humanMessage = translateStellarError(rawDetail);
-      this.logger.error(
-        `Failed to submit FeeBump: ${humanMessage} (raw: ${rawDetail})`,
+      const stats = await this.server.feeStats();
+      const networkP90 = Number(stats.fee_charged?.p90 ?? 0);
+      if (!Number.isFinite(networkP90) || networkP90 <= 0) return configuredFee;
+      return Math.max(
+        configuredFee,
+        Math.ceil(networkP90 * this.feeBumpMultiplier),
       );
-      throw new BadRequestException(`Transaction failed: ${humanMessage}`);
+    } catch (error: any) {
+      this.logger.warn(
+        `Unable to load Horizon fee stats; using configured fee ${configuredFee}: ${error?.message ?? error}`,
+      );
+      return configuredFee;
     }
   }
 
@@ -315,6 +356,7 @@ export class StellarService {
   buildSponsoredFeeBumpXdr(
     innerSignedXdr: string,
     expectedUnsignedXdr?: string,
+    baseFee = Number(this.feeBumpBaseFee),
   ): string {
     const treasuryKeypair = this.loadTreasury();
     let innerTx: Transaction;
@@ -351,7 +393,7 @@ export class StellarService {
 
     const feeBump = TransactionBuilder.buildFeeBumpTransaction(
       treasuryKeypair,
-      this.feeBumpBaseFee,
+      String(baseFee),
       innerTx,
       this.networkPassphrase,
     );
@@ -367,6 +409,27 @@ export class StellarService {
     try {
       await this.server.loadAccount(address);
       return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async isAccountActivated(address: string): Promise<boolean> {
+    try {
+      const account = await this.server.loadAccount(address);
+      const requiredAssets = [this.usdcAsset, this.tesouroAsset].filter(
+        (asset): asset is Asset => asset !== null,
+      );
+
+      return requiredAssets.every((asset) =>
+        account.balances.some(
+          (balance) =>
+            balance.asset_type !== 'native' &&
+            'asset_code' in balance &&
+            balance.asset_code === asset.getCode() &&
+            balance.asset_issuer === asset.getIssuer(),
+        ),
+      );
     } catch {
       return false;
     }
@@ -429,4 +492,31 @@ function translateStellarError(code: string): string {
     return 'Assinatura inválida. Verifique se o XDR foi assinado corretamente.';
   }
   return code;
+}
+
+function parseStellarSubmissionError(err: any): {
+  response?: Record<string, unknown>;
+  transactionCode: string;
+  operationCodes: string[];
+  rawDetail: string;
+} {
+  const response = err?.response?.data as Record<string, unknown> | undefined;
+  const extras = response?.extras as Record<string, unknown> | undefined;
+  const resultCodes = extras?.result_codes as
+    | Record<string, unknown>
+    | undefined;
+  const transactionCode = String(
+    resultCodes?.transaction ?? resultCodes?.tx ?? '',
+  );
+  const operationCodes = Array.isArray(resultCodes?.operations)
+    ? resultCodes.operations.map(String)
+    : [];
+  const rawDetail =
+    transactionCode ||
+    operationCodes.join(', ') ||
+    String(
+      response?.detail ?? response?.title ?? err?.message ?? 'Unknown error',
+    );
+
+  return { response, transactionCode, operationCodes, rawDetail };
 }

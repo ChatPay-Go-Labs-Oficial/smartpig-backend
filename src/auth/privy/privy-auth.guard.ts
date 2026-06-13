@@ -31,7 +31,19 @@ export class PrivyAuthGuard implements CanActivate {
     ]);
 
     if (isPublic) {
-      return true;
+      const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+      const token = this.extractBearerToken(request);
+
+      if (!token) return true;
+
+      try {
+        request.user = await this.privyAuthService.verifyAccessToken(token);
+        return true;
+      } catch {
+        throw new UnauthorizedException(
+          'Invalid or expired authentication token',
+        );
+      }
     }
 
     const isAdmin = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_KEY, [
@@ -43,7 +55,10 @@ export class PrivyAuthGuard implements CanActivate {
       const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
       const adminKey = this.extractAdminKey(request);
 
-      if (adminKey && adminKey === this.configService.get<string>('ADMIN_API_KEY')) {
+      if (
+        adminKey &&
+        adminKey === this.configService.get<string>('ADMIN_API_KEY')
+      ) {
         request.user = { id: 'admin' };
         return true;
       }

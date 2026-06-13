@@ -13,15 +13,35 @@ export class AuthService {
    * If the wallet is new, a fresh User record is also created.
    * If the wallet already exists, the associated user is returned.
    */
-  async walletLogin(dto: WalletLoginDto) {
+  async walletLogin(dto: WalletLoginDto, verifiedStellarAddresses?: string[]) {
     const { stellarAddress, label } = dto;
+    const candidateAddresses = Array.from(
+      new Set(verifiedStellarAddresses ?? [stellarAddress]),
+    );
 
-    // Check if wallet already exists
+    if (!candidateAddresses.includes(stellarAddress)) {
+      throw new ConflictException(
+        'The submitted Stellar wallet is not linked to the authenticated Privy user',
+      );
+    }
+
+    // Recover the original account when Privy has more than one Stellar wallet.
+    // The oldest registered candidate is the wallet the user first used here.
     const existingWallet = await this.prisma.walletAccount.findFirst({
-      where: { stellarAddress, isActive: true },
+      where: {
+        stellarAddress: { in: candidateAddresses },
+        isActive: true,
+      },
+      orderBy: { createdAt: 'asc' },
       include: {
         user: {
-          select: { id: true, name: true, email: true, avatarUrl: true, createdAt: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+            createdAt: true,
+          },
         },
       },
     });

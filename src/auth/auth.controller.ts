@@ -1,13 +1,25 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { WalletLoginDto } from './dto/wallet-login.dto';
+import type { AuthenticatedRequest } from './privy/authenticated-request.interface';
+import { PrivyAuthService } from './privy/privy-auth.service';
 import { Public } from './privy/public.decorator';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * POST /auth/wallet
@@ -52,7 +64,16 @@ export class AuthController {
     description:
       'Invalid request body (e.g. missing or malformed stellarAddress).',
   })
-  walletLogin(@Body() dto: WalletLoginDto) {
-    return this.authService.walletLogin(dto);
+  async walletLogin(
+    @Body() dto: WalletLoginDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    if (!request.user) {
+      return this.authService.walletLogin(dto);
+    }
+
+    const stellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(request.user.id);
+    return this.authService.walletLogin(dto, stellarAddresses);
   }
 }

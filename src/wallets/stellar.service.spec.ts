@@ -75,4 +75,60 @@ describe('StellarService fee sponsorship', () => {
       ),
     ).toThrow(BadRequestException);
   });
+
+  it('retries a fee bump with a higher fee after tx_insufficient_fee', async () => {
+    const service = new StellarService(config);
+    const { signedXdr } = buildUserTransaction('retry-fee');
+    const server = (service as any).server;
+    server.feeStats = jest.fn().mockResolvedValue({
+      fee_charged: { p90: '600' },
+    });
+    server.submitTransaction = jest
+      .fn()
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            title: 'Transaction Failed',
+            extras: {
+              result_codes: { transaction: 'tx_insufficient_fee' },
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({ hash: 'activation-hash' });
+
+    await expect(service.submitFeeBumpTransaction(signedXdr)).resolves.toEqual({
+      hash: 'activation-hash',
+    });
+    expect(server.submitTransaction).toHaveBeenCalledTimes(2);
+
+    const firstFee = Number(
+      (server.submitTransaction.mock.calls[0][0] as FeeBumpTransaction).fee,
+    );
+    const secondFee = Number(
+      (server.submitTransaction.mock.calls[1][0] as FeeBumpTransaction).fee,
+    );
+    expect(secondFee).toBeGreaterThan(firstFee);
+  });
+
+  it('returns the translated Horizon transaction code', async () => {
+    const service = new StellarService(config);
+    const { signedXdr } = buildUserTransaction('bad-auth');
+    const server = (service as any).server;
+    server.feeStats = jest.fn().mockResolvedValue({
+      fee_charged: { p90: '100' },
+    });
+    server.submitTransaction = jest.fn().mockRejectedValue({
+      response: {
+        data: {
+          title: 'Transaction Failed',
+          extras: { result_codes: { transaction: 'tx_bad_auth' } },
+        },
+      },
+    });
+
+    await expect(service.submitFeeBumpTransaction(signedXdr)).rejects.toThrow(
+      'Transaction failed: Assinatura inválida',
+    );
+  });
 });

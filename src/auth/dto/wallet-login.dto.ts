@@ -3,7 +3,8 @@ import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class WalletLoginDto {
   @ApiProperty({
-    description: 'Stellar wallet address (public key) used to identify the user',
+    description:
+      'Stellar wallet address (public key) used to identify the user',
     example: 'GABC...XYZ',
   })
   @IsString()
