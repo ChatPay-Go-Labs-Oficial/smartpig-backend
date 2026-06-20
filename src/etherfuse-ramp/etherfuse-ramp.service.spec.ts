@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EtherfuseRampService } from './etherfuse-ramp.service';
 import { EtherfuseService } from '../etherfuse/etherfuse.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
@@ -7,6 +8,7 @@ import { EtherfuseKycStatus, EtherfuseOrderDirection, EtherfuseOrderStatus } fro
 
 const mockEtherfuse = {
   createChildOrg: jest.fn(),
+  registerWallet: jest.fn(),
   submitKyc: jest.fn(),
   uploadKycDocument: jest.fn(),
   getKycStatus: jest.fn(),
@@ -14,12 +16,19 @@ const mockEtherfuse = {
   acceptTermsAndConditions: jest.fn(),
   acceptCustomerAgreement: jest.fn(),
   createBankAccount: jest.fn(),
+  generatePresignedUrl: jest.fn(),
+  listBankAccounts: jest.fn(),
+  getAssets: jest.fn(),
+  sandboxSimulateFiatReceived: jest.fn(),
   getQuote: jest.fn(),
   createOrder: jest.fn(),
   getOrder: jest.fn(),
 };
 
 const mockPrisma = {
+  user: {
+    update: jest.fn(),
+  },
   etherfuseCustomer: {
     findUnique: jest.fn(),
     create: jest.fn(),
@@ -70,6 +79,7 @@ describe('EtherfuseRampService', () => {
         EtherfuseRampService,
         { provide: EtherfuseService, useValue: mockEtherfuse },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn() } },
       ],
     }).compile();
 
@@ -139,7 +149,10 @@ describe('EtherfuseRampService', () => {
 
       expect(mockEtherfuse.submitKyc).toHaveBeenCalledWith(
         'ef-org-1',
-        expect.objectContaining({ pubkey: 'GXXXXX', occupation: 'Engineer' }),
+        expect.objectContaining({
+          pubkey: 'GXXXXX',
+          identity: expect.objectContaining({ occupation: 'Engineer' }),
+        }),
       );
       expect(result.kycStatus).toBe(EtherfuseKycStatus.PROPOSED);
     });
