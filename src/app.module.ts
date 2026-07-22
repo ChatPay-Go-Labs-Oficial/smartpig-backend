@@ -10,6 +10,7 @@ import { DefindexModule } from './defindex/defindex.module';
 import { VaultsModule } from './vaults/vaults.module';
 import { DepositsModule } from './deposits/deposits.module';
 import { WithdrawalsModule } from './withdrawals/withdrawals.module';
+import { GiftsModule } from './gifts/gifts.module';
 import { JobsModule } from './jobs/jobs.module';
 import { VaultManagerModule } from './vault-manager/vault-manager.module';
 import { RampModule } from './ramp/ramp.module';
@@ -26,6 +27,7 @@ import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
     VaultsModule,
     DepositsModule,
     WithdrawalsModule,
+    GiftsModule,
     JobsModule,
     VaultManagerModule,
     RampModule,
