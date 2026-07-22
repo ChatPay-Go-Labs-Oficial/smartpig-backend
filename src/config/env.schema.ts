@@ -58,6 +58,15 @@ export const envSchema = Joi.object({
   // Treasury — sponsored Stellar account activation
   TREASURY_STELLAR_SECRET: Joi.string().required(),
 
+  // Gifts — claimable-balance gifting
+  GIFT_CLAIM_AGENT_SECRET: Joi.string().optional(),
+  // Comma-separated founder emails; empty/absent = gifting enabled for everyone
+  GIFT_ALLOWED_EMAILS: Joi.string().optional(),
+  GIFT_MIN_USD: Joi.number().min(0).default(1),
+  GIFT_MAX_USD: Joi.number().min(1).default(100),
+  GIFT_EXPIRY_DAYS: Joi.number().integer().min(1).default(7),
+  GIFT_MAX_PENDING_PER_USER: Joi.number().integer().min(1).default(5),
+
   // Admin API Key for administrative routes
   ADMIN_API_KEY: Joi.string().optional(),
 
