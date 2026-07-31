@@ -15,9 +15,14 @@ O SmartPig Backend é uma API REST construída em **NestJS** que serve como cama
 │                                                      │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
 │  │   Auth   │  │  Users   │  │     Wallets      │   │
+│  │ (Privy)  │  │          │  │ (ativação/trust) │   │
 │  └──────────┘  └──────────┘  └──────────────────┘   │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐ │
 │  │  Vaults  │  │ Deposits │  │    Withdrawals     │ │
+│  └──────────┘  └──────────┘  └────────────────────┘ │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────┐ │
+│  │  Gifts   │  │   Ramp   │  │  Etherfuse Ramp    │ │
+│  │          │  │(BlindPay)│  │                    │ │
 │  └──────────┘  └──────────┘  └────────────────────┘ │
 │  ┌──────────────────────────────────────────────────┐ │
 │  │              VaultManagerModule                  │ │
@@ -110,11 +115,17 @@ src/
 │   └── interceptors/
 │       └── logging.interceptor.ts     # Log de req/res
 │
-├── auth/                  # Login via carteira Stellar
+├── auth/                  # Autenticação Privy + wallet login
 │   ├── auth.controller.ts
 │   ├── auth.service.ts
-│   ├── auth.module.ts
-│   └── dto/wallet-login.dto.ts
+│   ├── auth.module.ts     # registra PrivyAuthGuard como APP_GUARD global
+│   ├── dto/wallet-login.dto.ts
+│   └── privy/
+│       ├── privy-auth.guard.ts
+│       ├── privy-auth.service.ts
+│       ├── public.decorator.ts
+│       ├── admin.decorator.ts
+│       └── current-user.decorator.ts
 │
 ├── users/                 # Gerenciamento de perfil de usuário
 │   ├── users.controller.ts
@@ -122,11 +133,15 @@ src/
 │   ├── users.module.ts
 │   └── dto/update-user.dto.ts
 │
-├── wallets/               # Carteiras Stellar do usuário
+├── wallets/               # Carteiras Stellar: ativação, trustline e saldo
 │   ├── wallets.controller.ts
 │   ├── wallets.service.ts
+│   ├── stellar.service.ts # Horizon: trustline XDR, saldos, submissão
 │   ├── wallets.module.ts
-│   └── dto/create-wallet.dto.ts
+│   └── dto/
+│       ├── create-wallet.dto.ts
+│       ├── trustline-xdr.dto.ts
+│       └── activate-wallet.dto.ts
 │
 ├── defindex/              # Integração com DeFindex SDK
 │   ├── defindex.config.ts
@@ -166,13 +181,27 @@ src/
 │       ├── create-withdrawal.dto.ts
 │       └── submit-signed-xdr.dto.ts
 │
+├── gifts/                 # Presentes em USDC via claimable balance
+│   ├── gifts.controller.ts
+│   ├── gifts.service.ts
+│   ├── gift-stellar.service.ts
+│   ├── gifts.module.ts
+│   └── dto/
+│
+├── blindpay/              # Cliente HTTP da API BlindPay
+├── ramp/                  # On/Off ramp BRL via BlindPay
+├── etherfuse/             # Cliente HTTP da API Etherfuse
+├── etherfuse-ramp/        # On/Off ramp MXN via Etherfuse
+│
 └── jobs/                  # Background jobs (cron)
     ├── jobs.module.ts
     ├── reconciliation.job.ts
     ├── apy-sync.job.ts
     ├── portfolio-snapshot.job.ts
     ├── expired-intents.job.ts
-    └── vault-sync.job.ts
+    ├── vault-sync.job.ts
+    ├── gift-reconciliation.job.ts
+    └── gift-expiry.job.ts
 ```
 
 ## Decisões técnicas
@@ -190,8 +219,20 @@ Ambas as abordagens usam o mesmo `Authorization: Bearer {DEFINDEX_API_KEY}`. A l
 ### Prisma 5 (não Prisma 7)
 O Prisma 7 introduziu um modelo de adapter obrigatório (`PrismaPg`) incompatível com o padrão NestJS de `extends PrismaClient`. Usamos Prisma 5 que mantém total compatibilidade.
 
-### Auth via Wallet Stellar
-A autenticação é feita pelo endereço público da carteira Stellar do usuário. `POST /auth/wallet` faz upsert de `User` + `WalletAccount` e retorna o `userId`. Não há JWT, tokens de sessão ou segredo compartilhado — a identidade é a posse da carteira.
+### Auth via Privy
+A autenticação é delegada ao [Privy](https://privy.io). O app envia `Authorization: Bearer {accessToken}` e o `PrivyAuthGuard` — registrado como `APP_GUARD` global em `src/auth/auth.module.ts` — valida o token via `@privy-io/node` e injeta `request.user = { id: privyUserId }`. Ou seja, **toda rota é protegida por padrão**; a exceção é explícita.
+
+| Decorator | Arquivo | Efeito |
+|-----------|---------|--------|
+| `@Public()` | `src/auth/privy/public.decorator.ts` | Dispensa o token. Se um Bearer vier junto ele ainda é verificado — token inválido continua retornando 401 |
+| `@Admin()` | `src/auth/privy/admin.decorator.ts` | Aceita o header `x-admin-key` igual a `ADMIN_API_KEY` como alternativa ao Bearer; senão cai no fluxo normal |
+| `@CurrentUser()` | `src/auth/privy/current-user.decorator.ts` | Extrai `request.user` no handler |
+
+Rotas públicas hoje: `GET /health`, `GET /public` (exemplo), `POST /auth/wallet` e `POST /webhooks/blindpay`.
+
+`POST /auth/wallet` continua existindo, com dupla função: **sem** token, faz upsert de `User` + `WalletAccount` pela `stellarAddress` do body; **com** token Privy, o backend busca as carteiras Stellar vinculadas ao usuário no Privy (`PrivyAuthService.getStellarWalletAddresses`) e vincula essas. A resposta traz `needsActivation`, indicando se a conta Stellar ainda precisa ser criada on-chain (ver `POST /wallets/activate`).
+
+`PRIVY_APP_ID` e `PRIVY_APP_SECRET` são **obrigatórios** no `env.schema.ts` — sem eles o `PrivyAuthService` loga `fatal` e rejeita todos os tokens.
 
 ### Sem Redis por enquanto
 O cache de APY é in-memory (`Map` no `VaultsService`). Redis será introduzido quando a fase de hardening for implementada.

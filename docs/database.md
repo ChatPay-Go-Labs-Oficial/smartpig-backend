@@ -9,13 +9,26 @@ Schema: `prisma/schema.prisma`
 ```
 User
  ├── WalletAccount (1:N)
- ├── RefreshToken (1:N)          ← auth (a implementar)
+ ├── RefreshToken (1:N)          ← legado (auth é via Privy)
  ├── DepositIntent (1:N)
  ├── WithdrawalIntent (1:N)
  ├── TransactionRecord (1:N)
  ├── PortfolioSnapshot (1:N)
  ├── ApiAuditLog (1:N)
- └── ManagedVault (1:N)
+ ├── ManagedVault (1:N)
+ ├── Gift (1:N como remetente / 1:N como destinatário)
+ ├── BlindPayReceiver (ramp BRL)
+ └── EtherfuseCustomer (ramp MXN)
+
+BlindPayReceiver
+ ├── BlindPayBankAccount (1:N)
+ ├── BlindPayBlockchainWallet (1:N)
+ ├── OnrampTransaction (1:N)
+ └── OfframpTransaction (1:N)
+
+EtherfuseCustomer
+ ├── EtherfuseBankAccount (1:N)
+ └── EtherfuseOrder (1:N)
 
 VaultCatalog
  ├── DepositIntent (1:N)
@@ -53,12 +66,41 @@ Carteira Stellar vinculada ao usuário.
 |-------|------|-----------|
 | id | String (cuid) | PK |
 | userId | String | FK → User |
-| stellarAddress | String | Endereço público Stellar |
+| stellarAddress | String unique | Endereço público Stellar |
 | label | String? | Apelido da carteira |
-| isActive | Boolean | Se a carteira está ativa |
+| isActive | Boolean | Se a carteira está ativa (soft delete) |
+| isActivated | Boolean | Se a conta já existe on-chain com as trustlines abertas |
+| activationStatus | WalletActivationStatus | Estágio da ativação patrocinada |
+| activationUnsignedXdr | Text? | XDR de ativação pré-assinado pela tesouraria |
+| activationExpiresAt | DateTime? | Validade do XDR de ativação |
+| activationTxHash | String? | Hash da transação de ativação |
+| activationErrorMessage | String? | Erro da última tentativa de ativação |
 | createdAt | DateTime | Data de criação |
 
-Constraint: `(userId, stellarAddress)` único — um usuário não pode vincular a mesma carteira duas vezes.
+Constraint: `stellarAddress` é **único globalmente** — a mesma carteira não pode pertencer a dois usuários.
+
+### Gift
+Presente em USDC entregue via claimable balance nativa da Stellar. Ver [modules/gifts.md](./modules/gifts.md).
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| id | String (cuid) | PK |
+| idempotencyKey | String unique | Chave de idempotência do cliente |
+| code | String unique | Código de compartilhamento (≥128 bits, base64url) |
+| senderUserId | String | FK → User (remetente) |
+| senderWalletId | String | Carteira usada no funding |
+| recipientUserId | String? | FK → User, preenchido no claim |
+| amount | Decimal(30,8) | Valor do presente |
+| assetSymbol | String | Default `USDC` |
+| status | GiftStatus | Ver enum abaixo |
+| balanceId | String? | ID da claimable balance, obtido na reconciliação |
+| fundingTxHash | String? | Hash da transação de funding |
+| claimTxHash | String? | Hash da transação de resgate |
+| memo | String unique | Memo que liga a tx on-chain ao gift |
+| errorMessage | String? | Erro da última tentativa |
+| expiresAt | DateTime | Expiração (`GIFT_EXPIRY_DAYS`, default 7 dias) |
+
+Índices: `(senderUserId, status)` e `(status, expiresAt)`.
 
 ### VaultCatalog
 Cache local dos vaults disponíveis no DeFindex. **Populado automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover`.
@@ -218,6 +260,30 @@ CREATED → XDR_GENERATED → SIGNED_XDR_RECEIVED → SUBMITTED → CONFIRMED
 |-------|-----------|
 | DEPOSIT | Operação de depósito |
 | WITHDRAWAL | Operação de saque |
+
+### WalletActivationStatus
+Ciclo da ativação patrocinada da conta Stellar:
+
+```
+NOT_STARTED → PENDING_SIGNATURE → SUBMITTING → ACTIVATED
+                                            └→ FAILED
+```
+
+### GiftStatus
+```
+CREATED ──(funding detectado)──► FUNDED ──(claim)──► CLAIMING ──► CLAIMED
+   │                               │                     └─(falha)─► FUNDED
+   └──(expirou sem funding)──► EXPIRED ──(remetente resgata)──► REFUNDED
+```
+
+| Valor | Descrição |
+|-------|-----------|
+| CREATED | Intent criada, aguardando funding on-chain |
+| FUNDED | Claimable balance detectada (`balanceId` preenchido) |
+| CLAIMING | Lock de resgate em andamento |
+| CLAIMED | Pago ao destinatário |
+| EXPIRED | Passou de `expiresAt` sem claim |
+| REFUNDED | Remetente resgatou de volta |
 
 ## Índices
 

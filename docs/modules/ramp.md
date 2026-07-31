@@ -155,9 +155,27 @@ O módulo detecta automaticamente a rede Stellar baseado em `DEFINDEX_NETWORK`:
 
 ## Webhook
 
-O endpoint `POST /webhooks/blindpay` é **público** (sem JWT), mas verifica a assinatura HMAC-SHA256 enviada pelo BlindPay no header `blindpay-signature`.
+O endpoint `POST /webhooks/blindpay` é o único do módulo marcado com `@Public()` — escapa do `PrivyAuthGuard` global e se autentica pela assinatura.
+
+O BlindPay assina pelo esquema **Svix**:
+
+- Headers: `svix-id`, `svix-timestamp`, `svix-signature`
+- Conteúdo assinado: `{svix-id}.{svix-timestamp}.{rawBody}`
+- HMAC-SHA256 com a parte após o `_` do `BLINDPAY_WEBHOOK_SECRET`, decodificada em base64
+- Janela de tolerância do timestamp: 5 minutos
+- Comparação com `timingSafeEqual`
+
+> **Não existe header `blindpay-signature`.** A implementação segue a referência oficial (blindpay.com/docs/learn/webhooks-verification) — não substitua por um HMAC genérico.
+
+A app é criada com `rawBody: true` em `main.ts` justamente para que o corpo bruto esteja disponível na verificação.
 
 Se `BLINDPAY_WEBHOOK_SECRET` não estiver configurado, a verificação é ignorada (útil em desenvolvimento).
+
+O tipo do evento vem no campo `webhook_event` do body (`payin.*` → on-ramp, `payout.*` → off-ramp).
+
+### Sincronização manual
+
+Quando o webhook não está configurado (ou para reconciliar), `POST /ramp/onramp/:id/sync` e `POST /ramp/offramp/:id/sync` consultam o status direto no BlindPay e atualizam o banco.
 
 ---
 

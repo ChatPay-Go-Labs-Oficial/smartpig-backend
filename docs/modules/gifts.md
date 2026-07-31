@@ -1,7 +1,8 @@
-# Módulo: Gifts (SPEC — não implementado)
+# Módulo: Gifts
 
-**Localização (proposta):** `src/gifts/`
-**Status:** especificação aprovada em 2026-07-21 — aguardando implementação.
+**Localização:** `src/gifts/` — `gifts.controller.ts`, `gifts.service.ts`, `gift-stellar.service.ts`, `dto/`
+**Jobs:** `src/jobs/gift-reconciliation.job.ts` (a cada minuto) e `src/jobs/gift-expiry.job.ts` (a cada hora)
+**Status:** implementado (commit `74edb86`); spec original aprovada em 2026-07-21.
 **Contraparte mobile:** plano em `smartpig-app/.claude/plans/gifting.plan.md`.
 
 ## Responsabilidade
@@ -21,13 +22,17 @@ Gerencia o ciclo de vida de um presente ("Dê um cofrinho de dólar"): criação
 
 ## Endpoints
 
-| Método | Rota | Auth | Descrição |
-|--------|------|------|-----------|
-| POST | `/gifts` | Bearer | Cria gift intent; retorna code + dados p/ montar a tx no app (403 se o email não estiver em `GIFT_ALLOWED_EMAILS`) |
-| GET | `/gifts/eligibility?userId=` | Bearer | `{ canGift }` — gate de founders enquanto o rollout for restrito |
-| GET | `/gifts/:code` | pública (rate-limited) | Preview do presente (valor, remetente, status) |
-| POST | `/gifts/:code/claim` | Bearer | Resgata para o usuário autenticado (valida elegibilidade) |
-| GET | `/gifts?userId=...` | Bearer | Enviados/recebidos do usuário (histórico) |
+Todas as rotas exigem `Authorization: Bearer {privyAccessToken}` — nenhuma delas usa `@Public()`, então o `PrivyAuthGuard` global se aplica.
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| POST | `/gifts` | Cria gift intent; retorna code + dados p/ montar a tx no app (403 se o email não estiver em `GIFT_ALLOWED_EMAILS`) |
+| GET | `/gifts/eligibility?userId=` | `{ canGift }` — gate de founders enquanto o rollout for restrito |
+| GET | `/gifts/:code` | Preview do presente (valor, remetente, status) — só campos não sensíveis |
+| POST | `/gifts/:code/claim` | Resgata para o usuário autenticado (valida elegibilidade) |
+| GET | `/gifts?userId=...` | Enviados/recebidos do usuário (histórico) |
+
+> A spec previa `GET /gifts/:code` público para o preview antes do login. Na implementação atual ele exige Bearer — se o app precisar mostrar o preview a quem ainda não entrou, essa rota precisa receber `@Public()`.
 
 ### POST /gifts
 
@@ -74,7 +79,9 @@ Request: `{ "userId": "cuid", "walletAccountId": "cuid", "stellarAddress": "G...
 
 Claim é **one-shot**: transição `FUNDED → CLAIMING` sob lock transacional (Prisma `$transaction` + update condicional por status) antes de submeter a tx on-chain; falha on-chain reverte para `FUNDED` com `errorMessage`.
 
-## Modelo (proposta Prisma)
+## Modelo Prisma (implementado)
+
+> Diferença em relação à proposta original: `memo` é `@unique` — é a chave que a reconciliação usa para casar a transação de funding com o gift.
 
 ```prisma
 enum GiftStatus {
@@ -122,12 +129,12 @@ CREATED ──(reconciliação vê memo)──► FUNDED ──(claim ok)──�
    └─(expiresAt sem funding)► EXPIRED  └─(expiresAt)─► EXPIRED ──(remetente resgata)──► REFUNDED
 ```
 
-## Jobs (espelhar `src/jobs/`)
+## Jobs (`src/jobs/`)
 
-| Job | Base | Função |
-|---|---|---|
-| `gift-reconciliation` | `reconciliation.job.ts` | Varre pagamentos/efeitos da rede procurando tx com `memo` de gift `CREATED`; extrai `balanceId` do resultado da tx; marca `FUNDED` |
-| `gift-expiry` | `expired-intents.job.ts` | `FUNDED/CREATED` com `expiresAt` no passado → `EXPIRED`; detecta claim do remetente on-chain → `REFUNDED`; dispara notificação (quando houver infra) |
+| Job | Arquivo | Frequência | Função |
+|---|---|---|---|
+| `GiftReconciliationJob` | `gift-reconciliation.job.ts` | a cada minuto | Varre a rede procurando tx com o `memo` de gifts `CREATED`; extrai `balanceId` do resultado da tx; marca `FUNDED` |
+| `GiftExpiryJob` | `gift-expiry.job.ts` | a cada hora | `FUNDED/CREATED` com `expiresAt` no passado → `EXPIRED`; detecta claim do remetente on-chain → `REFUNDED` |
 
 ## Conta claimAgent
 
