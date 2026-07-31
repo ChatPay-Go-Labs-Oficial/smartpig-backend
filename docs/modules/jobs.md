@@ -73,6 +73,22 @@ Executa duas operações:
 
 ---
 
+### GiftReconciliationJob
+**Arquivo:** `gift-reconciliation.job.ts`
+**Frequência:** A cada 1 minuto (`EVERY_MINUTE`)
+
+Procura na rede Stellar transações de funding cujo `memo` corresponda a um `Gift` com status `CREATED`. Ao encontrar, extrai o `balanceId` da claimable balance do resultado da transação e move o gift para `FUNDED`.
+
+---
+
+### GiftExpiryJob
+**Arquivo:** `gift-expiry.job.ts`
+**Frequência:** A cada hora (`EVERY_HOUR`)
+
+Marca como `EXPIRED` os gifts `CREATED`/`FUNDED` cujo `expiresAt` já passou, e detecta on-chain quando o remetente resgatou a claimable balance de volta, movendo para `REFUNDED`.
+
+---
+
 ## Configuração do ScheduleModule
 
 O `ScheduleModule.forRoot()` é importado dentro do `JobsModule`. Ele inicializa o scheduler do node-cron quando o módulo é carregado.

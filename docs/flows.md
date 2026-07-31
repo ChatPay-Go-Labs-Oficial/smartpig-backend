@@ -70,40 +70,55 @@ Idêntico ao depósito, com diferenças:
 
 ---
 
-## Fluxo de Autenticação (Wallet Login)
+## Fluxo de Autenticação (Privy + ativação da conta)
 
 ```
-App Mobile                  Backend (NestJS)
-     │                            │
-     │  [Usuário abre o app]      │
-     │  Lê stellarAddress         │
-     │  da carteira local         │
-     │                            │
-     │ POST /auth/wallet           │
-     │ { stellarAddress, label }   │
-     │──────────────────────────▶│
-     │                            │ 1. Busca WalletAccount pela stellarAddress
-     │                            │ 2a. Se existe → retorna User associado
-     │                            │ 2b. Se não existe → cria User + WalletAccount
-     │◀──────────────────────────│
-     │  { user, wallet,           │
-     │    isNewUser }             │
-     │                            │
-     │  [App persiste userId      │
-     │   localmente]              │
-     │                            │
-     │ GET /vaults                │
-     │ (sem auth header)          │
-     │──────────────────────────▶│
-     │◀──────────────────────────│
-     │  [lista de vaults]         │
+App Mobile                  Backend (NestJS)              Privy / Stellar
+     │                            │                            │
+     │  [login no SDK do Privy]   │                            │
+     │◀────── accessToken ────────────────────────────────────│
+     │                            │                            │
+     │ POST /auth/wallet          │                            │
+     │ Authorization: Bearer ...  │                            │
+     │ { stellarAddress, label }  │                            │
+     │──────────────────────────▶│                            │
+     │                            │ 1. PrivyAuthGuard valida o token
+     │                            │ 2. Busca as wallets Stellar no Privy
+     │                            │───────────────────────────▶│
+     │                            │◀───────────────────────────│
+     │                            │ 3. Upsert User + WalletAccount
+     │◀──────────────────────────│                            │
+     │  { user, wallet,           │                            │
+     │    isNewUser,              │                            │
+     │    needsActivation }       │                            │
+     │                            │                            │
+     │  [se needsActivation]      │                            │
+     │ POST /wallets/activate     │                            │
+     │──────────────────────────▶│ monta CreateAccount +      │
+     │                            │ sponsor + trustlines,      │
+     │                            │ assina com a tesouraria    │
+     │◀─── { unsignedXdr } ───────│                            │
+     │                            │                            │
+     │  [usuário assina o XDR]    │                            │
+     │ POST /wallets/activate/submit                           │
+     │──────────────────────────▶│──── submete ──────────────▶│
+     │◀─── { success, txHash } ───│                            │
+     │                            │                            │
+     │ GET /vaults                │                            │
+     │ Authorization: Bearer ...  │                            │
+     │──────────────────────────▶│                            │
+     │◀──────────────────────────│                            │
+     │  [lista de vaults]         │                            │
 ```
 
-### Regras do wallet login
+### Regras da autenticação
 
-- Nenhuma senha ou token é gerado — a identidade é a `stellarAddress`
-- A mesma `stellarAddress` sempre retorna o mesmo `userId`
+- O `PrivyAuthGuard` é um `APP_GUARD` global: **toda rota exige `Authorization: Bearer {privyAccessToken}`**, exceto as marcadas com `@Public()` (`GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`)
+- `POST /auth/wallet` é público, mas se receber um Bearer válido usa as carteiras Stellar vinculadas no Privy em vez da `stellarAddress` do body; um Bearer inválido retorna 401 mesmo assim
+- A mesma `stellarAddress` sempre retorna o mesmo `userId` — `stellarAddress` é `@unique` em `WalletAccount`
 - `isNewUser: true` apenas na primeira chamada com aquela carteira
+- `needsActivation: true` quando a conta Stellar ainda não existe on-chain ou não tem as trustlines. A ativação é **patrocinada pela tesouraria** (`TREASURY_STELLAR_SECRET`), então o usuário não precisa ter XLM para começar
+- O progresso da ativação fica em `WalletAccount.activationStatus`: `NOT_STARTED → PENDING_SIGNATURE → SUBMITTING → ACTIVATED | FAILED`
 - Se a wallet estava desativada, ela é reativada automaticamente
 
 ---
@@ -138,8 +153,52 @@ Tempo
   │         ├── Para cada wallet × vault: consulta saldo no DeFindex
   │         └── Persiste PortfolioSnapshot se saldo > 0
   │
+  ├── :00 (todo minuto)
+  │    └── GiftReconciliationJob
+  │         ├── Procura na rede tx cujo memo casa com um Gift CREATED
+  │         ├── Extrai o balanceId da claimable balance
+  │         └── Gift → FUNDED
+  │
   └── :00 (todo hora)
-       └── ExpiredIntentsJob
-            ├── Marca como FAILED intents CREATED/XDR_GENERATED expiradas
-            └── Purga intents FAILED sem transação vinculada com > 30 dias
+       ├── ExpiredIntentsJob
+       │    ├── Marca como FAILED intents CREATED/XDR_GENERATED expiradas
+       │    └── Purga intents FAILED sem transação vinculada com > 30 dias
+       │
+       └── GiftExpiryJob
+            ├── Gifts CREATED/FUNDED vencidos → EXPIRED
+            └── Detecta resgate do remetente on-chain → REFUNDED
 ```
+
+---
+
+## Fluxo de Presente (Gift)
+
+```
+Remetente                   Backend                        Stellar
+    │                          │                              │
+    │ POST /gifts              │                              │
+    │────────────────────────▶│ cria Gift (CREATED)          │
+    │◀── code, memo,           │                              │
+    │    claimAgentAddress ────│                              │
+    │                          │                              │
+    │ [assina createClaimableBalance com 2 claimants:         │
+    │  claimAgent até expiresAt, remetente depois]            │
+    │──────────────────────────────────────────────────────▶│
+    │                          │                              │
+    │           [GiftReconciliationJob - 1 min]               │
+    │                          │◀── acha o memo ──────────────│
+    │                          │ Gift → FUNDED                │
+    │                          │                              │
+    │ [compartilha o code]     │                              │
+                               │                              │
+Destinatário (conta nova)      │                              │
+    │ POST /gifts/:code/claim  │                              │
+    │────────────────────────▶│ lock FUNDED → CLAIMING       │
+    │                          │ 1 tx atômica:                │
+    │                          │ claimClaimableBalance +      │
+    │                          │ payment ao destinatário      │
+    │                          │─────────────────────────────▶│
+    │◀── { status: CLAIMED } ──│ Gift → CLAIMED               │
+```
+
+Regras: só contas criadas **depois** do gift podem resgatar; o backend nunca custodia os fundos entre transações; se a tx on-chain falhar, o gift volta para `FUNDED` e pode ser tentado de novo; após `expiresAt` o próprio remetente resgata de volta (refund trustless, sem job de payout).

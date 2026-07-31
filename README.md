@@ -6,26 +6,29 @@ Bem-vindo à documentação técnica do backend do **PigFi**, um app de finança
 
 | Documento | Descrição |
 |-----------|-----------|
-| [architecture.md](./architecture.md) | Visão geral da arquitetura, camadas e padrões de projeto |
-| [database.md](./database.md) | Schema do banco de dados, entidades e relacionamentos |
-| [api.md](./api.md) | Referência completa dos endpoints REST |
-| [flows.md](./flows.md) | Fluxos de operação: wallet login, depósito, saque e jobs |
-| [deployment.md](./deployment.md) | Deploy no Railway, migrações e procedimento de baseline |
-| [modules/config.md](./modules/config.md) | Módulo de configuração e variáveis de ambiente |
-| [modules/infra.md](./modules/infra.md) | Infraestrutura: PrismaModule |
-| [modules/defindex.md](./modules/defindex.md) | Integração com o SDK do DeFindex |
-| [modules/vaults.md](./modules/vaults.md) | Consulta de vaults, APY e saldo |
-| [modules/deposits.md](./modules/deposits.md) | Criação e processamento de depósitos |
-| [modules/withdrawals.md](./modules/withdrawals.md) | Criação e processamento de saques |
-| [modules/jobs.md](./modules/jobs.md) | Jobs em background (reconciliação, APY, snapshots, vault sync) |
-| [modules/ramp.md](./modules/ramp.md) | On/Off Ramp via BlindPay (BRL ↔ USDC) |
+| [docs/architecture.md](./docs/architecture.md) | Visão geral da arquitetura, camadas e padrões de projeto |
+| [docs/database.md](./docs/database.md) | Schema do banco de dados, entidades e relacionamentos |
+| [docs/api.md](./docs/api.md) | Referência completa dos endpoints REST |
+| [docs/flows.md](./docs/flows.md) | Fluxos de operação: login, depósito, saque e jobs |
+| [docs/deployment.md](./docs/deployment.md) | Deploy no Railway, migrações e procedimento de baseline |
+| [docs/modules/config.md](./docs/modules/config.md) | Módulo de configuração e variáveis de ambiente |
+| [docs/modules/infra.md](./docs/modules/infra.md) | Infraestrutura: PrismaModule |
+| [docs/modules/defindex.md](./docs/modules/defindex.md) | Integração com o SDK do DeFindex |
+| [docs/modules/vaults.md](./docs/modules/vaults.md) | Consulta de vaults, APY e saldo |
+| [docs/modules/vault-manager.md](./docs/modules/vault-manager.md) | Criação e gestão de vaults próprios do SmartPig |
+| [docs/modules/deposits.md](./docs/modules/deposits.md) | Criação e processamento de depósitos |
+| [docs/modules/withdrawals.md](./docs/modules/withdrawals.md) | Criação e processamento de saques |
+| [docs/modules/gifts.md](./docs/modules/gifts.md) | Presentes em USDC via claimable balance Stellar |
+| [docs/modules/jobs.md](./docs/modules/jobs.md) | Jobs em background (reconciliação, APY, snapshots, vault sync, gifts) |
+| [docs/modules/ramp.md](./docs/modules/ramp.md) | On/Off Ramp via BlindPay (BRL ↔ USDC) |
+| [docs/modules/etherfuse-ramp.md](./docs/modules/etherfuse-ramp.md) | On/Off Ramp via Etherfuse (MXN ↔ USDC/CETES) |
 
 ## Visão rápida
 
 ```
 React Native App
       │
-      │ HTTPS/REST (wallet login)
+      │ HTTPS/REST (Bearer access token do Privy)
       ▼
 NestJS Backend (SmartPig API)
       │
@@ -54,6 +57,8 @@ O backend atua como intermediário seguro entre o app mobile e o protocolo DeFin
 | Agendamento | @nestjs/schedule (node-cron) |
 | Validação | class-validator + class-transformer |
 | Configuração | @nestjs/config + Joi |
+| Autenticação | Privy (`@privy-io/node`) — Bearer token verificado por guard global |
+| On/Off Ramp | BlindPay (BRL/PIX) e Etherfuse (MXN/SPEI) |
 
 ## Comandos principais
 

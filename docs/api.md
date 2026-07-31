@@ -2,7 +2,13 @@
 
 Base URL: `http://localhost:3000` (dev) | configurável via `PORT`
 
-> **Autenticação via wallet**: O app autentica o usuário pela carteira Stellar (`POST /auth/wallet`). Não há JWT. O `userId` retornado deve ser enviado no body/query dos endpoints marcados com 🔒.
+> **Autenticação via Privy**: todas as rotas são protegidas por padrão pelo `PrivyAuthGuard` (guard global). O app envia `Authorization: Bearer {privyAccessToken}` nas chamadas marcadas com 🔒. Rotas marcadas com 🌐 são públicas (`@Public()`).
+>
+> O `userId` interno (cuid do `User`) continua sendo enviado no body/query das rotas de negócio — o guard valida a identidade Privy, mas os serviços resolvem o usuário pelo `userId` recebido.
+>
+> Rotas públicas: `GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`.
+
+Documentação interativa (Swagger): **`GET /api/docs`**.
 
 ## Formato de resposta
 
@@ -26,8 +32,13 @@ Todos os erros seguem o formato abaixo (via `HttpExceptionFilter`):
 
 ## Auth
 
-### `POST /auth/wallet`
-Registra ou faz login de um usuário pela carteira Stellar. Não há senha nem JWT — a identidade é a `stellarAddress`.
+### `POST /auth/wallet` 🌐
+Registra ou faz login de um usuário. Público, mas **aceita** um Bearer token do Privy:
+
+- **Sem token** — cria/recupera o `User` pela `stellarAddress` enviada no body.
+- **Com token Privy** — o backend consulta as carteiras Stellar vinculadas àquele usuário no Privy e vincula essas ao `User`, ignorando divergências do body.
+
+Um Bearer inválido retorna 401 mesmo sendo rota pública.
 
 **Body:**
 ```json
@@ -53,11 +64,14 @@ Registra ou faz login de um usuário pela carteira Stellar. Não há senha nem J
     "label": "Minha carteira principal",
     "isActive": true
   },
-  "isNewUser": true
+  "isNewUser": true,
+  "needsActivation": true
 }
 ```
 
 > **`isNewUser`**: `true` na primeira vez que aquela `stellarAddress` é vista. O `userId` retornado deve ser persistido no app e enviado nas chamadas seguintes.
+>
+> **`needsActivation`**: `true` quando a conta Stellar ainda não existe on-chain (ou não tem as trustlines abertas). Nesse caso o app deve chamar `POST /wallets/activate` antes de qualquer operação com USDC.
 
 ---
 
@@ -162,9 +176,66 @@ Desativa uma wallet (soft delete — não é removida do banco).
 
 ---
 
+### `POST /wallets/activate` 🔒
+Gera o XDR de **ativação patrocinada** da conta Stellar. A transação cria a conta on-chain (`CreateAccount`), patrocina as reservas via `BeginSponsoringFutureReserves`, abre a trustline de USDC (e a de TESOURO, quando configurada para a rede ativa) e encerra o patrocínio. O XDR já vem **pré-assinado pela conta tesouraria** (`TREASURY_STELLAR_SECRET`) — o usuário só adiciona a própria assinatura.
 
+**Body:**
+```json
+{
+  "userId": "clx...",
+  "walletAccountId": "clx...",
+  "stellarAddress": "GABC...XYZ"
+}
+```
 
-### `GET /health`
+**Resposta 201:** `{ "unsignedXdr": "AAAAAgAAAAB..." }`
+
+**Erros:** `400` (tesouraria não configurada) · `404` (wallet não encontrada) · `409` (wallet já ativada)
+
+---
+
+### `POST /wallets/activate/submit` 🔒
+Submete o XDR de ativação com as duas assinaturas (tesouraria + usuário). Marca a wallet como ativada em caso de sucesso.
+
+**Body:** `{ "walletAccountId": "clx...", "signedXdr": "AAAA..." }`
+
+**Resposta 201:** `{ "success": true, "txHash": "abc123..." }`
+
+> O estado da ativação fica em `WalletAccount.activationStatus` (`NOT_STARTED → PENDING_SIGNATURE → SUBMITTING → ACTIVATED | FAILED`).
+
+---
+
+### `POST /wallets/trustline/xdr` 🔒
+Gera um XDR não assinado com uma operação `ChangeTrust` para o ativo USDC da rede ativa. Use quando a conta já existe e só falta a trustline (o fluxo de ativação já inclui essa etapa).
+
+**Body:** `{ "stellarAddress": "GABC...XYZ" }`
+
+**Resposta 201:** `{ "unsignedXdr": "AAAA...", "asset": "USDC:issuer..." }`
+
+---
+
+### `POST /wallets/trustline/submit` 🔒
+Submete o `ChangeTrust` assinado à rede Stellar.
+
+**Body:** `{ "stellarAddress": "GABC...XYZ", "signedXdr": "AAAA..." }`
+
+**Resposta 201:** `{ "hash": "abc123..." }`
+
+---
+
+### `GET /wallets/:address/balance` 🔒
+Saldos da conta Stellar direto do Horizon (todos os ativos com saldo diferente de zero).
+
+**Parâmetros:** `address` — chave pública Stellar (`G...`)
+
+**Resposta 200:**
+```json
+{ "balances": [{ "asset": "USDC:issuer...", "balance": "1.99" }] }
+```
+
+---
+
+### `GET /health` 🌐
 Verifica se a API está no ar.
 
 **Resposta 200:**
@@ -397,6 +468,82 @@ Status atual de uma intent de saque.
 Lista todas as intents de saque de um usuário.
 
 ---
+
+---
+
+## Gifts
+
+> Presentes em USDC entregues via **claimable balance** nativa da Stellar. O backend nunca custodia os fundos: o remetente cria a claimable balance e o agente de claim resgata e paga o destinatário em uma única transação atômica.
+> Ver [modules/gifts.md](./modules/gifts.md).
+
+### `POST /gifts` 🔒
+Cria o gift intent e devolve o código de compartilhamento, o endereço do agente de claim e o memo que o app deve anexar à transação de funding.
+
+**Body:**
+```json
+{
+  "idempotencyKey": "uuid-v4",
+  "userId": "clx...",
+  "walletAccountId": "clx...",
+  "amount": "50.00"
+}
+```
+
+**Resposta 201:**
+```json
+{
+  "id": "clx...",
+  "code": "p3XoZ0uKfL9qA2xYw1vRbg",
+  "senderUserId": "clx...",
+  "amount": "50.00",
+  "assetSymbol": "USDC",
+  "status": "CREATED",
+  "memo": "gift:1a2b3c4d5e6f7a8b",
+  "claimAgentAddress": "GABC...XYZ",
+  "expiresAt": "2026-07-28T00:00:00.000Z"
+}
+```
+
+**Erros:** `400` (valor fora de `GIFT_MIN_USD`/`GIFT_MAX_USD`) · `403` (conta sem permissão de presentear) · `404` (wallet não encontrada) · `409` (limite de presentes pendentes) · `503` (agente de claim não configurado)
+
+> `idempotencyKey` repetida devolve o gift existente, igual ao módulo de depósitos.
+
+---
+
+### `GET /gifts?userId=...` 🔒
+Lista os presentes enviados e recebidos pelo usuário.
+
+---
+
+### `GET /gifts/eligibility?userId=...` 🔒
+Indica se o usuário pode presentear: `{ "canGift": true }`. Enquanto `GIFT_ALLOWED_EMAILS` estiver preenchida, só os e-mails da lista podem; vazia/ausente libera para todos.
+
+---
+
+### `GET /gifts/:code` 🔒
+Preview do presente. Retorna apenas dados não sensíveis — nada de IDs internos, endereços ou `balanceId`.
+
+**Resposta 200:**
+```json
+{
+  "amount": "50.00",
+  "assetSymbol": "USDC",
+  "status": "FUNDED",
+  "expiresAt": "2026-07-28T00:00:00.000Z",
+  "senderName": "Maria"
+}
+```
+
+---
+
+### `POST /gifts/:code/claim` 🔒
+Resgata a claimable balance e paga a carteira do destinatário em uma transação atômica. Só contas criadas **depois** do presente qualificam.
+
+**Body:** `{ "userId": "clx...", "walletAccountId": "clx...", "stellarAddress": "GABC..." }`
+
+**Resposta 201:** `{ "id": "clx...", "status": "CLAIMED", "claimTxHash": "abc123...", "amount": "50.00" }`
+
+**Erros:** `403` (presente próprio ou conta mais antiga que o presente) · `404` (presente, usuário ou wallet não encontrados) · `409` (presente não resgatável no estado atual) · `410` (expirado) · `503` (falha on-chain — seguro repetir)
 
 ---
 
@@ -712,10 +859,12 @@ Status de uma transação de off-ramp.
 
 ### Webhooks
 
-#### `POST /webhooks/blindpay`
-Recebe notificações do BlindPay sobre status de pagamentos. **Endpoint público**, mas verificado com assinatura HMAC-SHA256 (`blindpay-signature` header).
+#### `POST /webhooks/blindpay` 🌐
+Recebe notificações do BlindPay sobre status de pagamentos. Endpoint público (`@Public()`), verificado pelo esquema **Svix** — headers `svix-id`, `svix-timestamp` e `svix-signature`, HMAC-SHA256 sobre `{svix-id}.{svix-timestamp}.{rawBody}` com a parte após o `_` do `BLINDPAY_WEBHOOK_SECRET` decodificada em base64, com janela de tolerância de 5 minutos.
 
-Atualiza automaticamente os status de `OnrampTransaction` e `OfframpTransaction`.
+> Não existe header `blindpay-signature` — não troque essa verificação por um HMAC genérico. Se `BLINDPAY_WEBHOOK_SECRET` não estiver configurado, a verificação é pulada (desenvolvimento).
+
+O tipo do evento vem no campo `webhook_event` do body. Atualiza automaticamente os status de `OnrampTransaction` e `OfframpTransaction`.
 
 | Evento BlindPay | Novo status interno |
 |---|---|
@@ -724,3 +873,25 @@ Atualiza automaticamente os status de `OnrampTransaction` e `OfframpTransaction`
 | `payin.refunded` | `REFUNDED` |
 | `payout.completed` | `COMPLETED` |
 | `payout.failed` | `FAILED` |
+
+---
+
+### Rotas auxiliares do ramp BlindPay
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/ramp/tos` 🔒 | Aceite dos termos de serviço da instância BlindPay |
+| `POST` | `/ramp/upload` 🔒 | Upload de documento (KYC) para o BlindPay |
+| `POST` | `/ramp/offramp/:id/delegation` 🔒 | Regenera o XDR de delegação de um off-ramp existente |
+| `POST` | `/ramp/onramp/:id/sync` 🔒 | Busca o status do payin direto no BlindPay e atualiza o banco |
+| `POST` | `/ramp/offramp/:id/sync` 🔒 | Idem para payout |
+
+> Os endpoints `/sync` existem para ambientes sem webhook configurado ou para reconciliação manual.
+
+---
+
+## On/Off Ramp (Etherfuse)
+
+Integração para o mercado mexicano (MXN via SPEI/CLABE ↔ USDC/CETES), com onboarding KYC próprio via child organizations. A referência completa de rotas, o fluxo de KYC e a verificação de webhook estão em [modules/etherfuse-ramp.md](./modules/etherfuse-ramp.md).
+
+Além das rotas descritas lá, existem hoje: `POST /etherfuse/onboarding/presigned-url`, `POST /etherfuse/onboarding/bank-account/pix`, `POST /etherfuse/onboarding/bank-accounts/sync`, `GET /etherfuse/assets`, `POST /etherfuse/offramp/:id/refresh-xdr`, `POST /etherfuse/orders/:id/sync` e `POST /etherfuse/sandbox/onramp/:id/simulate-payment` (só em ambiente de teste).
