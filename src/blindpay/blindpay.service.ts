@@ -72,7 +72,7 @@ export class BlindPayService implements OnModuleInit {
       const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
 
       const { data } = await axios.post<{ file_url: string }>(
-        `${baseUrl}/v1/upload`,
+        `${baseUrl}/v1/upload?instance_id=${this.instanceId}`,
         form,
         {
           headers: {
