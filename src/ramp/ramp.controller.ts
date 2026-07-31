@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UploadedFile,
@@ -22,6 +23,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
+import { Public } from '../auth/privy/public.decorator';
 import { RampService } from './ramp.service';
 import {
   CreateBankAccountDto,
@@ -104,7 +106,7 @@ export class RampController {
 
   @Get('ramp/receiver')
   @ApiOperation({ summary: 'Get receiver details' })
-  getReceiver(@Body('userId') userId: string) {
+  getReceiver(@Query('userId') userId: string) {
     return this.rampService.getReceiver(userId);
   }
 
@@ -118,7 +120,7 @@ export class RampController {
 
   @Get('ramp/receiver/bank-accounts')
   @ApiOperation({ summary: 'List bank accounts for a receiver' })
-  listBankAccounts(@Body('userId') userId: string) {
+  listBankAccounts(@Query('userId') userId: string) {
     return this.rampService.listBankAccounts(userId);
   }
 
@@ -146,8 +148,17 @@ export class RampController {
 
   @Get('ramp/onramp/:id')
   @ApiOperation({ summary: 'Get on-ramp transaction details' })
-  getOnramp(@Param('id') id: string, @Body('userId') userId: string) {
+  getOnramp(@Param('id') id: string, @Query('userId') userId: string) {
     return this.rampService.getOnramp(id, userId);
+  }
+
+  @Post('ramp/onramp/:id/sync')
+  @ApiOperation({
+    summary: 'Sync on-ramp status from BlindPay',
+    description: 'Fetches the latest payin status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
+  })
+  syncOnramp(@Param('id') id: string, @Body('userId') userId: string) {
+    return this.rampService.syncOnrampFromBlindPay(id, userId);
   }
 
   // ─── Off-ramp ───────────────────────────────────────────────────────────────
@@ -184,12 +195,22 @@ export class RampController {
 
   @Get('ramp/offramp/:id')
   @ApiOperation({ summary: 'Get off-ramp transaction details' })
-  getOfframp(@Param('id') id: string, @Body('userId') userId: string) {
+  getOfframp(@Param('id') id: string, @Query('userId') userId: string) {
     return this.rampService.getOfframp(id, userId);
   }
 
-  // ─── Webhook (public, HMAC-verified) ────────────────────────────────────────
+  @Post('ramp/offramp/:id/sync')
+  @ApiOperation({
+    summary: 'Sync off-ramp status from BlindPay',
+    description: 'Fetches the latest payout status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
+  })
+  syncOfframp(@Param('id') id: string, @Body('userId') userId: string) {
+    return this.rampService.syncOfframpFromBlindPay(id, userId);
+  }
 
+  // ─── Webhook (public, Svix-verified) ────────────────────────────────────────
+
+  @Public()
   @Post('webhooks/blindpay')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -198,37 +219,80 @@ export class RampController {
   })
   async handleBlindPayWebhook(
     @Req() req: Request & { rawBody?: Buffer },
-    @Headers('blindpay-signature') signature: string,
+    @Headers('svix-id') svixId: string,
+    @Headers('svix-timestamp') svixTimestamp: string,
+    @Headers('svix-signature') svixSignature: string,
     @Body() body: Record<string, unknown>,
   ) {
-    this.verifyWebhookSignature(req.rawBody, signature);
+    this.verifyWebhookSignature(
+      req.rawBody,
+      svixId,
+      svixTimestamp,
+      svixSignature,
+    );
 
     const event = body['webhook_event'] as string | undefined;
     if (event?.startsWith('payin.')) {
-      await this.rampService.handlePayinWebhook(body['id'] as string, body['status'] as string);
+      await this.rampService.handlePayinWebhook(
+        body['id'] as string,
+        body['status'] as string,
+      );
     } else if (event?.startsWith('payout.')) {
-      await this.rampService.handlePayoutWebhook(body['id'] as string, body['status'] as string);
+      await this.rampService.handlePayoutWebhook(
+        body['id'] as string,
+        body['status'] as string,
+      );
     }
 
     return { received: true };
   }
 
-  private verifyWebhookSignature(rawBody: Buffer | undefined, signature: string) {
+  /**
+   * BlindPay signs webhooks using the Svix scheme (svix-id/svix-timestamp/svix-signature
+   * headers). Implementation follows BlindPay's own reference example verbatim
+   * (blindpay.com/docs/learn/webhooks-verification) — do not swap this for a
+   * generic "blindpay-signature" HMAC check, that header does not exist.
+   */
+  private verifyWebhookSignature(
+    rawBody: Buffer | undefined,
+    svixId: string,
+    svixTimestamp: string,
+    svixSignature: string,
+  ) {
     const secret = this.config.get<string>('BLINDPAY_WEBHOOK_SECRET');
     if (!secret) return; // Skip verification if secret not configured
 
-    if (!signature || !rawBody) {
-      throw new UnauthorizedException('Missing webhook signature');
+    if (!svixId || !svixTimestamp || !svixSignature || !rawBody) {
+      throw new UnauthorizedException('Missing webhook signature headers');
     }
 
-    const expectedSig = createHmac('sha256', secret).update(rawBody).digest('hex');
-    const sigBuffer = Buffer.from(signature.replace(/^sha256=/, ''));
-    const expectedBuffer = Buffer.from(expectedSig);
+    const toleranceInSeconds = 5 * 60;
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - Number(svixTimestamp)) > toleranceInSeconds) {
+      throw new UnauthorizedException(
+        'Webhook timestamp outside tolerance window',
+      );
+    }
 
-    if (
-      sigBuffer.length !== expectedBuffer.length ||
-      !timingSafeEqual(sigBuffer, expectedBuffer)
-    ) {
+    const signedContent = `${svixId}.${svixTimestamp}.${rawBody.toString('utf8')}`;
+    const secretBytes = Buffer.from(secret.split('_')[1], 'base64');
+    const expectedSignature = createHmac('sha256', secretBytes)
+      .update(signedContent)
+      .digest('base64');
+
+    const signatures = svixSignature.split(' ').map((sig) => sig.split(',')[1]);
+    const isValid = signatures.some((sig) => {
+      try {
+        return timingSafeEqual(
+          Buffer.from(sig, 'base64'),
+          Buffer.from(expectedSignature, 'base64'),
+        );
+      } catch {
+        return false;
+      }
+    });
+
+    if (!isValid) {
       throw new UnauthorizedException('Invalid webhook signature');
     }
   }

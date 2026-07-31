@@ -254,6 +254,39 @@ export class RampService {
     return txn;
   }
 
+  /**
+   * Fetches the latest payin status directly from BlindPay and updates the
+   * local database. Useful when webhooks are not configured or in development
+   * (mirrors EtherfuseRampService.syncOrderFromEtherfuse).
+   */
+  async syncOnrampFromBlindPay(id: string, userId: string) {
+    const txn = await this.prisma.onrampTransaction.findFirst({
+      where: { id, userId },
+    });
+    if (!txn) throw new NotFoundException('On-ramp transaction not found');
+    if (!txn.blindpayPayinId) {
+      throw new BadRequestException('Transaction has no BlindPay payin ID');
+    }
+
+    const payin = await this.blindpay.getPayin(txn.blindpayPayinId);
+    const status = this.mapPayinStatus(payin.status);
+
+    if (status !== txn.status) {
+      await this.prisma.onrampTransaction.update({
+        where: { id: txn.id },
+        data: {
+          status,
+          completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(status)
+            ? new Date()
+            : undefined,
+        },
+      });
+      this.logger.log(`Onramp ${txn.id} synced: ${txn.status} → ${status}`);
+    }
+
+    return this.prisma.onrampTransaction.findUnique({ where: { id: txn.id } });
+  }
+
   // ─── Off-ramp: Quote ───────────────────────────────────────────────────────
 
   async getOfframpQuote(dto: OfframpQuoteDto) {
@@ -422,6 +455,39 @@ export class RampService {
     });
     if (!txn) throw new NotFoundException('Off-ramp transaction not found');
     return txn;
+  }
+
+  /**
+   * Fetches the latest payout status directly from BlindPay and updates the
+   * local database. Useful when webhooks are not configured or in development
+   * (mirrors EtherfuseRampService.syncOrderFromEtherfuse).
+   */
+  async syncOfframpFromBlindPay(id: string, userId: string) {
+    const txn = await this.prisma.offrampTransaction.findFirst({
+      where: { id, userId },
+    });
+    if (!txn) throw new NotFoundException('Off-ramp transaction not found');
+    if (!txn.blindpayPayoutId) {
+      throw new BadRequestException('Transaction has no BlindPay payout ID');
+    }
+
+    const payout = await this.blindpay.getPayout(txn.blindpayPayoutId);
+    const status = this.mapPayoutStatus(payout.status);
+
+    if (status !== txn.status) {
+      await this.prisma.offrampTransaction.update({
+        where: { id: txn.id },
+        data: {
+          status,
+          completedAt: ['COMPLETED', 'FAILED'].includes(status)
+            ? new Date()
+            : undefined,
+        },
+      });
+      this.logger.log(`Offramp ${txn.id} synced: ${txn.status} → ${status}`);
+    }
+
+    return this.prisma.offrampTransaction.findUnique({ where: { id: txn.id } });
   }
 
   // ─── Webhook ───────────────────────────────────────────────────────────────
