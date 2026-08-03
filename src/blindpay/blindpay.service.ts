@@ -110,12 +110,17 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
-  // ─── Receivers ─────────────────────────────────────────────────────────────
+  // ─── Receivers (Customers) ─────────────────────────────────────────────────
+  // A BlindPay renomeou o recurso "receivers" para "customers" na API. O
+  // caminho antigo `/receivers/...` agora responde 301 para `/customers/...`
+  // e, ao seguir o redirect, o axios perde o header Authorization (resultando
+  // em "missing_jwt"). Todos os endpoints usam `/customers/{id}/...` — o ID é
+  // o mesmo (formato re_...).
 
   async createReceiver(params: CreateReceiverParams): Promise<BlindPayReceiver> {
     try {
       const { data } = await this.http.post<BlindPayReceiver>(
-        `/instances/${this.instanceId}/receivers`,
+        `/instances/${this.instanceId}/customers`,
         params,
       );
       return data;
@@ -127,7 +132,7 @@ export class BlindPayService implements OnModuleInit {
   async getReceiver(receiverId: string): Promise<BlindPayReceiver> {
     try {
       const { data } = await this.http.get<BlindPayReceiver>(
-        `/instances/${this.instanceId}/receivers/${receiverId}`,
+        `/instances/${this.instanceId}/customers/${receiverId}`,
       );
       return data;
     } catch (err) {
@@ -140,7 +145,7 @@ export class BlindPayService implements OnModuleInit {
   async createBankAccount(receiverId: string, params: CreateBankAccountParams): Promise<BlindPayBankAccount> {
     try {
       const { data } = await this.http.post<BlindPayBankAccount>(
-        `/instances/${this.instanceId}/receivers/${receiverId}/bank-accounts`,
+        `/instances/${this.instanceId}/customers/${receiverId}/bank-accounts`,
         params,
       );
       return data;
@@ -152,7 +157,7 @@ export class BlindPayService implements OnModuleInit {
   async listBankAccounts(receiverId: string): Promise<BlindPayBankAccount[]> {
     try {
       const { data } = await this.http.get<BlindPayBankAccount[]>(
-        `/instances/${this.instanceId}/receivers/${receiverId}/bank-accounts`,
+        `/instances/${this.instanceId}/customers/${receiverId}/bank-accounts`,
       );
       return data;
     } catch (err) {
@@ -179,7 +184,7 @@ export class BlindPayService implements OnModuleInit {
       if (params.address) body.address = params.address;
 
       const { data } = await this.http.post<BlindPayBlockchainWallet>(
-        `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
+        `/instances/${this.instanceId}/customers/${receiverId}/blockchain-wallets`,
         body,
       );
       return data;
@@ -226,7 +231,7 @@ export class BlindPayService implements OnModuleInit {
   async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(
-        `/instances/${this.instanceId}/receivers/${receiverId}/blockchain-wallets`,
+        `/instances/${this.instanceId}/customers/${receiverId}/blockchain-wallets`,
       );
       return data;
     } catch (err) {
