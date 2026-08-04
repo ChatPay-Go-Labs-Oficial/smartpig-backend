@@ -34,14 +34,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
       );
     }
 
+    // Exceções que carregam um corpo estruturado (ex.: BlindPayUpstreamError)
+    // trazem `code` e `fields` além da mensagem. Repassar os dois é o que
+    // permite ao app reagir por código em vez de dar match na string.
+    const body =
+      typeof message === 'object' && message !== null
+        ? (message as Record<string, unknown>)
+        : null;
+
     response.status(status).json({
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
-      message:
-        typeof message === 'object' && 'message' in (message as object)
-          ? (message as { message: string }).message
-          : message,
+      message: body && 'message' in body ? body['message'] : message,
+      ...(body && typeof body['code'] === 'string'
+        ? { code: body['code'] }
+        : {}),
+      ...(body && body['fields'] ? { fields: body['fields'] } : {}),
     });
   }
 }

@@ -60,6 +60,17 @@ enum EtherfuseKycStatus {
   REJECTED
 }
 
+/// Espelha o kyc_status do customer na BlindPay.
+/// COMPLIANCE_REQUEST pausa o cliente enquanto um RFI está aberto;
+/// APPROVED_RFI mantém o cliente operacional mesmo com RFI pendente.
+enum BlindPayKycStatus {
+  VERIFYING
+  APPROVED
+  REJECTED
+  COMPLIANCE_REQUEST
+  APPROVED_RFI
+}
+
 enum EtherfuseOrderDirection {
   ONRAMP
   OFFRAMP
@@ -353,6 +364,16 @@ model BlindPayReceiver {
   blindpayReceiverId String  @unique
   name               String
   taxId              String?
+  /// ToS aceito na criação do customer. Guardado para reaproveitar no reenvio.
+  tosId              String?
+
+  kycStatus       BlindPayKycStatus @default(VERIFYING)
+  /// kyc_warnings / fraud_warnings crus da BlindPay — o formato não é
+  /// documentado, então guardamos o payload inteiro em vez de campos fixos.
+  kycWarnings     Json?
+  /// Mensagem de rejeição já achatada, para exibição e para o mapa pt-BR.
+  rejectionReason String?
+  kycUpdatedAt    DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -362,8 +383,33 @@ model BlindPayReceiver {
   blockchainWallets BlindPayBlockchainWallet[]
   onrampTxns        OnrampTransaction[]
   offrampTxns       OfframpTransaction[]
+  kycAttempts       BlindPayKycAttempt[]
 
+  @@index([blindpayReceiverId])
   @@map("blindpay_receivers")
+}
+
+/// Histórico de customers BlindPay rejeitados para este usuário.
+///
+/// A BlindPay não permite corrigir o KYC de um customer existente ("To retry
+/// after a rejection, create a brand new customer"), então cada reenvio cria
+/// um customer novo. O row de BlindPayReceiver é atualizado com o novo
+/// blindpayReceiverId e o anterior é arquivado aqui — assim userId continua
+/// @unique e não precisamos de índice único parcial.
+model BlindPayKycAttempt {
+  id                 String            @id @default(cuid())
+  receiverId         String
+  blindpayReceiverId String
+  kycStatus          BlindPayKycStatus
+  rejectionReason    String?
+  warnings           Json?
+
+  createdAt DateTime @default(now())
+
+  receiver BlindPayReceiver @relation(fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([receiverId])
+  @@map("blindpay_kyc_attempts")
 }
 
 model BlindPayBankAccount {

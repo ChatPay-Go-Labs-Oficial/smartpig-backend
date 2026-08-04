@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Post,
   Query,
@@ -14,17 +16,13 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
 import { Public } from '../auth/privy/public.decorator';
 import { RampService } from './ramp.service';
+import { RampKycService } from './kyc.service';
 import {
   CreateBankAccountDto,
   CreateBlockchainWalletDto,
@@ -34,14 +32,23 @@ import {
   InitiateTosDto,
   OfframpQuoteDto,
   OnrampQuoteDto,
+  ResubmitReceiverDto,
   SubmitOfframpDto,
+  SubmitRfiDto,
 } from './dto/ramp.dto';
+
+/** Limites de upload da BlindPay, replicados para falhar antes do round-trip. */
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+const ALLOWED_UPLOAD_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
 
 @ApiTags('Ramp')
 @Controller()
 export class RampController {
+  private readonly logger = new Logger(RampController.name);
+
   constructor(
     private readonly rampService: RampService,
+    private readonly kycService: RampKycService,
     private readonly config: ConfigService,
   ) {}
 
@@ -91,6 +98,31 @@ export class RampController {
     },
   })
   uploadKycFile(@UploadedFile() file: Express.Multer.File) {
+    // Sem esses guards, um request sem arquivo estoura TypeError em `file.buffer`
+    // e vira 500. Os limites são os mesmos que a BlindPay aplica — falhar aqui
+    // poupa o round-trip e devolve uma mensagem que o usuário entende.
+    if (!file?.buffer?.length) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'UPLOAD_MISSING_FILE',
+        message: 'Nenhum arquivo foi enviado no campo "file".',
+      });
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'UPLOAD_TOO_LARGE',
+        message: `O arquivo excede o limite de ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB.`,
+      });
+    }
+    if (!ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'UPLOAD_BAD_TYPE',
+        message: 'Formato não aceito. Envie uma imagem JPG ou PNG, ou um PDF.',
+      });
+    }
+
     return this.rampService
       .uploadKycFile(file.buffer, file.originalname, file.mimetype)
       .then((url) => ({ url }));
@@ -108,6 +140,47 @@ export class RampController {
   @ApiOperation({ summary: 'Get receiver details' })
   getReceiver(@Query('userId') userId: string) {
     return this.rampService.getReceiver(userId);
+  }
+
+  // ─── KYC ────────────────────────────────────────────────────────────────────
+
+  @Get('ramp/receiver/kyc-status')
+  @ApiOperation({
+    summary: 'Get live KYC status from BlindPay',
+    description:
+      'Fetches kyc_status from BlindPay, persists it locally and returns the open RFI when there is one. This is the endpoint the app polls while KYC is pending.',
+  })
+  getKycStatus(@Query('userId') userId: string) {
+    return this.kycService.getKycStatus(userId);
+  }
+
+  @Post('ramp/receiver/resubmit')
+  @ApiOperation({
+    summary: 'Redo KYC after a rejection',
+    description:
+      'BlindPay does not allow editing a rejected customer, so this creates a new one and re-registers the Pix account and blockchain wallet against it. Only allowed while kycStatus is REJECTED.',
+  })
+  resubmitReceiver(@Body() dto: ResubmitReceiverDto) {
+    return this.kycService.resubmitReceiver(dto);
+  }
+
+  @Get('ramp/receiver/rfi')
+  @ApiOperation({
+    summary: 'Get the open Request for Information',
+    description: 'Returns null when compliance has no pending request.',
+  })
+  getRfi(@Query('userId') userId: string) {
+    return this.kycService.getRfi(userId);
+  }
+
+  @Post('ramp/receiver/rfi')
+  @ApiOperation({
+    summary: 'Answer the open Request for Information',
+    description:
+      'Validates the answers against the requested fields before forwarding. Submission is single-shot — partial answers are not accepted by BlindPay.',
+  })
+  submitRfi(@Body() dto: SubmitRfiDto) {
+    return this.kycService.submitRfi(dto.userId, dto.responses);
   }
 
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
@@ -155,7 +228,8 @@ export class RampController {
   @Post('ramp/onramp/:id/sync')
   @ApiOperation({
     summary: 'Sync on-ramp status from BlindPay',
-    description: 'Fetches the latest payin status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
+    description:
+      'Fetches the latest payin status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
   })
   syncOnramp(@Param('id') id: string, @Body('userId') userId: string) {
     return this.rampService.syncOnrampFromBlindPay(id, userId);
@@ -176,7 +250,9 @@ export class RampController {
   }
 
   @Post('ramp/offramp/:id/delegation')
-  @ApiOperation({ summary: 'Refresh delegation XDR (when previous one expired)' })
+  @ApiOperation({
+    summary: 'Refresh delegation XDR (when previous one expired)',
+  })
   refreshOfframpDelegation(
     @Param('id') id: string,
     @Body('userId') userId: string,
@@ -186,10 +262,7 @@ export class RampController {
 
   @Post('ramp/offramp/:id/submit')
   @ApiOperation({ summary: 'Submit signed XDR for off-ramp' })
-  submitOfframp(
-    @Param('id') id: string,
-    @Body() dto: SubmitOfframpDto,
-  ) {
+  submitOfframp(@Param('id') id: string, @Body() dto: SubmitOfframpDto) {
     return this.rampService.submitOfframp(id, dto.userId, dto);
   }
 
@@ -202,7 +275,8 @@ export class RampController {
   @Post('ramp/offramp/:id/sync')
   @ApiOperation({
     summary: 'Sync off-ramp status from BlindPay',
-    description: 'Fetches the latest payout status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
+    description:
+      'Fetches the latest payout status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
   })
   syncOfframp(@Param('id') id: string, @Body('userId') userId: string) {
     return this.rampService.syncOfframpFromBlindPay(id, userId);
@@ -242,6 +316,14 @@ export class RampController {
         body['id'] as string,
         body['status'] as string,
       );
+    } else if (event === 'customer.new' || event === 'customer.update') {
+      // Único aviso proativo de aprovação, rejeição ou abertura de RFI.
+      // `id` aqui é o customer da BlindPay (`re_...`), não o id local.
+      await this.kycService.applyWebhookStatus(
+        body['id'] as string,
+        body['kyc_status'] as string | undefined,
+        body['kyc_warnings'] ?? body['fraud_warnings'],
+      );
     }
 
     return { received: true };
@@ -260,7 +342,19 @@ export class RampController {
     svixSignature: string,
   ) {
     const secret = this.config.get<string>('BLINDPAY_WEBHOOK_SECRET');
-    if (!secret) return; // Skip verification if secret not configured
+    if (!secret) {
+      // Sem secret não há como distinguir a BlindPay de qualquer um na internet,
+      // e este endpoint muda kyc_status e libera saque. Em produção isso é uma
+      // porta aberta, então falha fechado; fora dela o bypass segue valendo para
+      // não travar o desenvolvimento local, mas ruidosamente.
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new UnauthorizedException('Webhook secret not configured');
+      }
+      this.logger.warn(
+        'BLINDPAY_WEBHOOK_SECRET ausente — assinatura do webhook NÃO verificada',
+      );
+      return;
+    }
 
     if (!svixId || !svixTimestamp || !svixSignature || !rawBody) {
       throw new UnauthorizedException('Missing webhook signature headers');

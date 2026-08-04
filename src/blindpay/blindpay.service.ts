@@ -11,6 +11,8 @@ import {
   BlindPayPayout,
   BlindPayPayoutQuote,
   BlindPayReceiver,
+  BlindPayRfi,
+  BlindPayRfiResponseBody,
   CreateBankAccountParams,
   CreateBlockchainWalletParams,
   CreatePayinParams,
@@ -27,11 +29,14 @@ export class BlindPayService implements OnModuleInit {
   private http: AxiosInstance;
   private instanceId: string;
 
-  constructor(private readonly config: ConfigService) { }
+  constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
     const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
-    const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
+    const baseUrl = this.config.get<string>(
+      'BLINDPAY_BASE_URL',
+      'https://api.blindpay.com',
+    );
     this.instanceId = this.config.getOrThrow<string>('BLINDPAY_INSTANCE_ID');
 
     this.http = axios.create({
@@ -44,11 +49,15 @@ export class BlindPayService implements OnModuleInit {
     });
 
     this.http.interceptors.request.use((config) => {
-      this.logger.debug(`BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`);
+      this.logger.debug(
+        `BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`,
+      );
       return config;
     });
 
-    this.logger.log(`BlindPay client initialized (instance: ${this.instanceId})`);
+    this.logger.log(
+      `BlindPay client initialized (instance: ${this.instanceId})`,
+    );
   }
 
   // ─── File Upload ───────────────────────────────────────────────────────────
@@ -65,11 +74,17 @@ export class BlindPayService implements OnModuleInit {
   ): Promise<string> {
     try {
       const form = new FormData();
-      form.append('file', fileBuffer, { filename: originalName, contentType: mimeType });
+      form.append('file', fileBuffer, {
+        filename: originalName,
+        contentType: mimeType,
+      });
       form.append('bucket', bucket);
 
       const apiKey = this.config.getOrThrow<string>('BLINDPAY_API_KEY');
-      const baseUrl = this.config.get<string>('BLINDPAY_BASE_URL', 'https://api.blindpay.com');
+      const baseUrl = this.config.get<string>(
+        'BLINDPAY_BASE_URL',
+        'https://api.blindpay.com',
+      );
 
       const { data } = await axios.post<{ file_url: string }>(
         `${baseUrl}/v1/upload?instance_id=${this.instanceId}`,
@@ -95,7 +110,10 @@ export class BlindPayService implements OnModuleInit {
    * Returns a URL the end-user must visit to accept the ToS.
    * After acceptance, BlindPay redirects to redirectUrl with ?tos_id=to_...
    */
-  async initiateTos(idempotencyKey: string, redirectUrl?: string): Promise<string> {
+  async initiateTos(
+    idempotencyKey: string,
+    redirectUrl?: string,
+  ): Promise<string> {
     try {
       const body: Record<string, string> = { idempotency_key: idempotencyKey };
       if (redirectUrl) body.redirect_url = redirectUrl;
@@ -117,7 +135,9 @@ export class BlindPayService implements OnModuleInit {
   // em "missing_jwt"). Todos os endpoints usam `/customers/{id}/...` — o ID é
   // o mesmo (formato re_...).
 
-  async createReceiver(params: CreateReceiverParams): Promise<BlindPayReceiver> {
+  async createReceiver(
+    params: CreateReceiverParams,
+  ): Promise<BlindPayReceiver> {
     try {
       const { data } = await this.http.post<BlindPayReceiver>(
         `/instances/${this.instanceId}/customers`,
@@ -140,9 +160,52 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
+  // ─── RFI (Request for Information) ─────────────────────────────────────────
+  // Só existe um RFI aberto por customer, então não há id de RFI na URL.
+
+  /** RFI aberto do customer, ou `null` quando não há nenhum (a API devolve 404). */
+  async getRfi(receiverId: string): Promise<BlindPayRfi | null> {
+    try {
+      const { data } = await this.http.get<BlindPayRfi>(
+        `/instances/${this.instanceId}/customers/${receiverId}/rfi`,
+      );
+      return data;
+    } catch (err) {
+      // 404 aqui significa "sem RFI pendente", que é um estado normal — não é erro.
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        return null;
+      }
+      mapBlindPayError(err);
+    }
+  }
+
+  /**
+   * Responde o RFI aberto. O envio é single-shot: todos os campos obrigatórios
+   * precisam ir juntos, não existe salvamento parcial. Em caso de sucesso a
+   * BlindPay devolve o customer para `verifying` (ou direto para `approved`,
+   * quando ele estava em `approved_rfi`).
+   */
+  async submitRfi(
+    receiverId: string,
+    body: BlindPayRfiResponseBody,
+  ): Promise<{ success: boolean; reason?: string }> {
+    try {
+      const { data } = await this.http.post<{
+        success: boolean;
+        reason?: string;
+      }>(`/instances/${this.instanceId}/customers/${receiverId}/rfi`, body);
+      return data;
+    } catch (err) {
+      mapBlindPayError(err);
+    }
+  }
+
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
-  async createBankAccount(receiverId: string, params: CreateBankAccountParams): Promise<BlindPayBankAccount> {
+  async createBankAccount(
+    receiverId: string,
+    params: CreateBankAccountParams,
+  ): Promise<BlindPayBankAccount> {
     try {
       const { data } = await this.http.post<BlindPayBankAccount>(
         `/instances/${this.instanceId}/customers/${receiverId}/bank-accounts`,
@@ -172,7 +235,8 @@ export class BlindPayService implements OnModuleInit {
     params: CreateBlockchainWalletParams,
   ): Promise<BlindPayBlockchainWallet> {
     try {
-      const isStellar = params.network === 'stellar' || params.network === 'stellar_testnet';
+      const isStellar =
+        params.network === 'stellar' || params.network === 'stellar_testnet';
 
       // Stellar networks require is_account_abstraction=true and address directly.
       // EVM networks require signature-based registration (signature_tx_hash).
@@ -202,7 +266,9 @@ export class BlindPayService implements OnModuleInit {
       return data.xdr ?? null;
     } catch (err) {
       // Non-fatal: trustline may already exist or not be needed
-      this.logger.warn(`create-asset-trustline failed for ${walletAddress}: ${err?.message}`);
+      this.logger.warn(
+        `create-asset-trustline failed for ${walletAddress}: ${err?.message}`,
+      );
       return null;
     }
   }
@@ -228,7 +294,9 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
-  async listBlockchainWallets(receiverId: string): Promise<BlindPayBlockchainWallet[]> {
+  async listBlockchainWallets(
+    receiverId: string,
+  ): Promise<BlindPayBlockchainWallet[]> {
     try {
       const { data } = await this.http.get<BlindPayBlockchainWallet[]>(
         `/instances/${this.instanceId}/customers/${receiverId}/blockchain-wallets`,
@@ -241,7 +309,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payout Quotes ─────────────────────────────────────────────────────────
 
-  async createPayoutQuote(params: CreatePayoutQuoteParams): Promise<BlindPayPayoutQuote> {
+  async createPayoutQuote(
+    params: CreatePayoutQuoteParams,
+  ): Promise<BlindPayPayoutQuote> {
     try {
       const { data } = await this.http.post<BlindPayPayoutQuote>(
         `/instances/${this.instanceId}/quotes`,
@@ -272,7 +342,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payouts ───────────────────────────────────────────────────────────────
 
-  async createPayoutStellar(params: CreatePayoutStellarParams): Promise<BlindPayPayout> {
+  async createPayoutStellar(
+    params: CreatePayoutStellarParams,
+  ): Promise<BlindPayPayout> {
     try {
       const { data } = await this.http.post<BlindPayPayout>(
         `/instances/${this.instanceId}/payouts/stellar`,
@@ -297,7 +369,9 @@ export class BlindPayService implements OnModuleInit {
 
   // ─── Payin Quotes ──────────────────────────────────────────────────────────
 
-  async createPayinQuote(params: CreatePayinQuoteParams): Promise<BlindPayPayinQuote> {
+  async createPayinQuote(
+    params: CreatePayinQuoteParams,
+  ): Promise<BlindPayPayinQuote> {
     try {
       const { data } = await this.http.post<BlindPayPayinQuote>(
         `/instances/${this.instanceId}/payin-quotes`,

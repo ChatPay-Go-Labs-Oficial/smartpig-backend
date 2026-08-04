@@ -203,7 +203,7 @@ describe('RampService', () => {
   });
 
   describe('createBlockchainWallet', () => {
-    it('marks the user as onboarded once the wallet is registered', async () => {
+    it('registers the wallet without marking the user onboarded — that now waits for KYC approval', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
         id: 'r1',
         blindpayReceiverId: 'bp_r1',
@@ -223,10 +223,9 @@ describe('RampService', () => {
       });
 
       expect(result.trustlineXdr).toBe('AAAA...');
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'u1' },
-        data: { isOnboarded: true },
-      });
+      // A wallet ser registrada não significa que a BlindPay aprovou o KYC —
+      // `isOnboarded` é ligado em RampKycService, quando o status vira APPROVED.
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
   });
 

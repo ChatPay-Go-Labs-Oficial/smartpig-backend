@@ -20,6 +20,7 @@ import {
   SubmitOfframpDto,
 } from './dto/ramp.dto';
 import { RampStatus } from '@prisma/client';
+import { stellarNetwork } from './ramp-network';
 
 @Injectable()
 export class RampService {
@@ -32,8 +33,7 @@ export class RampService {
   ) {}
 
   private get network(): 'stellar' | 'stellar_testnet' {
-    const env = this.config.get<string>('DEFINDEX_NETWORK', 'testnet');
-    return env === 'mainnet' ? 'stellar' : 'stellar_testnet';
+    return stellarNetwork(this.config);
   }
 
   private get isTestnet(): boolean {
@@ -99,6 +99,9 @@ export class RampService {
           blindpayReceiverId: bpReceiver.id,
           name,
           taxId: dto.taxId,
+          // Guardado para auditoria: cada `tos_id` fica ligado a exatamente um
+          // customer, então este registra qual aceitação vale para este.
+          tosId: dto.tosId,
         },
       });
 
@@ -245,25 +248,16 @@ export class RampService {
       },
     );
 
-    // Registrar a wallet é o último passo do onboarding (KYC → chave Pix → wallet),
-    // então é aqui que `users.isOnboarded` vira true — junto com a wallet, na mesma
-    // transação, pra flag nunca ficar true sem a wallet correspondente.
-    const wallet = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.blindPayBlockchainWallet.create({
-        data: {
-          receiverId: receiver.id,
-          blindpayWalletId: bpWallet.id,
-          network: this.network,
-          address: dto.stellarAddress,
-        },
-      });
-
-      await tx.user.update({
-        where: { id: dto.userId },
-        data: { isOnboarded: true },
-      });
-
-      return created;
+    // `users.isOnboarded` NÃO é escrito aqui. Registrar a wallet é o último
+    // passo que o usuário controla, mas o KYC ainda pode ser rejeitado depois —
+    // a flag agora é ligada em RampKycService quando o status vira APPROVED.
+    const wallet = await this.prisma.blindPayBlockchainWallet.create({
+      data: {
+        receiverId: receiver.id,
+        blindpayWalletId: bpWallet.id,
+        network: this.network,
+        address: dto.stellarAddress,
+      },
     });
 
     // Request trustline XDR so the client can sign and submit it to Stellar.

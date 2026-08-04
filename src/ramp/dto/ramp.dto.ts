@@ -1,5 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsInt, IsISO8601, IsOptional, IsString, IsUrl, Min } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsISO8601,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Min,
+} from 'class-validator';
 
 // ─── Terms of Service ─────────────────────────────────────────────────────────
 
@@ -26,7 +36,10 @@ export class CreateReceiverDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'User email address', example: 'user@example.com' })
+  @ApiProperty({
+    description: 'User email address',
+    example: 'user@example.com',
+  })
   @IsEmail()
   email: string;
 
@@ -46,7 +59,11 @@ export class CreateReceiverDto {
   taxId?: string;
 
   /** ISO 3166-1 alpha-2 country code. Defaults to 'BR'. */
-  @ApiProperty({ description: 'ISO country code', default: 'BR', required: false })
+  @ApiProperty({
+    description: 'ISO country code',
+    default: 'BR',
+    required: false,
+  })
   @IsOptional()
   @IsString()
   country?: string;
@@ -137,6 +154,36 @@ export class CreateReceiverDto {
   tosId?: string;
 }
 
+/**
+ * Reenvio de KYC após rejeição. Mesmo payload da criação: a BlindPay não
+ * permite corrigir um customer existente, então o reenvio cria um novo e
+ * precisa de todos os campos de novo (o app reaproveita o rascunho salvo).
+ */
+export class ResubmitReceiverDto extends CreateReceiverDto {}
+
+// ─── RFI ──────────────────────────────────────────────────────────────────────
+
+export class SubmitRfiDto {
+  @ApiProperty({ description: 'The internal user ID' })
+  @IsString()
+  userId: string;
+
+  /**
+   * Objeto flat `{ [field.key]: valor }` com as chaves que o RFI pediu.
+   * Fica aninhado sob `responses` porque o ValidationPipe global roda com
+   * `forbidNonWhitelisted` — chaves dinâmicas no nível de cima seriam recusadas.
+   */
+  @ApiProperty({
+    description: 'Respostas do RFI, indexadas pela key de cada campo',
+    example: {
+      business_description: 'Fintech de poupança',
+      proof_type: 'utility_bill',
+    },
+  })
+  @IsObject()
+  responses: Record<string, unknown>;
+}
+
 // ─── Bank Account ─────────────────────────────────────────────────────────────
 
 export class CreateBankAccountDto {
@@ -145,7 +192,10 @@ export class CreateBankAccountDto {
   userId: string;
 
   /** Display name for this bank account */
-  @ApiProperty({ description: 'Friendly name for the account', example: 'Main Bank Account' })
+  @ApiProperty({
+    description: 'Friendly name for the account',
+    example: 'Main Bank Account',
+  })
   @IsString()
   name: string;
 
@@ -225,7 +275,10 @@ export class OfframpQuoteDto {
   @Min(1)
   amountUsdc: number;
 
-  @ApiProperty({ description: 'Whether to cover fees from the amount', required: false })
+  @ApiProperty({
+    description: 'Whether to cover fees from the amount',
+    required: false,
+  })
   @IsOptional()
   coverFees?: boolean;
 }
@@ -249,7 +302,10 @@ export class CreateOfframpDto {
   @Min(1)
   amountUsdc: number;
 
-  @ApiProperty({ description: 'Whether to cover fees from the amount', required: false })
+  @ApiProperty({
+    description: 'Whether to cover fees from the amount',
+    required: false,
+  })
   @IsOptional()
   coverFees?: boolean;
 }
@@ -259,7 +315,9 @@ export class SubmitOfframpDto {
   @IsString()
   userId: string;
 
-  @ApiProperty({ description: 'Signed XDR transaction from signing the delegation envelope' })
+  @ApiProperty({
+    description: 'Signed XDR transaction from signing the delegation envelope',
+  })
   @IsString()
   signedDelegationHash: string;
 }

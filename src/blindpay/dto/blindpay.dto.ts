@@ -26,11 +26,19 @@ export interface CreateReceiverParams {
   tos_id?: string;
 }
 
+/** Valores de kyc_status devolvidos pela BlindPay. */
+export type BlindPayKycStatusValue =
+  | 'verifying'
+  | 'approved'
+  | 'rejected'
+  | 'compliance_request'
+  | 'approved_rfi';
+
 export interface BlindPayReceiver {
   id: string;
   type: string;
   kyc_type: string;
-  kyc_status: string | null;
+  kyc_status: BlindPayKycStatusValue | null;
   email: string;
   first_name: string | null;
   last_name: string | null;
@@ -38,7 +46,54 @@ export interface BlindPayReceiver {
   tax_id: string | null;
   country: string;
   created_at: string;
+  /**
+   * Feedback do compliance quando o KYC é rejeitado. O formato exato não é
+   * documentado pela BlindPay — mantemos `unknown` e persistimos cru, em vez
+   * de inventar um shape que pode não bater com o payload real.
+   */
+  kyc_warnings?: unknown;
+  fraud_warnings?: unknown;
 }
+
+// ─── RFI (Request for Information) ────────────────────────────────────────────
+
+/** Um input que o compliance pediu. `key` é a chave usada no corpo da resposta. */
+export interface BlindPayRfiField {
+  key: string;
+  label: string;
+  required: boolean;
+  /** Regex que o valor precisa satisfazer (ex.: `^https://[^\s]+$` para upload). */
+  regex?: string;
+  /** Presente → o campo é um dropdown e o valor deve ser um dos `value`. */
+  items?: { label: string; value: string }[];
+  /** `true` → o campo aceita um array de URLs (máx. 20). */
+  multiple?: boolean;
+}
+
+/** Uma pergunta autocontida do compliance. `description` é para exibir verbatim. */
+export interface BlindPayRfiSection {
+  title: string;
+  description: string;
+  /** URL opcional de modelo/exemplo de documento. */
+  supporting_document?: string;
+  fields: BlindPayRfiField[];
+}
+
+export interface BlindPayRfi {
+  id: string;
+  customer_id: string;
+  instance_id: string;
+  status: 'pending' | 'submitted' | 'expired' | 'cancelled';
+  request: BlindPayRfiSection[];
+  response: Record<string, unknown>;
+  /** Prazo de 27 dias. Estourar sem responder auto-rejeita o cliente. */
+  expires_at: string;
+  submitted_at: string | null;
+  created_at: string;
+}
+
+/** Corpo flat da resposta, com as chaves vindas de `BlindPayRfiField.key`. */
+export type BlindPayRfiResponseBody = Record<string, string | string[]>;
 
 // ─── Bank Accounts ────────────────────────────────────────────────────────────
 
@@ -187,7 +242,11 @@ export interface BlindPayPayin {
 // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
 export interface BlindPayWebhookPayin {
-  webhook_event: 'payin.new' | 'payin.completed' | 'payin.failed' | 'payin.refunded';
+  webhook_event:
+    | 'payin.new'
+    | 'payin.completed'
+    | 'payin.failed'
+    | 'payin.refunded';
   id: string;
   status: string;
   pix_code: string | null;
@@ -199,4 +258,23 @@ export interface BlindPayWebhookPayout {
   status: string;
 }
 
-export type BlindPayWebhookEvent = BlindPayWebhookPayin | BlindPayWebhookPayout;
+/**
+ * `customer.update` dispara em toda mudança de kyc_status — é o único aviso
+ * proativo que a BlindPay dá de aprovação, rejeição ou abertura de RFI.
+ * `id` é o customer (`re_...`), não o id local.
+ */
+export interface BlindPayWebhookCustomer {
+  webhook_event: 'customer.new' | 'customer.update' | 'customer.delete';
+  id: string;
+  instance_id?: string;
+  kyc_status?: BlindPayKycStatusValue;
+  kyc_warnings?: unknown;
+  fraud_warnings?: unknown;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+export type BlindPayWebhookEvent =
+  | BlindPayWebhookPayin
+  | BlindPayWebhookPayout
+  | BlindPayWebhookCustomer;
