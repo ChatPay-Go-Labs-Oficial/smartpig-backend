@@ -19,6 +19,10 @@ import {
   OnrampQuoteDto,
   SubmitOfframpDto,
 } from './dto/ramp.dto';
+import type {
+  BlindPayPayinQuote,
+  CreatePayinQuoteParams,
+} from '../blindpay/dto/blindpay.dto';
 import { RampStatus } from '@prisma/client';
 import { stellarNetwork } from './ramp-network';
 
@@ -70,21 +74,61 @@ export class RampService {
   }
 
   /**
-   * Onramp aceita valor alvo em duas direções: amountBrl (quanto o usuário
-   * paga via Pix) ou amountUsd (quanto ele quer receber em USDC) — os chips
-   * de valor rápido do app usam amountUsd porque o mínimo da BlindPay ($10)
-   * é em dólar, e o usuário não tem como saber quantos reais digitar pra
-   * bater nesse mínimo sem consultar o câmbio primeiro.
+   * Payin quote com currency_type: 'receiver' trata request_amount como alvo
+   * BRUTO — a BlindPay desconta a taxa (percentual + flat) dele antes de
+   * creditar. Testado na sandbox: pedir 1000 (alvo de $10) devolveu
+   * receiver_amount 939 ($9.39 líquido). Como a fórmula exata da taxa não é
+   * exposta de forma estável pela API (o flat_fee de $0.10 observado não vem
+   * do cadastro do partner fee), reconsultamos a BlindPay com o alvo
+   * ajustado pelo shortfall em vez de tentar replicar o cálculo dela — mais
+   * confiável e sobrevive a mudanças na taxa sem precisar hardcodar nada.
    */
-  private resolveOnrampAmount(dto: {
-    amountBrl?: number;
-    amountUsd?: number;
-  }): { currency_type: 'sender' | 'receiver'; request_amount: number } {
+  private async quotePayinForTarget(
+    targetReceiverCents: number,
+    base: Omit<CreatePayinQuoteParams, 'request_amount' | 'currency_type'>,
+  ): Promise<BlindPayPayinQuote> {
+    let requestAmount = targetReceiverCents;
+    let quote = await this.blindpay.createPayinQuote({
+      ...base,
+      currency_type: 'receiver',
+      request_amount: requestAmount,
+    });
+    for (
+      let attempt = 0;
+      attempt < 3 && quote.receiver_amount < targetReceiverCents;
+      attempt++
+    ) {
+      requestAmount += targetReceiverCents - quote.receiver_amount;
+      quote = await this.blindpay.createPayinQuote({
+        ...base,
+        currency_type: 'receiver',
+        request_amount: requestAmount,
+      });
+    }
+    return quote;
+  }
+
+  /**
+   * Onramp aceita valor alvo em duas direções: amountBrl (quanto o usuário
+   * paga via Pix) ou amountUsd (quanto ele quer RECEBER líquido em USDC,
+   * já compensando a taxa) — os chips de valor rápido do app usam amountUsd
+   * porque o mínimo da BlindPay ($10) é em dólar, e o usuário não tem como
+   * saber quantos reais digitar pra bater nesse mínimo sem consultar o
+   * câmbio primeiro.
+   */
+  private async createPayinQuoteForDto(
+    dto: { amountBrl?: number; amountUsd?: number },
+    base: Omit<CreatePayinQuoteParams, 'request_amount' | 'currency_type'>,
+  ): Promise<BlindPayPayinQuote> {
     if (dto.amountUsd != null) {
-      return { currency_type: 'receiver', request_amount: dto.amountUsd };
+      return this.quotePayinForTarget(dto.amountUsd, base);
     }
     if (dto.amountBrl != null) {
-      return { currency_type: 'sender', request_amount: dto.amountBrl };
+      return this.blindpay.createPayinQuote({
+        ...base,
+        currency_type: 'sender',
+        request_amount: dto.amountBrl,
+      });
     }
     throw new BadRequestException('Informe amountBrl ou amountUsd');
   }
@@ -318,14 +362,10 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
-    const { currency_type, request_amount } = this.resolveOnrampAmount(dto);
-
-    return this.blindpay.createPayinQuote({
+    return this.createPayinQuoteForDto(dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
-      currency_type,
       token: this.rampToken,
       payment_method: 'pix',
-      request_amount,
       partner_fee_id: this.partnerFeeId,
     });
   }
@@ -343,15 +383,11 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
-    const { currency_type, request_amount } = this.resolveOnrampAmount(dto);
-
     // Create quote
-    const quote = await this.blindpay.createPayinQuote({
+    const quote = await this.createPayinQuoteForDto(dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
-      currency_type,
       token: this.rampToken,
       payment_method: 'pix',
-      request_amount,
       partner_fee_id: this.partnerFeeId,
     });
 
