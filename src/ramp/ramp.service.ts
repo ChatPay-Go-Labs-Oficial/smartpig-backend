@@ -60,6 +60,26 @@ export class RampService {
     return Math.round(amountUsdc / 10_000);
   }
 
+  /**
+   * Onramp aceita valor alvo em duas direções: amountBrl (quanto o usuário
+   * paga via Pix) ou amountUsd (quanto ele quer receber em USDC) — os chips
+   * de valor rápido do app usam amountUsd porque o mínimo da BlindPay ($10)
+   * é em dólar, e o usuário não tem como saber quantos reais digitar pra
+   * bater nesse mínimo sem consultar o câmbio primeiro.
+   */
+  private resolveOnrampAmount(dto: {
+    amountBrl?: number;
+    amountUsd?: number;
+  }): { currency_type: 'sender' | 'receiver'; request_amount: number } {
+    if (dto.amountUsd != null) {
+      return { currency_type: 'receiver', request_amount: dto.amountUsd };
+    }
+    if (dto.amountBrl != null) {
+      return { currency_type: 'sender', request_amount: dto.amountBrl };
+    }
+    throw new BadRequestException('Informe amountBrl ou amountUsd');
+  }
+
   // ─── Receiver ──────────────────────────────────────────────────────────────
 
   async createReceiver(dto: CreateReceiverDto) {
@@ -289,12 +309,14 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
+    const { currency_type, request_amount } = this.resolveOnrampAmount(dto);
+
     return this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
-      currency_type: 'sender',
+      currency_type,
       token: this.rampToken,
       payment_method: 'pix',
-      request_amount: dto.amountBrl,
+      request_amount,
     });
   }
 
@@ -311,13 +333,15 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
+    const { currency_type, request_amount } = this.resolveOnrampAmount(dto);
+
     // Create quote
     const quote = await this.blindpay.createPayinQuote({
       blockchain_wallet_id: wallet.blindpayWalletId,
-      currency_type: 'sender',
+      currency_type,
       token: this.rampToken,
       payment_method: 'pix',
-      request_amount: dto.amountBrl,
+      request_amount,
     });
 
     // Create payin
@@ -342,7 +366,10 @@ export class RampService {
         blockchainWalletId: wallet.id,
         blindpayPayinId: payin.id,
         blindpayQuoteId: quote.id,
-        amountBrl: dto.amountBrl,
+        // quote.sender_amount (não dto.amountBrl) porque dto.amountBrl fica
+        // undefined no fluxo de amountUsd — e mesmo no fluxo BRL é o valor
+        // que a BlindPay efetivamente cobrou, não o que o cliente mandou.
+        amountBrl: quote.sender_amount,
         amountUsdc: quote.receiver_amount,
         pixCode: payin.pix_code,
         status: RampStatus.AWAITING_PAYMENT,

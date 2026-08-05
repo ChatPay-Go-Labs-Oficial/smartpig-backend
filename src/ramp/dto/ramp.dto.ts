@@ -235,11 +235,36 @@ export class OnrampQuoteDto {
   @IsString()
   blockchainWalletId: string;
 
-  /** Amount in BRL centavos (e.g. R$10.00 = 1000) */
-  @ApiProperty({ description: 'Amount in BRL centavos', example: 1000 })
+  /**
+   * Amount in BRL centavos (e.g. R$10.00 = 1000). Informe este OU amountUsd
+   * — nunca os dois. Use quando o usuário digitou um valor em reais.
+   */
+  @ApiProperty({
+    description: 'Amount in BRL centavos',
+    example: 1000,
+    required: false,
+  })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  amountBrl: number;
+  amountBrl?: number;
+
+  /**
+   * Amount in USD centavos que o usuário quer RECEBER em USDC (e.g. $10.00
+   * = 1000). Informe este OU amountBrl — nunca os dois. Usado pelos chips de
+   * valor rápido do app: o mínimo da BlindPay é em dólar, e o usuário não
+   * tem como saber quantos reais digitar pra bater nesse mínimo sem
+   * consultar o câmbio primeiro.
+   */
+  @ApiProperty({
+    description: 'Amount in USD centavos (valor alvo a receber em USDC)',
+    example: 1000,
+    required: false,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  amountUsd?: number;
 }
 
 export class CreateOnrampDto {
@@ -251,11 +276,30 @@ export class CreateOnrampDto {
   @IsString()
   blockchainWalletId: string;
 
-  /** Amount in BRL centavos */
-  @ApiProperty({ description: 'Amount in BRL centavos', example: 1000 })
+  /** Amount in BRL centavos. Informe este OU amountUsd — nunca os dois. */
+  @ApiProperty({
+    description: 'Amount in BRL centavos',
+    example: 1000,
+    required: false,
+  })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  amountBrl: number;
+  amountBrl?: number;
+
+  /**
+   * Amount in USD centavos que o usuário quer RECEBER em USDC. Informe este
+   * OU amountBrl — nunca os dois. Ver OnrampQuoteDto.amountUsd.
+   */
+  @ApiProperty({
+    description: 'Amount in USD centavos (valor alvo a receber em USDC)',
+    example: 1000,
+    required: false,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  amountUsd?: number;
 }
 
 // ─── Off-ramp ─────────────────────────────────────────────────────────────────
