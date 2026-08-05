@@ -149,6 +149,8 @@ export interface CreatePayoutQuoteParams {
   request_amount: number;
   /** If true, sender pays all fees; if false, receiver pays fees */
   cover_fees?: boolean;
+  /** Partner fee ID from the BlindPay dashboard. Omit/null uses the instance default. */
+  partner_fee_id?: string | null;
 }
 
 export interface BlindPayPayoutQuote {
@@ -213,6 +215,8 @@ export interface CreatePayinQuoteParams {
   payment_method: 'pix';
   /** Amount in fiat cents (e.g. R$10.00 = 1000) */
   request_amount: number;
+  /** Partner fee ID from the BlindPay dashboard. Omit/null uses the instance default. */
+  partner_fee_id?: string | null;
 }
 
 export interface BlindPayPayinQuote {

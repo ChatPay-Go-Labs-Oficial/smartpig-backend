@@ -35,6 +35,7 @@ export const envSchema = Joi.object({
   BLINDPAY_BASE_URL: Joi.string().uri().optional(),
   BLINDPAY_WEBHOOK_SECRET: Joi.string().optional(),
   BLINDPAY_TOKEN: Joi.string().optional(),
+  BLINDPAY_PARTNER_FEE_ID: Joi.string().optional(),
 
   // Etherfuse
   ETHERFUSE_API_KEY: Joi.string().optional(),

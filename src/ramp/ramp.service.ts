@@ -49,6 +49,15 @@ export class RampService {
   }
 
   /**
+   * ID do partner fee configurado no painel da BlindPay — não hardcoded
+   * porque difere entre instâncias sandbox/produção. `null` (não passar o
+   * campo) faz a BlindPay cair no fee padrão da instância.
+   */
+  private get partnerFeeId(): string | null {
+    return this.config.get<string>('BLINDPAY_PARTNER_FEE_ID') ?? null;
+  }
+
+  /**
    * `request_amount` no endpoint de cotação da BlindPay é em centavos
    * ("1000 represents 10.00", por doc oficial da API) — mas todo o resto do
    * sistema (DTOs, banco, app) representa USDC em micro-unidades
@@ -317,6 +326,7 @@ export class RampService {
       token: this.rampToken,
       payment_method: 'pix',
       request_amount,
+      partner_fee_id: this.partnerFeeId,
     });
   }
 
@@ -342,6 +352,7 @@ export class RampService {
       token: this.rampToken,
       payment_method: 'pix',
       request_amount,
+      partner_fee_id: this.partnerFeeId,
     });
 
     // Create payin
@@ -433,6 +444,7 @@ export class RampService {
       token: this.rampToken,
       request_amount: this.microUsdcToCents(dto.amountUsdc),
       cover_fees: dto.coverFees ?? false,
+      partner_fee_id: this.partnerFeeId,
     });
   }
 
@@ -457,6 +469,7 @@ export class RampService {
       token: this.rampToken,
       request_amount: this.microUsdcToCents(dto.amountUsdc),
       cover_fees: dto.coverFees ?? false,
+      partner_fee_id: this.partnerFeeId,
     });
 
     // Ensure the sender wallet has a USDB trustline before delegation.
@@ -523,6 +536,7 @@ export class RampService {
       network: this.network,
       token: this.rampToken,
       request_amount: this.microUsdcToCents(Number(txn.amountUsdc)),
+      partner_fee_id: this.partnerFeeId,
     });
 
     // Create a fresh Stellar delegation with the new quote

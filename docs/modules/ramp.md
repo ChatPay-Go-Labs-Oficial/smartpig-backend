@@ -141,6 +141,7 @@ Antes de fazer on/off-ramp, o usuário precisa:
 | `BLINDPAY_INSTANCE_ID` | ID da instância BlindPay (`in_...`) |
 | `BLINDPAY_BASE_URL` | Base URL (default: `https://api.blindpay.com`) |
 | `BLINDPAY_WEBHOOK_SECRET` | Segredo HMAC para verificar webhooks |
+| `BLINDPAY_PARTNER_FEE_ID` | ID do partner fee (`pf_...`) aplicado nos quotes de on-ramp e off-ramp. Opcional — sem ele, a BlindPay usa o fee padrão da instância |
 
 ---
 
