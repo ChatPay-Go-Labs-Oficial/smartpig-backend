@@ -48,6 +48,18 @@ export class RampService {
     ) as 'USDC' | 'USDB';
   }
 
+  /**
+   * `request_amount` no endpoint de cotação da BlindPay é em centavos
+   * ("1000 represents 10.00", por doc oficial da API) — mas todo o resto do
+   * sistema (DTOs, banco, app) representa USDC em micro-unidades
+   * (1 USDC = 1_000_000). Sem essa conversão na borda da chamada, um saque de
+   * $10.55 vira `request_amount: 10_550_000`, que a BlindPay lê como
+   * $105,500.00 e rejeita por estourar o limite.
+   */
+  private microUsdcToCents(amountUsdc: number): number {
+    return Math.round(amountUsdc / 10_000);
+  }
+
   // ─── Receiver ──────────────────────────────────────────────────────────────
 
   async createReceiver(dto: CreateReceiverDto) {
@@ -392,7 +404,7 @@ export class RampService {
       currency_type: 'sender',
       network: this.network,
       token: this.rampToken,
-      request_amount: dto.amountUsdc,
+      request_amount: this.microUsdcToCents(dto.amountUsdc),
       cover_fees: dto.coverFees ?? false,
     });
   }
@@ -416,7 +428,7 @@ export class RampService {
       currency_type: 'sender',
       network: this.network,
       token: this.rampToken,
-      request_amount: dto.amountUsdc,
+      request_amount: this.microUsdcToCents(dto.amountUsdc),
       cover_fees: dto.coverFees ?? false,
     });
 
@@ -483,7 +495,7 @@ export class RampService {
       currency_type: 'sender',
       network: this.network,
       token: this.rampToken,
-      request_amount: Number(txn.amountUsdc),
+      request_amount: this.microUsdcToCents(Number(txn.amountUsdc)),
     });
 
     // Create a fresh Stellar delegation with the new quote

@@ -140,7 +140,12 @@ export interface CreatePayoutQuoteParams {
   currency_type: 'sender' | 'receiver';
   network: 'stellar' | 'stellar_testnet';
   token: 'USDC' | 'USDT' | 'USDB';
-  /** Amount in smallest units (micro-USDC, i.e. 1 USDC = 1_000_000) */
+  /**
+   * Amount in cents (BlindPay API: "1000 represents 10.00, 2050 represents
+   * 20.50") — NOT micro-USDC. Callers holding a micro-USDC amount (the
+   * convention everywhere else in this codebase) must convert first, e.g.
+   * `RampService.microUsdcToCents`.
+   */
   request_amount: number;
   /** If true, sender pays all fees; if false, receiver pays fees */
   cover_fees?: boolean;
