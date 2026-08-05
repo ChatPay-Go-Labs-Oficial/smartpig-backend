@@ -187,3 +187,23 @@ Quando o webhook não está configurado (ou para reconciliar), `POST /ramp/onram
 | USDC | Micro-USDC (integer) | 1 USDC = `1000000` |
 
 > Conforme documentação BlindPay: *"we do not accept float values for request_amount"*
+
+### ⚠️ `request_amount` nos quotes é sempre em centavos, mesmo para USDC
+
+O `request_amount` dos endpoints de cotação da BlindPay (`createPayoutQuote`,
+`createPayinQuote`) **não** segue a unidade micro-USDC da tabela acima — é
+sempre **centavos** (doc oficial: *"1000 represents 10.00, 2050 represents
+20.50"*), inclusive quando `currency_type: 'sender'` e o valor representa
+USDC.
+
+Isso já causou um bug real: um saque de $10.55 (`10_550_000` micro-USDC)
+enviado direto como `request_amount` foi lido pela BlindPay como
+$105.500,00 e rejeitado com `LIMITS_AMOUNT_OUT_OF_RANGE` (corrigido em
+`925faa8`).
+
+Por isso `RampService` converte na borda, com `RampService.microUsdcToCents()`
+(`src/ramp/ramp.service.ts`), usado nos 3 pontos que chamam
+`createPayoutQuote`: `getOfframpQuote`, `createOfframp` e
+`refreshOfframpDelegation`. Qualquer novo call site de quote precisa da
+mesma conversão — não passe um valor em micro-USDC direto para
+`request_amount`.
