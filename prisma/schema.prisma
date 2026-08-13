@@ -607,3 +607,24 @@ model Gift {
   @@index([status, expiresAt])
   @@map("gifts")
 }
+
+// ─────────────────────────────────────────────
+// App Version Config — force update / update banner
+// ─────────────────────────────────────────────
+
+enum AppPlatform {
+  IOS
+  ANDROID
+}
+
+model AppVersionConfig {
+  id            String      @id @default(cuid())
+  platform      AppPlatform @unique
+  minVersion    String // versão mínima obrigatória (semver "x.y.z") — abaixo dela, bloqueia
+  latestVersion String // versão recomendada/mais recente (semver "x.y.z") — banner dispensável
+  storeUrl      String // URL da App Store / Play Store para essa plataforma
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("app_version_configs")
+}
