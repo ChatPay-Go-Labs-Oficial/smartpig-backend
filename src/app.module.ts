@@ -15,6 +15,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { VaultManagerModule } from './vault-manager/vault-manager.module';
 import { RampModule } from './ramp/ramp.module';
 import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
+import { AppConfigModule } from './app-config/app-config.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
     VaultManagerModule,
     RampModule,
     EtherfuseRampModule,
+    AppConfigModule,
   ],
   controllers: [AppController],
   providers: [AppService],

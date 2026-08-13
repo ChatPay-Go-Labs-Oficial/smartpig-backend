@@ -35,6 +35,31 @@ async function main() {
   ]);
 
   console.log(`✅ Seeded ${vaults.length} vaults`);
+
+  const appVersionConfigs = await Promise.all([
+    prisma.appVersionConfig.upsert({
+      where: { platform: 'IOS' },
+      update: {},
+      create: {
+        platform: 'IOS',
+        minVersion: '1.0.0',
+        latestVersion: '1.0.0',
+        storeUrl: 'https://apps.apple.com/app/id6798366548',
+      },
+    }),
+    prisma.appVersionConfig.upsert({
+      where: { platform: 'ANDROID' },
+      update: {},
+      create: {
+        platform: 'ANDROID',
+        minVersion: '1.0.0',
+        latestVersion: '1.0.0',
+        storeUrl: 'https://play.google.com/store/apps/details?id=com.pigfi.app',
+      },
+    }),
+  ]);
+
+  console.log(`✅ Seeded ${appVersionConfigs.length} app version configs`);
 }
 
 main()
