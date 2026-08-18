@@ -7,6 +7,7 @@ import {
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { BlindPayService } from '../blindpay/blindpay.service';
+import { StellarService } from '../wallets/stellar.service';
 import { ConfigService } from '@nestjs/config';
 import {
   CreateBankAccountDto,
@@ -33,6 +34,7 @@ export class RampService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly blindpay: BlindPayService,
+    private readonly stellarService: StellarService,
     private readonly config: ConfigService,
   ) {}
 
@@ -614,12 +616,28 @@ export class RampService {
     if (!txn.blindpayQuoteId) {
       throw new BadRequestException('Missing BlindPay quote ID on transaction');
     }
+    if (!txn.unsignedDelegationXdr) {
+      throw new BadRequestException(
+        'Missing unsigned delegation XDR on transaction',
+      );
+    }
 
-    // Submit payout to BlindPay with the signed delegation hash
+    // User wallets are sponsored-reserve-only (0 spendable XLM) and can't pay
+    // the Stellar network fee themselves. Wrap the user-signed delegation in
+    // a Treasury-paid FeeBump before handing it to BlindPay — same pattern
+    // used for wallet activation. expectedUnsignedXdr pins the sponsorship to
+    // the exact delegation BlindPay generated for this off-ramp, so Treasury
+    // never fee-bumps an arbitrary client-supplied transaction.
+    const feeBumpXdr = this.stellarService.buildSponsoredFeeBumpXdr(
+      dto.signedDelegationHash,
+      txn.unsignedDelegationXdr,
+    );
+
+    // Submit payout to BlindPay with the Treasury-sponsored fee-bump envelope
     const payout = await this.blindpay.createPayoutStellar({
       quote_id: txn.blindpayQuoteId,
       sender_wallet_address: txn.senderWalletAddress,
-      signed_transaction: dto.signedDelegationHash,
+      signed_transaction: feeBumpXdr,
     });
 
     return this.prisma.offrampTransaction.update({
