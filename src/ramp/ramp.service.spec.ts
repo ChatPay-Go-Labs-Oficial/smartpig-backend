@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RampService } from './ramp.service';
 import { BlindPayService } from '../blindpay/blindpay.service';
+import { StellarService } from '../wallets/stellar.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -68,6 +69,10 @@ const mockConfig = {
   getOrThrow: jest.fn(),
 };
 
+const mockStellarService = {
+  buildSponsoredFeeBumpXdr: jest.fn(),
+};
+
 describe('RampService', () => {
   let service: RampService;
 
@@ -78,6 +83,7 @@ describe('RampService', () => {
       providers: [
         RampService,
         { provide: BlindPayService, useValue: mockBlindPayService },
+        { provide: StellarService, useValue: mockStellarService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfig },
       ],
@@ -372,14 +378,37 @@ describe('RampService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('submits payout and updates status to PROCESSING', async () => {
+    it('throws if unsigned delegation XDR is missing', async () => {
       mockPrisma.offrampTransaction.findFirst.mockResolvedValue({
         id: 'of1',
         status: RampStatus.DELEGATION_NEEDED,
         blindpayQuoteId: 'qu_1',
         senderWalletAddress: 'GABC',
         userId: 'u1',
+        unsignedDelegationXdr: null,
       });
+
+      await expect(
+        service.submitOfframp('of1', 'u1', {
+          userId: 'u1',
+          signedDelegationHash: 'abc123',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockStellarService.buildSponsoredFeeBumpXdr).not.toHaveBeenCalled();
+    });
+
+    it('wraps the signed delegation in a Treasury fee-bump before submitting to BlindPay', async () => {
+      mockPrisma.offrampTransaction.findFirst.mockResolvedValue({
+        id: 'of1',
+        status: RampStatus.DELEGATION_NEEDED,
+        blindpayQuoteId: 'qu_1',
+        senderWalletAddress: 'GABC',
+        userId: 'u1',
+        unsignedDelegationXdr: 'AAAA...unsigned',
+      });
+      mockStellarService.buildSponsoredFeeBumpXdr.mockReturnValue(
+        'AAAA...feebump',
+      );
       mockBlindPayService.createPayoutStellar.mockResolvedValue({
         id: 'po_1',
         status: 'processing',
@@ -396,10 +425,14 @@ describe('RampService', () => {
       });
 
       expect(result.status).toBe(RampStatus.PROCESSING);
+      expect(mockStellarService.buildSponsoredFeeBumpXdr).toHaveBeenCalledWith(
+        'abc123',
+        'AAAA...unsigned',
+      );
       expect(mockBlindPayService.createPayoutStellar).toHaveBeenCalledWith({
         quote_id: 'qu_1',
         sender_wallet_address: 'GABC',
-        signed_transaction: 'abc123',
+        signed_transaction: 'AAAA...feebump',
       });
     });
   });
