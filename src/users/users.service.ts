@@ -53,13 +53,6 @@ export class UsersService {
     return updated;
   }
 
-  async deleteUser(id: string) {
-    await this.findOrThrow(id);
-    await this.prisma.user.delete({ where: { id } });
-    this.logger.log(`User ${id} deleted`);
-    return { id, deleted: true };
-  }
-
   private async findOrThrow(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
