@@ -6,14 +6,9 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
 /**
- * Regressão de segurança.
- *
- * `DELETE /users/:id` apagava qualquer conta cujo id fosse informado no path, sem
- * conferir se o portador do token era o dono — e sem cascade nas FKs, então nem
- * funcionava para conta com histórico. Foi removido; o fluxo de exclusão de conta
- * o substitui, derivando o usuário do token.
- *
- * Estes testes existem para que a rota não volte por descuido.
+ * `DELETE /users/:id` deleted whatever account id the path carried, without
+ * checking that the bearer of the token owned it. It was removed; these tests
+ * exist so it does not come back unnoticed.
  */
 describe('UsersController', () => {
   let app: INestApplication<App>;
@@ -38,16 +33,16 @@ describe('UsersController', () => {
     jest.clearAllMocks();
   });
 
-  it('não expõe DELETE /users/:id — antes da remoção esta rota respondia 200', async () => {
+  it('does not expose DELETE /users/:id', async () => {
     await request(app.getHttpServer()).delete('/users/user-b').expect(404);
   });
 
-  it('mantém GET /users/:id', async () => {
+  it('still serves GET /users/:id', async () => {
     await request(app.getHttpServer()).get('/users/user-a').expect(200);
     expect(usersService.getUser).toHaveBeenCalledWith('user-a');
   });
 
-  it('mantém PATCH /users/:id', async () => {
+  it('still serves PATCH /users/:id', async () => {
     await request(app.getHttpServer())
       .patch('/users/user-a')
       .send({ name: 'João' })
