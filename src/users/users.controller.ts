@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -61,18 +61,5 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found.' })
   updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.usersService.updateUser(id, dto);
-  }
-
-  /**
-   * DELETE /users/:id
-   * Permanently delete a user account and all associated data (cascade).
-   */
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete user account' })
-  @ApiParam({ name: 'id', description: 'User ID (cuid)', example: 'nuw8uz50x4swu6b476uf4lla' })
-  @ApiResponse({ status: 200, description: 'User account deleted successfully.' })
-  @ApiResponse({ status: 404, description: 'User not found.' })
-  deleteUser(@Param('id') id: string) {
-    return this.usersService.deleteUser(id);
   }
 }
