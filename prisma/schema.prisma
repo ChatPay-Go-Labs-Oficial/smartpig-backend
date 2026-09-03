@@ -106,6 +106,10 @@ model User {
   appleId     String? @unique
   isOnboarded Boolean @default(false)
 
+  /// Tombstone marker. Set by the scrub; the row survives so the retained
+  /// financial records keep an anchor that points to nobody identifiable.
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -124,6 +128,7 @@ model User {
   giftsSent          Gift[]               @relation("giftsSent")
   giftsReceived      Gift[]               @relation("giftsReceived")
 
+  @@index([deletedAt])
   @@map("users")
 }
 
@@ -157,6 +162,9 @@ model WalletAccount {
   activationExpiresAt    DateTime?
   activationTxHash       String?
   activationErrorMessage String?
+  /// Real address, preserved by the scrub. `stellarAddress` gets a sentinel so the
+  /// @unique constraint is freed and the same wallet can sign up again cleanly.
+  archivedStellarAddress String?
   createdAt              DateTime               @default(now())
 
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -627,4 +635,39 @@ model AppVersionConfig {
   updatedAt     DateTime    @updatedAt
 
   @@map("app_version_configs")
+}
+
+enum AccountDeletionStatus {
+  REQUESTED
+  PENDING_SIGNATURE
+  CHAIN_CLOSED
+  LOCAL_SCRUBBED
+  COMPLETED
+  FAILED
+}
+
+model AccountDeletionRequest {
+  id                 String                @id @default(cuid())
+  idempotencyKey     String                @unique
+  /// Scalar on purpose: no FK to User, so the consent record outlives the scrub and
+  /// stays readable whatever happens to the account it documents.
+  userId             String
+  status             AccountDeletionStatus @default(REQUESTED)
+  closureUnsignedXdr String?               @db.Text
+  closureTxHash      String?
+  /// Dust actually swept to the treasury, for accounting reconciliation.
+  sweptAmount        Decimal?              @db.Decimal(30, 8)
+  sweptAssetSymbol   String?
+  /// The three acknowledgements, with timestamps. Proof of informed consent.
+  acknowledgements   Json
+  blindpayDeletedAt  DateTime?
+  privyDeletedAt     DateTime?
+  cleanupAttempts    Int                   @default(0)
+  errorMessage       String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([status])
+  @@index([userId])
+  @@map("account_deletion_requests")
 }
