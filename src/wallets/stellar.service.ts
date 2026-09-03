@@ -73,6 +73,11 @@ export class StellarService {
     return this.assetId(this.usdcAsset);
   }
 
+  /** Asset id of the secondary asset, or null when TESOURO is not configured. */
+  getTesouroAssetId(): string | null {
+    return this.tesouroAsset ? this.assetId(this.tesouroAsset) : null;
+  }
+
   private assetId(asset: Asset): string {
     return `${asset.getCode()}:${asset.getIssuer()}`;
   }
