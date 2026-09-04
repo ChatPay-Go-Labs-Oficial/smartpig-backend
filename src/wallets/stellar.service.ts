@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { Decimal } from '@prisma/client/runtime/library';
 import {
   Asset,
   Horizon,
@@ -279,6 +280,169 @@ export class StellarService {
   }
 
   /**
+   * Builds a partially-signed inner XDR that closes a user's Stellar account.
+   *
+   * It is the activation flow in reverse, and reuses the same pieces:
+   *   1. Payment of every remaining balance to the Treasury
+   *   2. ChangeTrust(limit: 0) on each existing trustline
+   *   3. AccountMerge to the Treasury
+   *
+   * Steps 1 and 2 cannot be reordered. The network rejects ChangeTrust(limit: 0)
+   * unless the balance is exactly zero, so the sweep is what makes the trustline
+   * removable — and removing the trustlines is what makes the merge possible, since
+   * AccountMerge refuses an account that still holds subentries.
+   *
+   * The sweep is a technical requirement, not a charge. The amount swept is returned
+   * so the caller can record it for reconciliation.
+   *
+   * Balances come from Horizon, never from the client. Fee is "0" — the Treasury
+   * covers it with a FeeBump, exactly as it does for activation, because the user's
+   * account holds no spendable XLM.
+   */
+  async buildAccountClosureXdr(userAddress: string): Promise<{
+    xdr: string;
+    sweptAmount: Decimal;
+    sweptAssetSymbol: string | null;
+  }> {
+    const treasuryKeypair = this.loadTreasury();
+    const treasuryPublicKey = treasuryKeypair.publicKey();
+
+    let userAccount: Horizon.AccountResponse;
+    try {
+      userAccount = await this.server.loadAccount(userAddress);
+    } catch {
+      throw new BadRequestException(
+        `Account ${userAddress} not found on the Stellar network`,
+      );
+    }
+
+    let treasuryAccount: Horizon.AccountResponse;
+    try {
+      treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
+    } catch {
+      throw new BadRequestException(
+        `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
+      );
+    }
+
+    const closable = [this.usdcAsset, this.tesouroAsset].filter(
+      (asset): asset is Asset => asset !== null,
+    );
+
+    const builder = new TransactionBuilder(treasuryAccount, {
+      fee: '0',
+      networkPassphrase: this.networkPassphrase,
+    });
+
+    const sweeps: { asset: Asset; amount: string }[] = [];
+    const trustlinesToRemove: Asset[] = [];
+
+    for (const asset of closable) {
+      const line = userAccount.balances.find(
+        (balance) =>
+          balance.asset_type !== 'native' &&
+          'asset_code' in balance &&
+          balance.asset_code === asset.getCode() &&
+          balance.asset_issuer === asset.getIssuer(),
+      );
+
+      // No trustline means nothing to sweep and nothing to remove.
+      if (!line) continue;
+
+      // An open DEX offer buying this asset keeps the trustline alive: the network
+      // answers op_cannot_delete and the whole closure fails. The product exposes no
+      // DEX, but the wallet is the user's and another client may have used it.
+      const buyingLiabilities =
+        'buying_liabilities' in line ? line.buying_liabilities : '0';
+      if (new Decimal(buyingLiabilities).gt(0)) {
+        throw new BadRequestException(
+          `Há uma ordem aberta na rede comprando ${asset.getCode()}. Cancele a ordem antes de excluir a conta.`,
+        );
+      }
+
+      trustlinesToRemove.push(asset);
+
+      const balance = new Decimal(line.balance);
+      if (balance.gt(0)) {
+        sweeps.push({ asset, amount: balance.toString() });
+      }
+    }
+
+    for (const sweep of sweeps) {
+      builder.addOperation(
+        Operation.payment({
+          destination: treasuryPublicKey,
+          asset: sweep.asset,
+          amount: sweep.amount,
+          source: userAddress,
+        }),
+      );
+    }
+
+    for (const asset of trustlinesToRemove) {
+      builder.addOperation(
+        Operation.changeTrust({
+          asset,
+          limit: '0',
+          source: userAddress,
+        }),
+      );
+    }
+
+    builder.addOperation(
+      Operation.accountMerge({
+        destination: treasuryPublicKey,
+        source: userAddress,
+      }),
+    );
+
+    const tx = builder.setTimeout(TX_TIMEOUT_SECONDS).build();
+    tx.sign(treasuryKeypair);
+
+    const swept = this.summariseSweep(sweeps);
+
+    this.logger.log(
+      `Closure XDR built for ${userAddress} (sweeps=${sweeps.length}, trustlines=${trustlinesToRemove.length}, treasury-signed)`,
+    );
+
+    return {
+      xdr: tx.toEnvelope().toXDR('base64'),
+      sweptAmount: swept.amount,
+      sweptAssetSymbol: swept.assetSymbol,
+    };
+  }
+
+  /**
+   * `AccountDeletionRequest` records one swept amount and one asset symbol, so a
+   * closure that sweeps two assets can only report one. USDC wins, because it is the
+   * asset the product actually moves; the secondary asset is logged.
+   */
+  private summariseSweep(sweeps: { asset: Asset; amount: string }[]): {
+    amount: Decimal;
+    assetSymbol: string | null;
+  } {
+    if (sweeps.length === 0) {
+      return { amount: new Decimal(0), assetSymbol: null };
+    }
+
+    const usdc = sweeps.find(
+      (sweep) => sweep.asset.getCode() === this.usdcAsset.getCode(),
+    );
+    const chosen = usdc ?? sweeps[0];
+
+    if (sweeps.length > 1) {
+      this.logger.warn(
+        `Closure swept ${sweeps.length} assets; recording only ${chosen.asset.getCode()}`,
+      );
+    }
+
+    return {
+      amount: new Decimal(chosen.amount),
+      assetSymbol: chosen.asset.getCode(),
+    };
+  }
+
+  /**
    * Wraps a fully-signed inner transaction in a FeeBump and submits it.
    * The Treasury pays the fee via FeeBump.
    */
@@ -486,6 +650,26 @@ function translateStellarError(code: string): string {
   }
   if (code.includes('op_already_exists')) {
     return 'A trustline já existe para este ativo.';
+  }
+  // Account closure. Each of these means the account cannot be merged yet, and the
+  // untranslated code tells the user nothing about what to do next.
+  if (code.includes('op_cannot_delete')) {
+    return 'Não foi possível remover a linha de confiança do ativo. Verifique se há ordens abertas ou participação em pool de liquidez para este ativo na rede.';
+  }
+  if (code.includes('op_invalid_limit')) {
+    return 'A linha de confiança ainda tem saldo. O encerramento precisa varrer o saldo antes de removê-la.';
+  }
+  if (code.includes('op_has_sub_entries')) {
+    return 'A conta ainda tem linhas de confiança, ofertas ou entradas de dados na rede e não pode ser encerrada.';
+  }
+  if (code.includes('op_is_sponsor')) {
+    return 'A conta patrocina reservas de outra conta e não pode ser encerrada antes de revogá-las.';
+  }
+  if (code.includes('op_dest_full')) {
+    return 'A conta da tesouraria não pode receber o saldo restante. Contate o suporte.';
+  }
+  if (code.includes('op_seq_num_too_far')) {
+    return 'O número de sequência da conta está fora da faixa aceita para encerramento.';
   }
   if (code.includes('tx_insufficient_fee')) {
     return 'Taxa de transação insuficiente.';
