@@ -73,4 +73,7 @@ export const envSchema = Joi.object({
 
   // Vaults
   ALLOWED_VAULT_IDS: Joi.string().default(''),
+
+  // Account deletion
+  ACCOUNT_DELETION_DUST_USD: Joi.number().min(0).default(0.01),
 });
