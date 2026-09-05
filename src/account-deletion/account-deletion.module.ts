@@ -4,6 +4,7 @@ import { DefindexModule } from '../defindex/defindex.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { AccountDeletionController } from './account-deletion.controller';
 import { EligibilityService } from './eligibility.service';
+import { ScrubService } from './scrub.service';
 
 /**
  * Account deletion.
@@ -15,7 +16,7 @@ import { EligibilityService } from './eligibility.service';
 @Module({
   imports: [AuthModule, DefindexModule, WalletsModule],
   controllers: [AccountDeletionController],
-  providers: [EligibilityService],
-  exports: [EligibilityService],
+  providers: [EligibilityService, ScrubService],
+  exports: [EligibilityService, ScrubService],
 })
 export class AccountDeletionModule {}
