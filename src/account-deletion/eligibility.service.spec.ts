@@ -133,9 +133,12 @@ describe('EligibilityService', () => {
       expect(blocker).toMatchObject({
         resolvable: true,
         action: { type: 'WITHDRAW_VAULT', vaultId: 'v1' },
+        params: {
+          amountUsd: '42.5',
+          vaultId: 'v1',
+          vaultName: 'USDC Yield Vault',
+        },
       });
-      expect(blocker?.detail).toContain('42,50');
-      expect(blocker?.detail).toContain('USDC Yield Vault');
     });
 
     it('lists both vaults when two hold a balance', async () => {
@@ -170,9 +173,10 @@ describe('EligibilityService', () => {
       ]);
     });
 
-    it('shows enough decimals that a blocking balance is not printed as the dust limit', async () => {
-      // 0.014 blocks, but rounded to two decimals it reads "US$ 0,01" — the same
-      // figure the consent screen uses for what gets lost.
+    it('reports the amount unrounded, leaving the formatting to the client', async () => {
+      // 0.014 blocks. Rounded to two decimals it would read as the dust limit
+      // itself — the same figure the consent screen uses for what gets lost. The
+      // API hands over the exact number and lets the screen decide how to show it.
       const { service } = createService({
         vaults: [vault('v1')],
         vaultBalances: { 'def-v1': '0.014' },
@@ -181,7 +185,7 @@ describe('EligibilityService', () => {
       const result = await service.check(USER);
 
       const blocker = result.blockers.find((b) => b.code === 'VAULT_BALANCE');
-      expect(blocker?.detail).toContain('0,014');
+      expect(blocker?.params?.amountUsd).toBe('0.014');
     });
 
     it('blocks when a vault balance cannot be read, rather than assuming it is empty', async () => {
@@ -193,10 +197,14 @@ describe('EligibilityService', () => {
       const result = await service.check(USER);
 
       expect(result.eligible).toBe(false);
-      expect(codes(result.blockers)).toContain('VAULT_BALANCE');
-      expect(
-        result.blockers.find((b) => b.code === 'VAULT_BALANCE')?.resolvable,
-      ).toBe(false);
+      expect(result.blockers).toEqual([
+        {
+          code: 'VAULT_BALANCE_UNKNOWN',
+          resolvable: false,
+          action: null,
+          params: { vaultId: 'v1', vaultName: 'USDC Yield Vault' },
+        },
+      ]);
     });
   });
 
@@ -274,8 +282,14 @@ describe('EligibilityService', () => {
       const result = await service.check(USER);
 
       const blocker = result.blockers.find((b) => b.code === 'GIFT_LOCKED');
-      expect(blocker).toMatchObject({ resolvable: false, action: null });
-      expect(blocker?.detail).toContain('09/09/2026');
+      expect(blocker).toMatchObject({
+        resolvable: false,
+        action: null,
+        params: {
+          amountUsd: '10',
+          availableAt: '2026-09-09T12:00:00.000Z',
+        },
+      });
     });
 
     it('blocks on a CLAIMING gift', async () => {
@@ -537,6 +551,41 @@ describe('EligibilityService', () => {
       await service.check(USER);
 
       expect(Object.keys(prisma)).not.toContain('blindPayReceiver');
+    });
+  });
+
+  describe('the response carries data, not copy', () => {
+    it('never returns display text on a blocker', async () => {
+      // The wording depends on the Lite/Pro mode the user picked — the same balance
+      // is "no porquinho" for one and "no vault" for the other, and only the client
+      // knows which. A sentence baked here would be wrong for half the users.
+      const { service } = createService({
+        vaults: [vault('v1')],
+        vaultBalances: { 'def-v1': '42.5' },
+        walletBalances: [{ asset: USDC, balance: '5.0000000' }],
+        gifts: [
+          {
+            id: 'g1',
+            amount: new Decimal('10'),
+            status: 'FUNDED',
+            balanceId: 'bal-1',
+            expiresAt: new Date('2026-09-09T12:00:00.000Z'),
+          },
+        ],
+        counts: { deposits: 1 },
+      });
+
+      const result = await service.check(USER);
+
+      expect(result.blockers.length).toBeGreaterThan(3);
+      for (const blocker of result.blockers) {
+        expect(Object.keys(blocker).sort()).toEqual(
+          expect.arrayContaining(['action', 'code', 'resolvable']),
+        );
+        for (const key of Object.keys(blocker)) {
+          expect(['code', 'resolvable', 'action', 'params']).toContain(key);
+        }
+      }
     });
   });
 
