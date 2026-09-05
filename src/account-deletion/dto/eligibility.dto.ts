@@ -1,6 +1,7 @@
 /** Blocker codes, mirroring B-1..B-11 in the business rules. */
 export type BlockerCode =
   | 'VAULT_BALANCE'
+  | 'VAULT_BALANCE_UNKNOWN'
   | 'WALLET_USDC_BALANCE'
   | 'WALLET_ASSET_BALANCE'
   | 'GIFT_LOCKED'
@@ -23,13 +24,38 @@ export interface BlockerAction {
   vaultId?: string;
 }
 
+/**
+ * Everything the app needs to write the sentence itself.
+ *
+ * Amounts are decimal strings in whole units, unformatted: the client decides how
+ * many decimals to show and which separator to use.
+ */
+export interface BlockerParams {
+  amountUsd?: string;
+  assetCode?: string;
+  vaultId?: string;
+  vaultName?: string;
+  /** ISO date from which a locked gift can be reclaimed. */
+  availableAt?: string;
+}
+
+/**
+ * A reason the account cannot be deleted.
+ *
+ * Carries no display copy on purpose. The app writes the sentence, because the
+ * wording depends on the Lite/Pro mode the user chose — the same balance is "no
+ * porquinho" for one and "no vault" for the other, and only the client knows which.
+ * A `detail` string baked here would be wrong for half the users.
+ */
 export interface Blocker {
   code: BlockerCode;
-  title: string;
-  detail: string;
-  /** false tells the app not to offer an action button — nothing the user can do but wait. */
+  /**
+   * `false` means there is nothing the user can do but wait, and the app must not
+   * offer an action button.
+   */
   resolvable: boolean;
   action: BlockerAction | null;
+  params?: BlockerParams;
 }
 
 export interface VaultShareResidual {

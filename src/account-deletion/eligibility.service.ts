@@ -191,11 +191,10 @@ export class EligibilityService {
         // The read failed, so we cannot prove the vault is empty. The principle is to
         // block rather than risk destroying a position.
         blockers.push({
-          code: 'VAULT_BALANCE',
-          title: 'Não conseguimos verificar um dos seus porquinhos',
-          detail: `Não foi possível consultar o saldo em ${vault.name}. Tente de novo em alguns minutos.`,
+          code: 'VAULT_BALANCE_UNKNOWN',
           resolvable: false,
           action: null,
+          params: { vaultId: vault.id, vaultName: vault.name },
         });
         continue;
       }
@@ -203,10 +202,13 @@ export class EligibilityService {
       if (underlying.gt(this.dustUsd)) {
         blockers.push({
           code: 'VAULT_BALANCE',
-          title: 'Você ainda tem dinheiro investido',
-          detail: `US$ ${this.formatAmount(underlying)} no porquinho ${vault.name}`,
           resolvable: true,
           action: { type: 'WITHDRAW_VAULT', vaultId: vault.id },
+          params: {
+            amountUsd: underlying.toString(),
+            vaultId: vault.id,
+            vaultName: vault.name,
+          },
         });
         continue;
       }
@@ -263,23 +265,15 @@ export class EligibilityService {
       const amount = new Decimal(entry.balance);
 
       if (amount.gt(this.dustUsd)) {
-        blockers.push(
-          isUsdc
-            ? {
-                code: 'WALLET_USDC_BALANCE',
-                title: 'Você ainda tem dinheiro na carteira',
-                detail: `US$ ${this.formatAmount(amount)} em USDC`,
-                resolvable: true,
-                action: { type: 'WITHDRAW_WALLET' },
-              }
-            : {
-                code: 'WALLET_ASSET_BALANCE',
-                title: 'Você ainda tem dinheiro na carteira',
-                detail: `${this.formatAmount(amount)} em ${entry.asset.split(':')[0]}`,
-                resolvable: true,
-                action: { type: 'WITHDRAW_WALLET' },
-              },
-        );
+        blockers.push({
+          code: isUsdc ? 'WALLET_USDC_BALANCE' : 'WALLET_ASSET_BALANCE',
+          resolvable: true,
+          action: { type: 'WITHDRAW_WALLET' },
+          params: {
+            amountUsd: amount.toString(),
+            assetCode: entry.asset.split(':')[0],
+          },
+        });
         continue;
       }
 
@@ -327,10 +321,9 @@ export class EligibilityService {
         if (!gift.balanceId) continue;
         blockers.push({
           code: 'GIFT_REFUNDABLE',
-          title: 'Você tem um presente para recuperar',
-          detail: `US$ ${this.formatAmount(amount)} — recupere antes de excluir a conta`,
           resolvable: true,
           action: { type: 'OPEN_GIFTS' },
+          params: { amountUsd: amount.toString() },
         });
         continue;
       }
@@ -339,10 +332,12 @@ export class EligibilityService {
       // key can reclaim it, and only after expiry. There is nothing to offer.
       blockers.push({
         code: 'GIFT_LOCKED',
-        title: 'Você tem um presente aguardando resgate',
-        detail: `US$ ${this.formatAmount(amount)} — você poderá recuperar a partir de ${this.formatDate(gift.expiresAt)}`,
         resolvable: false,
         action: null,
+        params: {
+          amountUsd: amount.toString(),
+          availableAt: gift.expiresAt.toISOString(),
+        },
       });
     }
 
@@ -379,91 +374,24 @@ export class EligibilityService {
       }),
     ]);
 
-    const blockers: Blocker[] = [];
-    const waiting = (
-      code: Blocker['code'],
-      title: string,
-      detail: string,
-    ): Blocker => ({ code, title, detail, resolvable: false, action: null });
+    // Six counts, one code each. Nothing here is resolvable — the user can only
+    // wait — so none carries an action or parameters.
+    const inFlight: [number, Blocker['code']][] = [
+      [deposits, 'DEPOSIT_IN_FLIGHT'],
+      [withdrawals, 'WITHDRAWAL_IN_FLIGHT'],
+      [transactions, 'TX_PENDING'],
+      [onramps, 'ONRAMP_IN_FLIGHT'],
+      [offramps, 'OFFRAMP_IN_FLIGHT'],
+      [etherfuseOrders, 'ETHERFUSE_ORDER_IN_FLIGHT'],
+    ];
 
-    if (deposits > 0) {
-      blockers.push(
-        waiting(
-          'DEPOSIT_IN_FLIGHT',
-          'Você tem um investimento em andamento',
-          'Aguarde a confirmação para excluir a conta.',
-        ),
-      );
-    }
-    if (withdrawals > 0) {
-      blockers.push(
-        waiting(
-          'WITHDRAWAL_IN_FLIGHT',
-          'Você tem um resgate em andamento',
-          'Aguarde a confirmação para excluir a conta.',
-        ),
-      );
-    }
-    if (transactions > 0) {
-      blockers.push(
-        waiting(
-          'TX_PENDING',
-          'Você tem uma transação sendo confirmada',
-          'Aguarde a confirmação na rede para excluir a conta.',
-        ),
-      );
-    }
-    if (onramps > 0) {
-      blockers.push(
-        waiting(
-          'ONRAMP_IN_FLIGHT',
-          'Você tem um Pix de entrada em aberto',
-          'Conclua o pagamento ou aguarde a cobrança expirar antes de excluir a conta.',
-        ),
-      );
-    }
-    if (offramps > 0) {
-      blockers.push(
-        waiting(
-          'OFFRAMP_IN_FLIGHT',
-          'Você tem um saque via Pix em andamento',
-          'Aguarde a conclusão para excluir a conta.',
-        ),
-      );
-    }
-    if (etherfuseOrders > 0) {
-      blockers.push(
-        waiting(
-          'ETHERFUSE_ORDER_IN_FLIGHT',
-          'Você tem uma ordem em andamento',
-          'Aguarde a conclusão para excluir a conta.',
-        ),
-      );
-    }
-
-    return blockers;
-  }
-
-  /**
-   * Two decimals at least, and every meaningful one after that.
-   *
-   * Rounding to two would print a blocking balance of 0.014 as "US$ 0,01" — the same
-   * figure the consent screen uses for what gets lost. The user would read two equal
-   * numbers meaning opposite things.
-   */
-  private formatAmount(value: Decimal): string {
-    return value
-      .toFixed(7)
-      .replace(/(\.\d{2}\d*?)0+$/, '$1')
-      .replace('.', ',');
+    return inFlight
+      .filter(([count]) => count > 0)
+      .map(([, code]) => ({ code, resolvable: false, action: null }));
   }
 
   /** DeFindex answers in asset units; the threshold is in whole units. */
   private toWholeUnits(units: number, assetDecimals: number): Decimal {
     return new Decimal(units).div(new Decimal(10).pow(assetDecimals));
-  }
-
-  private formatDate(date: Date): string {
-    return date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   }
 }
