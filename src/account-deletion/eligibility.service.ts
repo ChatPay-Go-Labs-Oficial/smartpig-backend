@@ -103,6 +103,7 @@ export class EligibilityService {
       blockers,
       residuals: money.residuals,
       warnings: WARNINGS,
+      dustThresholdUsd: this.dustUsd.toString(),
     };
   }
 

@@ -533,6 +533,16 @@ describe('EligibilityService', () => {
       expect(result.eligible).toBe(true);
     });
 
+    it('reports the dust threshold, so the screen does not hard-code it', async () => {
+      // The consent screen writes "values below US$ X are lost" from this. A copy
+      // with the number baked in would lie the moment the configuration moves.
+      const { service } = createService();
+
+      const result = await service.check(USER);
+
+      expect(result.dustThresholdUsd).toBe('0.01');
+    });
+
     it('always returns the three warnings that deletion cannot undo', async () => {
       const { service } = createService();
 

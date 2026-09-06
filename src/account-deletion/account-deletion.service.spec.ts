@@ -64,6 +64,7 @@ function createService(options: Options = {}) {
   } = options;
 
   const updates: Record<string, unknown>[] = [];
+  let created: Record<string, unknown> | null = null;
 
   const prisma = {
     accountDeletionRequest: {
@@ -75,10 +76,13 @@ function createService(options: Options = {}) {
         status: 'COMPLETED',
         updatedAt: new Date('2026-09-05T12:05:00.000Z'),
       }),
-      create: jest.fn().mockResolvedValue({
-        id: REQUEST,
-        closureUnsignedXdr: null,
-        createdAt: new Date('2026-09-05T12:00:00.000Z'),
+      create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
+        created = data;
+        return Promise.resolve({
+          id: REQUEST,
+          closureUnsignedXdr: null,
+          createdAt: new Date('2026-09-05T12:00:00.000Z'),
+        });
       }),
       update: jest.fn(({ data }: { data: Record<string, unknown> }) => {
         updates.push(data);
@@ -140,6 +144,7 @@ function createService(options: Options = {}) {
     blindpay,
     identity,
     updates,
+    createdData: () => created,
     service: new AccountDeletionService(
       prisma as never,
       eligibility as never,
@@ -160,7 +165,7 @@ describe('AccountDeletionService · request', () => {
   it('builds the closure transaction and leaves the request awaiting signature', async () => {
     const { service, stellar, updates } = createService();
 
-    const result = await service.requestDeletion(USER, KEY);
+    const result = await service.requestDeletion(USER, PRIVY, KEY);
 
     expect(stellar.buildAccountClosureXdr).toHaveBeenCalledWith(ADDRESS);
     expect(lastStatus(updates)).toBe('PENDING_SIGNATURE');
@@ -172,7 +177,7 @@ describe('AccountDeletionService · request', () => {
       wallet: { stellarAddress: ADDRESS, isActivated: false },
     });
 
-    const result = await service.requestDeletion(USER, KEY);
+    const result = await service.requestDeletion(USER, PRIVY, KEY);
 
     expect(stellar.buildAccountClosureXdr).not.toHaveBeenCalled();
     expect(result.closureXdr).toBeNull();
@@ -181,9 +186,9 @@ describe('AccountDeletionService · request', () => {
   it('refuses to open a request for an account that is not eligible', async () => {
     const { service, prisma } = createService({ eligible: false });
 
-    await expect(service.requestDeletion(USER, KEY)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.requestDeletion(USER, PRIVY, KEY),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.accountDeletionRequest.create).not.toHaveBeenCalled();
   });
 
@@ -197,7 +202,7 @@ describe('AccountDeletionService · request', () => {
       },
     });
 
-    const result = await service.requestDeletion(USER, KEY);
+    const result = await service.requestDeletion(USER, PRIVY, KEY);
 
     expect(result.requestId).toBe(REQUEST);
     expect(prisma.accountDeletionRequest.create).not.toHaveBeenCalled();
@@ -208,9 +213,18 @@ describe('AccountDeletionService · request', () => {
       existingRequest: { id: REQUEST, userId: 'user-b' },
     });
 
-    await expect(service.requestDeletion(USER, KEY)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(
+      service.requestDeletion(USER, PRIVY, KEY),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('records the identity provider id, without which the job cannot retry', async () => {
+    // After the scrub there is no way back from the local account to the DID.
+    const { service, createdData } = createService();
+
+    await service.requestDeletion(USER, PRIVY, KEY);
+
+    expect(createdData()?.privyUserId).toBe(PRIVY);
   });
 
   it('reports residuals from the live check, not from the stored row', async () => {
@@ -218,7 +232,7 @@ describe('AccountDeletionService · request', () => {
     // screen tells the user they are about to lose.
     const { service } = createService();
 
-    const result = await service.requestDeletion(USER, KEY);
+    const result = await service.requestDeletion(USER, PRIVY, KEY);
 
     expect(result.residuals).toEqual({
       sweptToTreasuryUsd: '0.003',
@@ -385,6 +399,25 @@ describe('AccountDeletionService · failure injected at each step', () => {
     expect(last).not.toHaveProperty('privyDeletedAt');
     expect(last).not.toHaveProperty('status');
     expect(lastStatus(updates)).toBe('LOCAL_SCRUBBED');
+  });
+
+  it('drops the provider id once the deletion completes', async () => {
+    // It is working data: needed until the external cleanup lands, and after that
+    // an identifier of a person kept in the row that documents their erasure.
+    const { service, updates } = createService();
+
+    await service.confirmDeletion(USER, PRIVY, REQUEST, ACKS);
+
+    const completing = updates.find((u) => u.status === 'COMPLETED');
+    expect(completing?.privyUserId).toBeNull();
+  });
+
+  it('keeps the provider id while the cleanup is still pending', async () => {
+    const { service, updates } = createService({ failIdentity: true });
+
+    await service.confirmDeletion(USER, PRIVY, REQUEST, ACKS);
+
+    expect(updates.some((u) => 'privyUserId' in u)).toBe(false);
   });
 
   it('an account without a BlindPay customer counts that step as done', async () => {

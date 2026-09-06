@@ -68,7 +68,7 @@ export class AccountDeletionController {
     @Body() dto: RequestDeletionDto,
   ): Promise<RequestDeletionResult> {
     const userId = await this.resolveOwner(user.id);
-    return this.deletion.requestDeletion(userId, dto.idempotencyKey);
+    return this.deletion.requestDeletion(userId, user.id, dto.idempotencyKey);
   }
 
   /**

@@ -91,4 +91,12 @@ export interface EligibilityResult {
   blockers: Blocker[];
   residuals: Residuals;
   warnings: EligibilityWarning[];
+  /**
+   * The threshold below which a balance does not block, in USD.
+   *
+   * Sent so the consent screen can write "values below US$ X are lost" from the
+   * configured number instead of hard-coding it — if the configuration moves and
+   * the copy does not, the screen lies to the user about what they will lose.
+   */
+  dustThresholdUsd: string;
 }

@@ -62,6 +62,7 @@ export class AccountDeletionService {
 
   async requestDeletion(
     userId: string,
+    privyUserId: string,
     idempotencyKey: string,
   ): Promise<RequestDeletionResult> {
     const existing = await this.prisma.accountDeletionRequest.findUnique({
@@ -95,6 +96,9 @@ export class AccountDeletionService {
       data: {
         idempotencyKey,
         userId,
+        // Kept because the cleanup job cannot derive it later: after the scrub the
+        // local wallet address is a sentinel, and there is no way back to the DID.
+        privyUserId,
         status: AccountDeletionStatus.REQUESTED,
         acknowledgements: Prisma.JsonNull,
       },
@@ -235,7 +239,17 @@ export class AccountDeletionService {
       data: {
         ...(blindpayDeletedAt ? { blindpayDeletedAt } : {}),
         ...(privyDeletedAt ? { privyDeletedAt } : {}),
-        ...(completed ? { status: AccountDeletionStatus.COMPLETED } : {}),
+        ...(completed
+          ? {
+              status: AccountDeletionStatus.COMPLETED,
+              // Working data, not part of the record. The provider id exists only
+              // so the cleanup job can finish the job; once it has, keeping an
+              // identifier that pointed at a person would be retaining PII in the
+              // very row that documents its erasure. A FAILED request keeps it,
+              // because a human still needs it to finish by hand.
+              privyUserId: null,
+            }
+          : {}),
       },
     });
   }
