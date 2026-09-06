@@ -76,4 +76,9 @@ export const envSchema = Joi.object({
 
   // Account deletion
   ACCOUNT_DELETION_DUST_USD: Joi.number().min(0).default(0.01),
+  // Depois disso a solicitação vira FAILED e pede investigação manual.
+  ACCOUNT_DELETION_MAX_CLEANUP_RETRIES: Joi.number()
+    .integer()
+    .min(1)
+    .default(10),
 });
