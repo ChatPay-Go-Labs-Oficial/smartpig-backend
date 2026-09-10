@@ -40,6 +40,7 @@ interface Options {
   failScrub?: boolean;
   failBlindPay?: boolean;
   failIdentity?: boolean;
+  openRequest?: Record<string, unknown> | null;
 }
 
 function createService(options: Options = {}) {
@@ -61,16 +62,25 @@ function createService(options: Options = {}) {
     failScrub = false,
     failBlindPay = false,
     failIdentity = false,
+    openRequest = null,
   } = options;
 
   const updates: Record<string, unknown>[] = [];
   let created: Record<string, unknown> | null = null;
 
+  const updateManyCalls: unknown[] = [];
   const prisma = {
     accountDeletionRequest: {
       findUnique: jest.fn(({ where }: { where: { id?: string } }) =>
         Promise.resolve(where.id ? request : existingRequest),
       ),
+      // Uma solicitação aberta por usuário: quando existe, ela é reaproveitada
+      // em vez de nascer outra linha guardando o DID.
+      findFirst: jest.fn().mockResolvedValue(openRequest),
+      updateMany: jest.fn((args: unknown) => {
+        updateManyCalls.push(args);
+        return Promise.resolve({ count: 0 });
+      }),
       findUniqueOrThrow: jest.fn().mockResolvedValue({
         ...request,
         status: 'COMPLETED',
@@ -138,6 +148,7 @@ function createService(options: Options = {}) {
 
   return {
     prisma,
+    updateManyCalls,
     eligibility,
     scrub,
     stellar,
@@ -242,6 +253,39 @@ describe('AccountDeletionService · request', () => {
 });
 
 describe('AccountDeletionService · confirm', () => {
+  it('reuses the open request instead of opening another', async () => {
+    // Cada tentativa abandonada deixaria uma linha guardando o DID do Privy,
+    // retida para sempre porque ninguém volta a um pedido desistido.
+    const { service, prisma } = createService({
+      openRequest: {
+        id: REQUEST,
+        userId: USER,
+        status: 'PENDING_SIGNATURE',
+        closureUnsignedXdr: null,
+        createdAt: new Date('2026-09-05T12:00:00.000Z'),
+      },
+    });
+
+    await service.requestDeletion(USER, PRIVY, 'outra-chave');
+
+    expect(prisma.accountDeletionRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('drops the provider id from the other requests of the same user', async () => {
+    const { service, updateManyCalls } = createService();
+
+    await service.confirmDeletion(USER, PRIVY, REQUEST, ACKS);
+
+    expect(updateManyCalls[0]).toMatchObject({
+      where: {
+        userId: USER,
+        id: { not: REQUEST },
+        status: { not: 'FAILED' },
+      },
+      data: { privyUserId: null },
+    });
+  });
+
   it('runs the five steps and completes', async () => {
     const { service, stellar, scrub, blindpay, identity } = createService();
 

@@ -92,17 +92,37 @@ export class AccountDeletionService {
       select: { stellarAddress: true, isActivated: true },
     });
 
-    const request = await this.prisma.accountDeletionRequest.create({
-      data: {
-        idempotencyKey,
+    // Uma solicitação aberta por usuário. Cada tentativa abandonada deixaria uma
+    // linha guardando o DID do Privy — identificador de uma pessoa cuja conta
+    // será apagada, retido para sempre porque ninguém volta a um pedido que o
+    // usuário desistiu de concluir. A aberta é reaproveitada; o XDR é remontado
+    // logo abaixo, então nada de velho sobrevive.
+    const open = await this.prisma.accountDeletionRequest.findFirst({
+      where: {
         userId,
-        // Kept because the cleanup job cannot derive it later: after the scrub the
-        // local wallet address is a sentinel, and there is no way back to the DID.
-        privyUserId,
-        status: AccountDeletionStatus.REQUESTED,
-        acknowledgements: Prisma.JsonNull,
+        status: {
+          in: [
+            AccountDeletionStatus.REQUESTED,
+            AccountDeletionStatus.PENDING_SIGNATURE,
+          ],
+        },
       },
+      orderBy: { createdAt: 'desc' },
     });
+
+    const request =
+      open ??
+      (await this.prisma.accountDeletionRequest.create({
+        data: {
+          idempotencyKey,
+          userId,
+          // Kept because the cleanup job cannot derive it later: after the scrub the
+          // local wallet address is a sentinel, and there is no way back to the DID.
+          privyUserId,
+          status: AccountDeletionStatus.REQUESTED,
+          acknowledgements: Prisma.JsonNull,
+        },
+      }));
 
     // A wallet that was never activated has no on-chain account to close, so the
     // app skips the signing step entirely.
@@ -189,6 +209,7 @@ export class AccountDeletionService {
         where: { id: request.id },
       },
     );
+
     return {
       status: finished.status,
       deletedAt: finished.updatedAt.toISOString(),
@@ -234,6 +255,20 @@ export class AccountDeletionService {
     }
 
     const completed = blindpayDeletedAt !== null && privyDeletedAt !== null;
+    if (completed) {
+      // Solicitações anteriores do mesmo usuário não podem seguir guardando o
+      // DID: a identidade já não existe. As FAILED são exceção — um humano
+      // ainda precisa dele para terminar à mão.
+      await this.prisma.accountDeletionRequest.updateMany({
+        where: {
+          userId,
+          id: { not: requestId },
+          status: { not: AccountDeletionStatus.FAILED },
+        },
+        data: { privyUserId: null },
+      });
+    }
+
     await this.prisma.accountDeletionRequest.update({
       where: { id: requestId },
       data: {

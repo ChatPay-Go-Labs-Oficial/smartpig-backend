@@ -15,6 +15,7 @@ function createService(
     receiverId?: string | null;
     customerId?: string | null;
     gifts?: { id: string; status: string }[];
+    blockchainWallets?: { id: string }[];
   } = {},
 ) {
   const {
@@ -22,6 +23,7 @@ function createService(
     receiverId = 'r1',
     customerId = 'c1',
     gifts = [],
+    blockchainWallets = [{ id: 'bw1' }],
   } = options;
 
   const calls: { model: string; op: string; args: unknown }[] = [];
@@ -47,6 +49,10 @@ function createService(
     },
     blindPayBankAccount: {
       updateMany: record('blindPayBankAccount', 'updateMany'),
+    },
+    blindPayBlockchainWallet: {
+      findMany: jest.fn().mockResolvedValue(blockchainWallets),
+      update: record('blindPayBlockchainWallet', 'update'),
     },
     depositIntent: { updateMany: record('depositIntent', 'updateMany') },
     withdrawalIntent: { updateMany: record('withdrawalIntent', 'updateMany') },
@@ -189,6 +195,19 @@ describe('ScrubService', () => {
 
       expect(data.rejectionReason).toBeNull();
       expect(data.warnings).toBe(Prisma.DbNull);
+    });
+
+    it('replaces the address of the blindpay wallet with a sentinel', async () => {
+      // O endereço fica guardado em `archivedStellarAddress`, que serve à trilha.
+      // Esta segunda cópia não serve a nada depois que o customer é apagado lá,
+      // e a coluna é NOT NULL — daí sentinela em vez de nulo.
+      const { service, calls } = createService();
+
+      await service.scrub(USER);
+
+      expect(dataOf(calls, 'blindPayBlockchainWallet').address).toBe(
+        'deleted:bw1',
+      );
     });
 
     it('clears the pix key of every bank account', async () => {

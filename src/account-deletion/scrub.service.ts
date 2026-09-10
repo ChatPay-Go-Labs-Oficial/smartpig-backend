@@ -100,6 +100,20 @@ export class ScrubService {
       where: { receiverId: receiver.id },
       data: { pixKey: null },
     });
+
+    // O endereço Stellar é mantido de propósito em `archivedStellarAddress`, onde
+    // serve à trilha financeira. Esta cópia não serve a nada depois que o customer
+    // é apagado na BlindPay, e a coluna é NOT NULL — daí a sentinela.
+    const blockchainWallets = await tx.blindPayBlockchainWallet.findMany({
+      where: { receiverId: receiver.id },
+      select: { id: true },
+    });
+    for (const wallet of blockchainWallets) {
+      await tx.blindPayBlockchainWallet.update({
+        where: { id: wallet.id },
+        data: { address: `deleted:${wallet.id}` },
+      });
+    }
   }
 
   /** Signing material only. Amounts, assets, statuses and dates are the trail. */
