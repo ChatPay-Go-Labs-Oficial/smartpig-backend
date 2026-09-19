@@ -1,13 +1,21 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   EtherfuseOrderStatus,
   GiftStatus,
   IntentStatus,
+  Prisma,
   RampStatus,
   TransactionStatus,
 } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { readAllowedVaultIds } from '../config/allowed-vaults';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
 import { StellarService } from '../wallets/stellar.service';
@@ -53,6 +61,65 @@ const WARNINGS: EligibilityWarning[] = [
 ];
 
 /**
+ * How many vault balance reads run at the same time.
+ *
+ * One call per vault, all fired at once, is what exhausted the DeFindex rate
+ * limit: the whole catalog left in the same tick, came back 429, and every vault
+ * turned into VAULT_BALANCE_UNKNOWN — a screen full of blockers the user could do
+ * nothing about. The jobs space their calls 500ms apart for the same reason, but
+ * this route answers a user who is waiting, so it bounds concurrency instead of
+ * serialising: the catalog is read in small groups rather than one burst.
+ */
+const VAULT_READ_CONCURRENCY = 3;
+
+/**
+ * Upstream failures that say "not now" rather than "not ever".
+ *
+ * `mapDefindexError` turns a rate limit into 503 and a timeout into 504. Neither
+ * tells us anything about the vault's balance, so neither may be reported as a
+ * balance we could not verify — the user would be told to wait for something that
+ * is never going to change on its own.
+ */
+const TRANSIENT_UPSTREAM_STATUSES: number[] = [
+  HttpStatus.SERVICE_UNAVAILABLE,
+  HttpStatus.GATEWAY_TIMEOUT,
+];
+
+function isTransientUpstream(error: unknown): boolean {
+  return (
+    error instanceof HttpException &&
+    TRANSIENT_UPSTREAM_STATUSES.includes(error.getStatus())
+  );
+}
+
+/**
+ * `Promise.all` over `items`, but with at most `limit` calls in flight.
+ *
+ * Results keep the order of `items`, which is what keeps the blocker list stable
+ * between two checks of the same account.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+
+  const worker = async () => {
+    for (let index = next++; index < items.length; index = next++) {
+      results[index] = await fn(items[index]);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+
+  return results;
+}
+
+/**
  * Decides whether an account may be deleted without the user losing money or
  * interrupting an operation.
  *
@@ -67,6 +134,7 @@ const WARNINGS: EligibilityWarning[] = [
 export class EligibilityService {
   private readonly logger = new Logger(EligibilityService.name);
   private readonly dustUsd: Decimal;
+  private readonly allowedVaultIds: string[];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +145,7 @@ export class EligibilityService {
     this.dustUsd = new Decimal(
       config.get<number>('ACCOUNT_DELETION_DUST_USD') ?? 0.01,
     );
+    this.allowedVaultIds = readAllowedVaultIds(config);
   }
 
   async check(userId: string): Promise<EligibilityResult> {
@@ -113,7 +182,7 @@ export class EligibilityService {
     wallet: { stellarAddress: string; isActivated: boolean } | null,
   ) {
     const [vaults, walletBalances, gifts] = await Promise.all([
-      this.vaultBalances(wallet),
+      this.vaultBalances(userId, wallet),
       this.walletBalances(wallet),
       this.giftBlockers(userId),
     ]);
@@ -138,6 +207,7 @@ export class EligibilityService {
    * against the dust threshold would block every account that ever deposited.
    */
   private async vaultBalances(
+    userId: string,
     wallet: { stellarAddress: string } | null,
   ): Promise<{
     blockers: Blocker[];
@@ -149,6 +219,7 @@ export class EligibilityService {
     }
 
     const vaults = await this.prisma.vaultCatalog.findMany({
+      where: await this.inspectionScope(userId),
       select: {
         id: true,
         defindexVaultId: true,
@@ -157,11 +228,20 @@ export class EligibilityService {
       },
     });
 
-    // One DeFindex call per vault, in parallel. Each already retries internally, so
-    // running them in series would multiply this endpoint's latency by the size of the
-    // catalog. Promise.all keeps the order, which keeps the blocker list stable.
-    const readings = await Promise.all(
-      vaults.map(async (vault) => {
+    // One DeFindex call per vault, at most VAULT_READ_CONCURRENCY at a time. Each
+    // call already retries internally, so running the catalog in series would
+    // multiply this endpoint's latency by its size.
+    let throttled = false;
+
+    const readings = await mapWithConcurrency(
+      vaults,
+      VAULT_READ_CONCURRENCY,
+      async (vault) => {
+        // Once one read has been throttled the rest will be too, and the answer is
+        // already decided. Spending the remaining quota to confirm it only makes the
+        // retry the user is about to make less likely to succeed.
+        if (throttled) return { vault, underlying: null, transient: true };
+
         try {
           const balance = await this.defindex.getVaultBalance(
             vault.defindexVaultId,
@@ -173,15 +253,34 @@ export class EligibilityService {
               balance.underlyingBalance?.[0] ?? 0,
               vault.assetDecimals,
             ),
+            transient: false,
           };
-        } catch {
+        } catch (err) {
+          if (isTransientUpstream(err)) {
+            this.logger.warn(
+              `Vault balance temporarily unavailable for ${vault.defindexVaultId}`,
+            );
+            throttled = true;
+            return { vault, underlying: null, transient: true };
+          }
+
           this.logger.warn(
             `Vault balance unavailable for ${vault.defindexVaultId}; blocking deletion`,
           );
-          return { vault, underlying: null };
+          return { vault, underlying: null, transient: false };
         }
-      }),
+      },
     );
+
+    // Answering with blockers here would be a lie: we would be telling the user
+    // their vaults cannot be verified when all we know is that DeFindex asked us to
+    // come back later. The screen already renders a failed check as "try again",
+    // which is the honest answer.
+    if (readings.some((reading) => reading.transient)) {
+      throw new ServiceUnavailableException(
+        'Could not read vault balances right now. Try again shortly.',
+      );
+    }
 
     const blockers: Blocker[] = [];
     const residuals: VaultShareResidual[] = [];
@@ -221,6 +320,52 @@ export class EligibilityService {
     }
 
     return { blockers, residuals, lostTotal };
+  }
+
+  /**
+   * Which vaults this check has to read, as a Prisma filter.
+   *
+   * `ALLOWED_VAULT_IDS` is where the app can deposit *today*, and that list changes:
+   * a vault dropped from it keeps whatever was already inside. Reading only the
+   * current list would let that balance be destroyed along with the account, so the
+   * allowlist is widened by the vaults this user has actually touched — a deposit, a
+   * withdrawal or a portfolio snapshot. For everyone who never left the list this
+   * costs one query and not a single extra DeFindex call.
+   *
+   * `isActive` is deliberately absent: a vault can be retired while someone still
+   * holds a position in it, and that position must still block the deletion.
+   *
+   * No allowlist at all means the whole catalog, which already covers everything.
+   */
+  private async inspectionScope(
+    userId: string,
+  ): Promise<Prisma.VaultCatalogWhereInput> {
+    if (this.allowedVaultIds.length === 0) return {};
+
+    const [deposits, withdrawals, snapshots] = await Promise.all([
+      this.prisma.depositIntent.findMany({
+        where: { userId },
+        select: { vaultId: true },
+        distinct: ['vaultId'],
+      }),
+      this.prisma.withdrawalIntent.findMany({
+        where: { userId },
+        select: { vaultId: true },
+        distinct: ['vaultId'],
+      }),
+      this.prisma.portfolioSnapshot.findMany({
+        where: { userId },
+        select: { vaultId: true },
+        distinct: ['vaultId'],
+      }),
+    ]);
+
+    const ids = new Set(this.allowedVaultIds);
+    for (const { vaultId } of [...deposits, ...withdrawals, ...snapshots]) {
+      ids.add(vaultId);
+    }
+
+    return { id: { in: [...ids] } };
   }
 
   /**

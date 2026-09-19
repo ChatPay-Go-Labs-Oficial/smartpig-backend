@@ -38,6 +38,11 @@ export class AccountDeletionController {
     status: 404,
     description: 'No active account for this token.',
   })
+  @ApiResponse({
+    status: 503,
+    description:
+      'A balance could not be read right now (DeFindex rate limit or timeout). The check is inconclusive and should be retried.',
+  })
   async getEligibility(
     @CurrentUser() user: { id: string },
   ): Promise<EligibilityResult> {
