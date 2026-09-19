@@ -4,19 +4,28 @@
 
 ## Responsabilidade
 
-Decide se uma conta pode ser excluída **sem o usuário perder dinheiro** e sem interromper uma operação em andamento.
+Exclusão de conta iniciada pelo usuário, do portão de aptidão até o encerramento on-chain e o apagamento dos dados pessoais.
 
-É leitura pura: não escreve nada. A resposta é consultiva — a verificação que de fato autoriza a exclusão é a refeita no momento da confirmação, porque um Pix pode cair entre uma e outra.
+Estado de KYC **não** bloqueia exclusão, de propósito: um usuário reprovado no KYC também tem o direito de ir embora.
 
-> **Estado atual:** só o portão de aptidão existe. A saga de exclusão, o scrub de dados pessoais e o encerramento on-chain são fases seguintes. O `BlindPayModule` só vira dependência nessa fase — estado de KYC **não** bloqueia exclusão, de propósito: um usuário reprovado no KYC também tem o direito de ir embora.
+| Peça | Arquivo | Papel |
+|------|---------|-------|
+| Aptidão | `eligibility.service.ts` | Decide se a conta pode sair sem o usuário perder dinheiro |
+| Saga | `account-deletion.service.ts` | Abre a solicitação, encerra a conta Stellar e orquestra o resto |
+| Scrub | `scrub.service.ts` | Apaga dados pessoais preservando a trilha financeira |
+| Limpeza | `../jobs/account-deletion-cleanup.job.ts` | Reexecuta os passos externos que falharam |
 
 ## Endpoints
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | GET | `/account-deletion/eligibility` | Aptidão, bloqueios, saldos residuais e avisos |
+| POST | `/account-deletion` | Abre a solicitação e devolve o XDR de encerramento para assinar |
+| POST | `/account-deletion/:id/confirm` | Executa a exclusão. A partir daqui é irreversível |
 
 Ver detalhes em [api.md](../api.md#account-deletion).
+
+A aptidão é **consultiva**: a verificação que de fato autoriza a exclusão é refeita na abertura e na confirmação, porque um Pix pode cair entre uma e outra.
 
 A conta inspecionada vem do **token**, nunca da requisição. O cliente do app injeta um `userId` em toda chamada; esta rota ignora. O caminho é `token → endereços Stellar verificados no Privy → `WalletAccount` ativo mais antigo → `userId`.
 
@@ -80,9 +89,44 @@ Valores vêm como string decimal em unidades inteiras, sem formatação: o clien
 |----------|---------|--------|
 | `ACCOUNT_DELETION_DUST_USD` | `0.01` | Abaixo disso um saldo não bloqueia — vira residual (varrido ou perdido) |
 | `ALLOWED_VAULT_IDS` | `''` | Vaults lidos na verificação, além do histórico do usuário. Vazio = catálogo inteiro |
+| `ACCOUNT_DELETION_MAX_CLEANUP_RETRIES` | `10` | Tentativas do job de limpeza antes da solicitação virar `FAILED` e pedir investigação manual |
 
-> **Pendência conhecida:** o app espera receber `dustThresholdUsd` na resposta, para a frase de consentimento não ter o limite escrito à mão (se a configuração muda e a frase não, a tela mente sobre o que o usuário vai perder). O `EligibilityResult` ainda não devolve esse campo.
+O limite é devolvido na resposta (`dustThresholdUsd`) para a frase de consentimento não ter o número escrito à mão no app: se a configuração muda e a frase não, a tela mente sobre o que o usuário vai perder.
+
+## Estados da solicitação
+
+`AccountDeletionRequest.status` percorre:
+
+```
+REQUESTED → PENDING_SIGNATURE → CHAIN_CLOSED → LOCAL_SCRUBBED → COMPLETED
+                                                     ↓
+                                                  FAILED
+```
+
+Uma solicitação aberta e não confirmada simplesmente expira — nada é destruído ao abrir.
+
+`LOCAL_SCRUBBED` é o estado que importa entender: os dados do usuário já foram apagados e a conta Stellar já foi encerrada, mas um passo externo (BlindPay ou Privy) ainda não completou. A saga **não** falha nesse caso — segurar a resposta por causa de indisponibilidade de parceiro puniria o usuário pela queda de outra pessoa. O job de limpeza termina o serviço depois.
+
+## Scrub: apagar sem perder a trilha
+
+A linha do `User` nunca é deletada. Dois motivos, e cada um sozinho bastaria:
+
+- a lei de prevenção à lavagem exige guardar o registro das operações por cinco anos, enquanto a Apple exige apagar dados pessoais — então identidade é separada de transação, em vez de um requisito atropelar o outro;
+- deletar a linha seria impossível de qualquer forma: sete relações obrigatórias apontam para ela sem `onDelete: Cascade`, e o Postgres recusa com P2003.
+
+Tudo acontece em **uma transação**. Um scrub pela metade deixaria uma conta que não é usável nem apagada.
+
+O endereço Stellar real é preservado em `archivedStellarAddress` e o `stellarAddress` recebe um sentinela, o que libera a constraint `@unique` para a mesma carteira poder se cadastrar de novo.
+
+## Job de limpeza
+
+`AccountDeletionCleanupJob` roda a cada 15 minutos e refaz **somente** as duas chamadas externas (BlindPay e Privy) das solicitações paradas em `LOCAL_SCRUBBED`. O encerramento on-chain e o scrub já aconteceram atomicamente, e repetir qualquer um dos dois seria destrutivo.
+
+Sem esse job, uma falha de rede de dez segundos viraria permanente: conta local apagada, usuário Privy vivo para sempre e o requisito da Apple não cumprido.
 
 ## Testes
 
-`eligibility.service.spec.ts` cobre os doze bloqueios, as fronteiras do limite de poeira em `Decimal`, o escopo de vaults (allowlist, histórico, deduplicação, ausência de filtro `isActive`), o teto de concorrência, a preservação de ordem e a separação entre falha transitória e definitiva.
+- `eligibility.service.spec.ts` — os doze bloqueios, as fronteiras do limite de poeira em `Decimal`, o escopo de vaults (allowlist, histórico, deduplicação, ausência de filtro `isActive`), o teto de concorrência, a preservação de ordem e a separação entre falha transitória e definitiva.
+- `account-deletion.service.spec.ts` — a saga, a idempotência da abertura e a irreversibilidade da confirmação.
+- `scrub.service.spec.ts` — o que é apagado e o que sobrevive em cada tabela.
+- `../jobs/account-deletion-cleanup.job.spec.ts` — a retomada dos passos externos e o teto de tentativas.

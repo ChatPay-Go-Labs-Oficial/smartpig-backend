@@ -64,6 +64,18 @@ Isso garante que novos vaults deployados no DeFindex apareçam automaticamente n
 
 ---
 
+### AccountDeletionCleanupJob
+**Arquivo:** `account-deletion-cleanup.job.ts`
+**Frequência:** A cada 15 minutos (`*/15 * * * *`)
+
+Termina exclusões de conta que pararam nos passos externos. Para cada solicitação em `LOCAL_SCRUBBED`, refaz **somente** as chamadas a BlindPay e Privy — o encerramento on-chain e o scrub já aconteceram atomicamente, e repetir qualquer um dos dois seria destrutivo.
+
+Processa até 20 solicitações por execução. Depois de `ACCOUNT_DELETION_MAX_CLEANUP_RETRIES` tentativas (padrão 10), a solicitação vira `FAILED` e pede investigação manual.
+
+Ver [account-deletion.md](./account-deletion.md#job-de-limpeza).
+
+---
+
 ### ExpiredIntentsJob
 **Arquivo:** `expired-intents.job.ts`
 **Frequência:** A cada hora (`EVERY_HOUR`)

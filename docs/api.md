@@ -124,7 +124,9 @@ Remove a conta permanentemente. Todos os dados relacionados são deletados em ca
 
 ## Account Deletion
 
-> Exclusão de conta iniciada pelo usuário. Hoje **apenas a verificação de aptidão** está implementada; abrir e confirmar o pedido são fases seguintes. Ver [modules/account-deletion.md](./modules/account-deletion.md).
+> Exclusão de conta iniciada pelo usuário: aptidão, abertura da solicitação e confirmação. O fluxo completo, os estados e o scrub estão em [modules/account-deletion.md](./modules/account-deletion.md).
+>
+> Em todas as rotas a conta operada vem do **token**, nunca da requisição.
 
 ### `GET /account-deletion/eligibility`
 
@@ -179,6 +181,65 @@ Valores são string decimal em unidades inteiras, sem formatação — **não** 
 **Resposta 404:** nenhuma conta ativa para este token.
 
 **Resposta 503:** um saldo não pôde ser lido agora (rate limit ou timeout do DeFindex). A verificação é inconclusiva e deve ser refeita — não é um bloqueio.
+
+---
+
+### `POST /account-deletion`
+
+Abre a solicitação. **Nada é destruído aqui**: o servidor revalida a aptidão, registra o pedido e devolve a transação que encerra a conta Stellar. Uma solicitação não confirmada simplesmente expira.
+
+**Corpo:**
+```json
+{ "idempotencyKey": "uuid-gerado-pelo-app" }
+```
+
+A chave é validada como **UUID v4**. Ela faz uma chamada repetida devolver a mesma solicitação em vez de abrir uma segunda — o app deve reusar a mesma chave nas retentativas da mesma tentativa.
+
+**Resposta 201:**
+```json
+{
+  "requestId": "clx...",
+  "closureXdr": "AAAAAgAAAA...",
+  "residuals": {
+    "sweptToTreasuryUsd": "0.0030000",
+    "permanentlyLostUsd": "0.0000500"
+  },
+  "expiresAt": "2026-09-19T18:00:00.000Z"
+}
+```
+
+`closureXdr` vem `null` quando a carteira nunca foi ativada — não há o que assinar. Depois de `expiresAt` a transação assinada é recusada pela rede.
+
+**Resposta 409:** a conta deixou de ser elegível entre a verificação e a abertura.
+
+---
+
+### `POST /account-deletion/:id/confirm`
+
+Executa a exclusão. **A partir daqui é irreversível.**
+
+**Corpo:**
+```json
+{
+  "signedXdr": "AAAAAgAAAA...",
+  "acknowledgements": {
+    "dataRetention": true,
+    "onchainHistoryPublic": true,
+    "irreversible": true
+  }
+}
+```
+
+`signedXdr` é omitido quando `closureXdr` veio `null`. Os três reconhecimentos são obrigatórios e precisam ser `true` — é isso que impede uma caixa não marcada de passar em silêncio.
+
+**Resposta 200:**
+```json
+{ "status": "COMPLETED", "deletedAt": "2026-09-19T17:32:10.000Z" }
+```
+
+`status` também pode voltar `LOCAL_SCRUBBED`: a conta do usuário já foi apagada e encerrada na rede, mas um passo em parceiro externo ainda não completou e será refeito pelo job de limpeza. Para o usuário, os dois valores significam a mesma coisa — acabou.
+
+**400:** falta reconhecimento ou assinatura. **403:** a solicitação é de outra conta. **409:** não é mais elegível, ou a solicitação já falhou. **503:** o encerramento on-chain falhou; pode retentar com segurança.
 
 ---
 
