@@ -23,10 +23,12 @@ Reconcilia transações que foram submetidas mas ainda estão como `PENDING`. Pa
 
 ### ApySyncJob
 **Arquivo:** `apy-sync.job.ts`
-**Frequência:** A cada 10 minutos, começando no minuto 5 (`0 5/10 * * * *`)
+**Frequência:** A cada 6 horas, no minuto 15 (`0 15 */6 * * *`)
 
-O deslocamento de cinco minutos evita que este job dispute o rate limit com o
-`VaultSyncJob`, executado nos minutos 0 e 30.
+O deslocamento de quinze minutos evita que este job dispute o rate limit com o
+`VaultSyncJob`, executado na hora cheia. O intervalo de seis horas existe pelo mesmo
+motivo: cada passada custa uma chamada DeFindex por vault, e em intervalos curtos o
+catálogo consumia a cota que as rotas sob demanda precisam.
 
 Para cada vault ativo no banco:
 1. Chama `DefindexService.getVaultInfo()` — uma única chamada que retorna APY e TVL
@@ -52,7 +54,7 @@ Snapshots com saldo zero não são persistidos para economizar espaço.
 
 ### VaultSyncJob
 **Arquivo:** `vault-sync.job.ts`
-**Frequência:** A cada 30 minutos (`0 */30 * * * *`)
+**Frequência:** A cada 6 horas (`0 0 */6 * * *`)
 
 Chama `DefindexService.discoverVaults()` (endpoint `GET /vault/discover`) e faz upsert no `VaultCatalog` para cada vault retornado:
 - **Novo vault**: cria registro com endereço, APY e TVL

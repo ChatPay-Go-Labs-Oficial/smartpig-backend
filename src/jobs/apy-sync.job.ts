@@ -9,7 +9,11 @@ const INTER_VAULT_DELAY_MS = 500;
 
 /**
  * Periodically refreshes APY for all active vaults and persists to DB.
- * Runs every 10 minutes.
+ *
+ * Runs every 6 hours. Each pass costs one DeFindex call per vault, and at ten
+ * minutes the catalog alone consumed the rate limit that the on-demand routes
+ * need — the 429s surfaced in the app as vaults whose balance could not be read.
+ * APY moves slowly enough that six hours costs the user nothing.
  */
 @Injectable()
 export class ApySyncJob {
@@ -20,7 +24,7 @@ export class ApySyncJob {
     private readonly defindex: DefindexService,
   ) {}
 
-  @Cron('0 5/10 * * * *') // every 10 minutes, offset from vault discovery
+  @Cron('0 15 */6 * * *') // every 6 hours, offset from vault discovery
   async syncApyForAllVaults() {
     const vaults = await this.prisma.vaultCatalog.findMany({
       where: { isActive: true },
