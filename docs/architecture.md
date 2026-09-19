@@ -102,7 +102,8 @@ src/
 │
 ├── config/                # ConfigModule com validação Joi
 │   ├── config.module.ts
-│   └── env.schema.ts
+│   ├── env.schema.ts
+│   └── allowed-vaults.ts  # Leitura de ALLOWED_VAULT_IDS (app + exclusão)
 │
 ├── infra/
 │   └── prisma/            # PrismaModule global
@@ -126,6 +127,12 @@ src/
 │       ├── public.decorator.ts
 │       ├── admin.decorator.ts
 │       └── current-user.decorator.ts
+│
+├── account-deletion/      # Aptidão para exclusão de conta
+│   ├── account-deletion.controller.ts
+│   ├── account-deletion.module.ts
+│   ├── eligibility.service.ts
+│   └── dto/eligibility.dto.ts
 │
 ├── users/                 # Gerenciamento de perfil de usuário
 │   ├── users.controller.ts

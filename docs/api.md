@@ -122,6 +122,66 @@ Remove a conta permanentemente. Todos os dados relacionados são deletados em ca
 
 ---
 
+## Account Deletion
+
+> Exclusão de conta iniciada pelo usuário. Hoje **apenas a verificação de aptidão** está implementada; abrir e confirmar o pedido são fases seguintes. Ver [modules/account-deletion.md](./modules/account-deletion.md).
+
+### `GET /account-deletion/eligibility`
+
+Responde se a conta pode ser excluída sem o usuário perder dinheiro ou interromper uma operação.
+
+A conta inspecionada vem do **token**. O `userId` que o app injeta em toda chamada é ignorado por esta rota.
+
+A resposta é consultiva: a verificação que autoriza a exclusão é refeita na confirmação.
+
+**Resposta 200:**
+```json
+{
+  "eligible": false,
+  "blockers": [
+    {
+      "code": "VAULT_BALANCE",
+      "resolvable": true,
+      "action": { "type": "WITHDRAW_VAULT", "vaultId": "clx..." },
+      "params": {
+        "amountUsd": "42.5000000",
+        "vaultId": "clx...",
+        "vaultName": "USDC Yield Vault"
+      }
+    },
+    {
+      "code": "DEPOSIT_IN_FLIGHT",
+      "resolvable": false,
+      "action": null
+    }
+  ],
+  "residuals": {
+    "walletUsdc": "0.0030000",
+    "walletAssets": [],
+    "vaultShares": [{ "vaultId": "clx...", "amount": "0.0000500" }],
+    "sweptToTreasuryUsd": "0.0030000",
+    "permanentlyLostUsd": "0.0000500"
+  },
+  "warnings": [
+    "ONCHAIN_HISTORY_PUBLIC",
+    "BLINDPAY_RETAINS_KYC",
+    "PRIVY_WALLET_ARCHIVED"
+  ]
+}
+```
+
+Nenhum bloqueio carrega texto de exibição: a redação depende do modo Lite/Pro e é escrita pelo app a partir de `code` e `params`. A lista completa de códigos está em [modules/account-deletion.md](./modules/account-deletion.md#bloqueios).
+
+Valores são string decimal em unidades inteiras, sem formatação — **não** passar por normalização de unidades atômicas Stellar.
+
+`residuals` é o que sobra abaixo do limite de poeira: `sweptToTreasuryUsd` é varrido pela transação de encerramento, `permanentlyLostUsd` vive em storage Soroban e não é alcançável.
+
+**Resposta 404:** nenhuma conta ativa para este token.
+
+**Resposta 503:** um saldo não pôde ser lido agora (rate limit ou timeout do DeFindex). A verificação é inconclusiva e deve ser refeita — não é um bloqueio.
+
+---
+
 ## Wallets
 
 ### `GET /wallets?userId=...` 🔒
@@ -247,7 +307,7 @@ Verifica se a API está no ar.
 
 ## Vaults
 
-> **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+> **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
 
 ### `GET /vaults`
 Lista todos os vaults ativos (dados do banco local).
@@ -310,7 +370,7 @@ APY live do vault (cache em memória de 5 minutos, fallback para valor do banco)
 ---
 
 ### `POST /vaults/sync`
-Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 30 minutos.
+Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 6 horas.
 
 **Resposta 200:**
 ```json

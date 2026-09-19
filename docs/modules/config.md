@@ -39,7 +39,7 @@ Fonte de verdade: `src/config/env.schema.ts`.
 | `DEFINDEX_TIMEOUT_MS` | 10000 | Timeout das chamadas ao DeFindex (ms) |
 | `DEFINDEX_VAULT_INFO_CACHE_TTL_MS` | 300000 | TTL do cache de `getVaultInfo()` |
 | `DEFINDEX_NETWORK` | testnet | `testnet` ou `mainnet` |
-| `ALLOWED_VAULT_IDS` | `''` | Allowlist de vaults expostos ao app |
+| `ALLOWED_VAULT_IDS` | `''` | Allowlist de vaults (ids do `VaultCatalog`, separados por vírgula) expostos ao app e lidos pela verificação de exclusão de conta. Vazio = catálogo inteiro |
 | `STELLAR_USDC_ASSET_CODE` | USDC | Código do ativo |
 | `STELLAR_TESOURO_ASSET_CODE` / `STELLAR_TESOURO_ISSUER` | — | Ativo TESOURO, quando disponível na rede |
 | `STELLAR_FEE_BUMP_BASE_FEE` | 500 | Fee base para fee bump (mín. 100) |
