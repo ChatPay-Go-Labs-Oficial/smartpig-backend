@@ -1,3 +1,8 @@
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { EligibilityService } from './eligibility.service';
 import { BlockerCode } from './dto/eligibility.dto';
@@ -35,6 +40,14 @@ interface Options {
     etherfuse: number;
   }>;
   tesouroConfigured?: boolean;
+  /** Raw ALLOWED_VAULT_IDS value; empty means no allowlist. */
+  allowedVaultIds?: string;
+  /** Vault ids the user has touched, per source. */
+  history?: Partial<{
+    deposits: string[];
+    withdrawals: string[];
+    snapshots: string[];
+  }>;
 }
 
 function createService(options: Options = {}) {
@@ -46,15 +59,27 @@ function createService(options: Options = {}) {
     gifts = [],
     counts = {},
     tesouroConfigured = false,
+    allowedVaultIds = '',
+    history = {},
   } = options;
+
+  const vaultIdRows = (ids: string[] = []) =>
+    ids.map((vaultId) => ({ vaultId }));
 
   const prisma = {
     walletAccount: { findFirst: jest.fn().mockResolvedValue(wallet) },
     vaultCatalog: { findMany: jest.fn().mockResolvedValue(vaults) },
     gift: { findMany: jest.fn().mockResolvedValue(gifts) },
-    depositIntent: { count: jest.fn().mockResolvedValue(counts.deposits ?? 0) },
+    depositIntent: {
+      count: jest.fn().mockResolvedValue(counts.deposits ?? 0),
+      findMany: jest.fn().mockResolvedValue(vaultIdRows(history.deposits)),
+    },
     withdrawalIntent: {
       count: jest.fn().mockResolvedValue(counts.withdrawals ?? 0),
+      findMany: jest.fn().mockResolvedValue(vaultIdRows(history.withdrawals)),
+    },
+    portfolioSnapshot: {
+      findMany: jest.fn().mockResolvedValue(vaultIdRows(history.snapshots)),
     },
     transactionRecord: {
       count: jest.fn().mockResolvedValue(counts.transactions ?? 0),
@@ -91,7 +116,11 @@ function createService(options: Options = {}) {
       .mockReturnValue(tesouroConfigured ? TESOURO : null),
   };
 
-  const config = { get: jest.fn().mockReturnValue(DUST) };
+  const config = {
+    get: jest.fn((key: string) =>
+      key === 'ALLOWED_VAULT_IDS' ? allowedVaultIds : DUST,
+    ),
+  };
 
   return {
     prisma,
@@ -205,6 +234,229 @@ describe('EligibilityService', () => {
           params: { vaultId: 'v1', vaultName: 'USDC Yield Vault' },
         },
       ]);
+    });
+  });
+
+  describe('which vaults get read', () => {
+    it('reads only the vaults in ALLOWED_VAULT_IDS', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: 'v1,v2',
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['v1', 'v2'] } } }),
+      );
+    });
+
+    it('tolerates spaces around the ids, which a hand-edited env will have', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: ' v1 , v2 ',
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['v1', 'v2'] } } }),
+      );
+    });
+
+    it('also reads a vault the user has touched but that has since left the allowlist', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: 'v1',
+        history: { deposits: ['retired-vault'] },
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['v1', 'retired-vault'] } },
+        }),
+      );
+    });
+
+    it('takes history from withdrawals and snapshots too, not only deposits', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: 'v1',
+        history: { withdrawals: ['old-a'], snapshots: ['old-b'] },
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['v1', 'old-a', 'old-b'] } },
+        }),
+      );
+    });
+
+    it('does not repeat a vault that is both allowed and in the history', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: 'v1',
+        history: { deposits: ['v1'], snapshots: ['v1'] },
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['v1'] } } }),
+      );
+    });
+
+    it('does not go looking for history when there is no allowlist — the catalog already covers it', async () => {
+      const { service, prisma } = createService({ vaults: [vault('v1')] });
+
+      await service.check(USER);
+
+      expect(prisma.depositIntent.findMany).not.toHaveBeenCalled();
+      expect(prisma.withdrawalIntent.findMany).not.toHaveBeenCalled();
+      expect(prisma.portfolioSnapshot.findMany).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the whole catalog when no allowlist is configured', async () => {
+      const { service, prisma } = createService({ vaults: [vault('v1')] });
+
+      await service.check(USER);
+
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} }),
+      );
+    });
+
+    it('does not filter by isActive — a retired vault can still hold the user money', async () => {
+      const { service, prisma } = createService({
+        allowedVaultIds: 'v1',
+        vaults: [vault('v1')],
+      });
+
+      await service.check(USER);
+
+      // The exact `where`, not a subset: an `isActive` filter slipped in here would
+      // hide a retired vault that still holds a balance.
+      expect(prisma.vaultCatalog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['v1'] } } }),
+      );
+    });
+  });
+
+  describe('reading the catalog without exhausting the rate limit', () => {
+    it('keeps at most three reads in flight instead of firing the whole catalog at once', async () => {
+      const vaults = Array.from({ length: 9 }, (_, i) => vault(`v${i}`));
+      const { service, defindex } = createService({ vaults });
+
+      const read: string[] = [];
+      let inFlight = 0;
+      let peak = 0;
+      defindex.getVaultBalance = jest.fn(async (vaultId: string) => {
+        read.push(vaultId);
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setImmediate(resolve));
+        inFlight--;
+        return { dfTokens: 0, underlyingBalance: [0] };
+      });
+
+      await service.check(USER);
+
+      expect(read).toHaveLength(9);
+      expect(peak).toBe(3);
+    });
+
+    it('keeps the blocker list in catalog order, whatever order the reads come back in', async () => {
+      const vaults = [vault('v1'), vault('v2'), vault('v3'), vault('v4')];
+      const { service, defindex } = createService({ vaults });
+
+      const delayByVault: Record<string, number> = {
+        'def-v1': 8,
+        'def-v2': 2,
+        'def-v3': 6,
+        'def-v4': 0,
+      };
+      defindex.getVaultBalance = jest.fn(async (vaultId: string) => {
+        await new Promise((resolve) =>
+          setTimeout(resolve, delayByVault[vaultId]),
+        );
+        const units = new Decimal(10).pow(7).toNumber(); // 1 whole unit
+        return { dfTokens: units, underlyingBalance: [units] };
+      });
+
+      const result = await service.check(USER);
+
+      expect(result.blockers.map((b) => b.params?.vaultId)).toEqual([
+        'v1',
+        'v2',
+        'v3',
+        'v4',
+      ]);
+    });
+
+    it('asks the user to retry when a read is rate limited, rather than blocking on a balance it never read', async () => {
+      const { service } = createService({
+        vaults: [vault('v1'), vault('v2')],
+        vaultBalances: {
+          'def-v2': new ServiceUnavailableException(
+            'DeFindex rate limit exceeded. Try again shortly.',
+          ),
+        },
+      });
+
+      await expect(service.check(USER)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('stops reading the catalog once a read is throttled, to spare the quota the retry needs', async () => {
+      const vaults = Array.from({ length: 9 }, (_, i) => vault(`v${i}`));
+      const { service, defindex } = createService({ vaults });
+
+      const read: string[] = [];
+      defindex.getVaultBalance = jest.fn(async (vaultId: string) => {
+        read.push(vaultId);
+        await new Promise((resolve) => setImmediate(resolve));
+        throw new ServiceUnavailableException(
+          'DeFindex rate limit exceeded. Try again shortly.',
+        );
+      });
+
+      await expect(service.check(USER)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+
+      // The three that were already in flight, and nothing after them.
+      expect(read).toHaveLength(3);
+    });
+
+    it('treats an upstream timeout the same way — it says nothing about the balance', async () => {
+      const { service } = createService({
+        vaults: [vault('v1')],
+        vaultBalances: {
+          'def-v1': new GatewayTimeoutException('DeFindex request timed out.'),
+        },
+      });
+
+      await expect(service.check(USER)).rejects.toBeInstanceOf(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('still blocks on a contract-level failure, which waiting will not fix', async () => {
+      const { service } = createService({
+        vaults: [vault('v1')],
+        vaultBalances: {
+          'def-v1': new BadGatewayException('DeFindex contract error'),
+        },
+      });
+
+      const result = await service.check(USER);
+
+      expect(codes(result.blockers)).toEqual(['VAULT_BALANCE_UNKNOWN']);
     });
   });
 
@@ -531,6 +783,16 @@ describe('EligibilityService', () => {
       const result = await service.check(USER);
 
       expect(result.eligible).toBe(true);
+    });
+
+    it('reports the dust threshold, so the screen does not hard-code it', async () => {
+      // The consent screen writes "values below US$ X are lost" from this. A copy
+      // with the number baked in would lie the moment the configuration moves.
+      const { service } = createService();
+
+      const result = await service.check(USER);
+
+      expect(result.dustThresholdUsd).toBe('0.01');
     });
 
     it('always returns the three warnings that deletion cannot undo', async () => {

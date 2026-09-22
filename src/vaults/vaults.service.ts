@@ -4,6 +4,7 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { VaultSyncJob } from '../jobs/vault-sync.job';
+import { readAllowedVaultIds } from '../config/allowed-vaults';
 
 const APY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -20,7 +21,7 @@ export class VaultsService {
   ) { }
 
   async listVaults() {
-    const allowedIds = this.config.get<string>('ALLOWED_VAULT_IDS', '').split(',').filter(Boolean);
+    const allowedIds = readAllowedVaultIds(this.config);
     return this.prisma.vaultCatalog.findMany({
       where: {
         isActive: true,

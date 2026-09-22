@@ -9,9 +9,16 @@ import { ExpiredIntentsJob } from './expired-intents.job';
 import { VaultSyncJob } from './vault-sync.job';
 import { GiftReconciliationJob } from './gift-reconciliation.job';
 import { GiftExpiryJob } from './gift-expiry.job';
+import { AccountDeletionCleanupJob } from './account-deletion-cleanup.job';
+import { AccountDeletionModule } from '../account-deletion/account-deletion.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), DefindexModule, GiftsModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    AccountDeletionModule,
+    DefindexModule,
+    GiftsModule,
+  ],
   providers: [
     ReconciliationJob,
     ApySyncJob,
@@ -20,6 +27,7 @@ import { GiftExpiryJob } from './gift-expiry.job';
     VaultSyncJob,
     GiftReconciliationJob,
     GiftExpiryJob,
+    AccountDeletionCleanupJob,
   ],
 })
 export class JobsModule {}

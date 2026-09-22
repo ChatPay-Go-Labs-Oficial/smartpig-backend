@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { BlindPayModule } from '../blindpay/blindpay.module';
 import { DefindexModule } from '../defindex/defindex.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { AccountDeletionController } from './account-deletion.controller';
 import { EligibilityService } from './eligibility.service';
+import { ScrubService } from './scrub.service';
+import { AccountDeletionService } from './account-deletion.service';
 
 /**
  * Account deletion.
@@ -13,9 +16,9 @@ import { EligibilityService } from './eligibility.service';
  * KYC state deliberately does not block a deletion.
  */
 @Module({
-  imports: [AuthModule, DefindexModule, WalletsModule],
+  imports: [AuthModule, BlindPayModule, DefindexModule, WalletsModule],
   controllers: [AccountDeletionController],
-  providers: [EligibilityService],
-  exports: [EligibilityService],
+  providers: [EligibilityService, ScrubService, AccountDeletionService],
+  exports: [EligibilityService, ScrubService, AccountDeletionService],
 })
 export class AccountDeletionModule {}

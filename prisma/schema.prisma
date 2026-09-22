@@ -652,6 +652,10 @@ model AccountDeletionRequest {
   /// Scalar on purpose: no FK to User, so the consent record outlives the scrub and
   /// stays readable whatever happens to the account it documents.
   userId             String
+  /// The identity provider's user id (the Privy DID). The cleanup job needs it to
+  /// retry the deletion there, and it cannot be derived after the scrub: the local
+  /// wallet address is replaced by a sentinel.
+  privyUserId        String?
   status             AccountDeletionStatus @default(REQUESTED)
   closureUnsignedXdr String?               @db.Text
   closureTxHash      String?

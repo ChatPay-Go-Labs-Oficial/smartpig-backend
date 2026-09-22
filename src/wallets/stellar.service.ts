@@ -13,7 +13,7 @@ import {
 } from '@stellar/stellar-sdk';
 
 // 10 minutes for the user to sign and submit
-const TX_TIMEOUT_SECONDS = 600;
+export const TX_TIMEOUT_SECONDS = 600;
 
 const DEFAULT_FEE_BUMP_BASE_FEE = 500;
 const DEFAULT_FEE_BUMP_MULTIPLIER = 2;
