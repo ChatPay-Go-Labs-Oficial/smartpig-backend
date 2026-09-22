@@ -24,11 +24,11 @@ O serviço mantém um cache in-memory (`Map`) com TTL de 5 minutos por vault. Se
 - Retorna o APY armazenado no banco (campo `apy` de `VaultCatalog`)
 - Inclui `stale: true` na resposta para indicar dado desatualizado
 
-O `ApySyncJob` mantém o banco atualizado de 10 em 10 minutos como fonte de fallback.
+O `ApySyncJob` mantém o banco atualizado de 6 em 6 horas como fonte de fallback — o detalhe do vault continua lendo APY ao vivo, mas os valores de `GET /vaults` podem estar até seis horas atrás.
 
 ## Adicionando vaults
 
-Vaults são **descobertos e sincronizados automaticamente** pelo `VaultSyncJob` a cada 30 minutos:
+Vaults são **descobertos e sincronizados automaticamente** pelo `VaultSyncJob` a cada 6 horas:
 
 1. O job chama `DefindexService.discoverVaults()` → `GET /vault/discover` na API DeFindex
 2. Para cada vault retornado, faz upsert no `VaultCatalog` (cria ou atualiza APY/TVL)

@@ -9,8 +9,13 @@ const INTER_VAULT_DELAY_MS = 500;
 
 /**
  * Discovers vaults from the DeFindex API and upserts them into the local VaultCatalog.
- * Runs every 30 minutes. This ensures new vaults deployed on DeFindex appear in the app
- * without manual intervention.
+ * This ensures new vaults deployed on DeFindex appear in the app without manual
+ * intervention.
+ *
+ * Runs every 6 hours. Discovery plus one enrichment call per vault shares the same
+ * DeFindex rate limit as the balance reads the app makes on demand, and every 30
+ * minutes was enough to exhaust it. A new vault taking up to six hours to appear is
+ * acceptable; a user who cannot read their own balance is not.
  */
 @Injectable()
 export class VaultSyncJob {
@@ -21,7 +26,7 @@ export class VaultSyncJob {
     private readonly defindex: DefindexService,
   ) {}
 
-  @Cron('0 */30 * * * *') // every 30 minutes
+  @Cron('0 0 */6 * * *') // every 6 hours
   async syncVaultsFromDefindex() {
     this.logger.log('Starting vault discovery sync...');
 

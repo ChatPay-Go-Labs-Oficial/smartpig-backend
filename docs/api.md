@@ -122,6 +122,127 @@ Remove a conta permanentemente. Todos os dados relacionados são deletados em ca
 
 ---
 
+## Account Deletion
+
+> Exclusão de conta iniciada pelo usuário: aptidão, abertura da solicitação e confirmação. O fluxo completo, os estados e o scrub estão em [modules/account-deletion.md](./modules/account-deletion.md).
+>
+> Em todas as rotas a conta operada vem do **token**, nunca da requisição.
+
+### `GET /account-deletion/eligibility`
+
+Responde se a conta pode ser excluída sem o usuário perder dinheiro ou interromper uma operação.
+
+A conta inspecionada vem do **token**. O `userId` que o app injeta em toda chamada é ignorado por esta rota.
+
+A resposta é consultiva: a verificação que autoriza a exclusão é refeita na confirmação.
+
+**Resposta 200:**
+```json
+{
+  "eligible": false,
+  "blockers": [
+    {
+      "code": "VAULT_BALANCE",
+      "resolvable": true,
+      "action": { "type": "WITHDRAW_VAULT", "vaultId": "clx..." },
+      "params": {
+        "amountUsd": "42.5000000",
+        "vaultId": "clx...",
+        "vaultName": "USDC Yield Vault"
+      }
+    },
+    {
+      "code": "DEPOSIT_IN_FLIGHT",
+      "resolvable": false,
+      "action": null
+    }
+  ],
+  "residuals": {
+    "walletUsdc": "0.0030000",
+    "walletAssets": [],
+    "vaultShares": [{ "vaultId": "clx...", "amount": "0.0000500" }],
+    "sweptToTreasuryUsd": "0.0030000",
+    "permanentlyLostUsd": "0.0000500"
+  },
+  "warnings": [
+    "ONCHAIN_HISTORY_PUBLIC",
+    "BLINDPAY_RETAINS_KYC",
+    "PRIVY_WALLET_ARCHIVED"
+  ]
+}
+```
+
+Nenhum bloqueio carrega texto de exibição: a redação depende do modo Lite/Pro e é escrita pelo app a partir de `code` e `params`. A lista completa de códigos está em [modules/account-deletion.md](./modules/account-deletion.md#bloqueios).
+
+Valores são string decimal em unidades inteiras, sem formatação — **não** passar por normalização de unidades atômicas Stellar.
+
+`residuals` é o que sobra abaixo do limite de poeira: `sweptToTreasuryUsd` é varrido pela transação de encerramento, `permanentlyLostUsd` vive em storage Soroban e não é alcançável.
+
+**Resposta 404:** nenhuma conta ativa para este token.
+
+**Resposta 503:** um saldo não pôde ser lido agora (rate limit ou timeout do DeFindex). A verificação é inconclusiva e deve ser refeita — não é um bloqueio.
+
+---
+
+### `POST /account-deletion`
+
+Abre a solicitação. **Nada é destruído aqui**: o servidor revalida a aptidão, registra o pedido e devolve a transação que encerra a conta Stellar. Uma solicitação não confirmada simplesmente expira.
+
+**Corpo:**
+```json
+{ "idempotencyKey": "uuid-gerado-pelo-app" }
+```
+
+A chave é validada como **UUID v4**. Ela faz uma chamada repetida devolver a mesma solicitação em vez de abrir uma segunda — o app deve reusar a mesma chave nas retentativas da mesma tentativa.
+
+**Resposta 201:**
+```json
+{
+  "requestId": "clx...",
+  "closureXdr": "AAAAAgAAAA...",
+  "residuals": {
+    "sweptToTreasuryUsd": "0.0030000",
+    "permanentlyLostUsd": "0.0000500"
+  },
+  "expiresAt": "2026-09-19T18:00:00.000Z"
+}
+```
+
+`closureXdr` vem `null` quando a carteira nunca foi ativada — não há o que assinar. Depois de `expiresAt` a transação assinada é recusada pela rede.
+
+**Resposta 409:** a conta deixou de ser elegível entre a verificação e a abertura.
+
+---
+
+### `POST /account-deletion/:id/confirm`
+
+Executa a exclusão. **A partir daqui é irreversível.**
+
+**Corpo:**
+```json
+{
+  "signedXdr": "AAAAAgAAAA...",
+  "acknowledgements": {
+    "dataRetention": true,
+    "onchainHistoryPublic": true,
+    "irreversible": true
+  }
+}
+```
+
+`signedXdr` é omitido quando `closureXdr` veio `null`. Os três reconhecimentos são obrigatórios e precisam ser `true` — é isso que impede uma caixa não marcada de passar em silêncio.
+
+**Resposta 200:**
+```json
+{ "status": "COMPLETED", "deletedAt": "2026-09-19T17:32:10.000Z" }
+```
+
+`status` também pode voltar `LOCAL_SCRUBBED`: a conta do usuário já foi apagada e encerrada na rede, mas um passo em parceiro externo ainda não completou e será refeito pelo job de limpeza. Para o usuário, os dois valores significam a mesma coisa — acabou.
+
+**400:** falta reconhecimento ou assinatura. **403:** a solicitação é de outra conta. **409:** não é mais elegível, ou a solicitação já falhou. **503:** o encerramento on-chain falhou; pode retentar com segurança.
+
+---
+
 ## Wallets
 
 ### `GET /wallets?userId=...` 🔒
@@ -247,7 +368,7 @@ Verifica se a API está no ar.
 
 ## Vaults
 
-> **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+> **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
 
 ### `GET /vaults`
 Lista todos os vaults ativos (dados do banco local).
@@ -310,7 +431,7 @@ APY live do vault (cache em memória de 5 minutos, fallback para valor do banco)
 ---
 
 ### `POST /vaults/sync`
-Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 30 minutos.
+Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 6 horas.
 
 **Resposta 200:**
 ```json

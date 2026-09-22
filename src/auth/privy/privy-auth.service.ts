@@ -31,6 +31,38 @@ export class PrivyAuthService {
     return { id: claims.user_id };
   }
 
+  /**
+   * Deletes the user at Privy. The last and irreversible step of the deletion saga.
+   *
+   * After this the user cannot authenticate, so nothing that needs their signature
+   * can run afterwards — which is why the on-chain closure comes first.
+   *
+   * A 404 counts as success: the user is already gone. Privy soft-deletes the
+   * embedded wallet rather than destroying it — it is disassociated and archived,
+   * and the consent screen says so.
+   */
+  async deleteUser(userId: string): Promise<void> {
+    if (!this.client) {
+      throw new Error('PrivyClient is not configured');
+    }
+
+    try {
+      await this.client.users().delete(userId);
+      this.logger.log(`Privy user ${userId} deleted`);
+    } catch (err) {
+      const status =
+        (err as { status?: number; statusCode?: number }).status ??
+        (err as { statusCode?: number }).statusCode;
+      if (status === 404) {
+        this.logger.log(
+          `Privy user ${userId} already absent, treating as deleted`,
+        );
+        return;
+      }
+      throw err;
+    }
+  }
+
   async getStellarWalletAddresses(userId: string): Promise<string[]> {
     if (!this.client) {
       throw new Error('PrivyClient is not configured');

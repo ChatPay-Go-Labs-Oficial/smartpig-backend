@@ -1,0 +1,24 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { BlindPayModule } from '../blindpay/blindpay.module';
+import { DefindexModule } from '../defindex/defindex.module';
+import { WalletsModule } from '../wallets/wallets.module';
+import { AccountDeletionController } from './account-deletion.controller';
+import { EligibilityService } from './eligibility.service';
+import { ScrubService } from './scrub.service';
+import { AccountDeletionService } from './account-deletion.service';
+
+/**
+ * Account deletion.
+ *
+ * Only the eligibility gate lives here so far. The saga, the scrub and the on-chain
+ * closure land in later phases; `BlindPayModule` becomes a dependency then, not now —
+ * KYC state deliberately does not block a deletion.
+ */
+@Module({
+  imports: [AuthModule, BlindPayModule, DefindexModule, WalletsModule],
+  controllers: [AccountDeletionController],
+  providers: [EligibilityService, ScrubService, AccountDeletionService],
+  exports: [EligibilityService, ScrubService, AccountDeletionService],
+})
+export class AccountDeletionModule {}

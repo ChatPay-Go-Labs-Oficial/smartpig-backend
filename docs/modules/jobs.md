@@ -23,10 +23,12 @@ Reconcilia transações que foram submetidas mas ainda estão como `PENDING`. Pa
 
 ### ApySyncJob
 **Arquivo:** `apy-sync.job.ts`
-**Frequência:** A cada 10 minutos, começando no minuto 5 (`0 5/10 * * * *`)
+**Frequência:** A cada 6 horas, no minuto 15 (`0 15 */6 * * *`)
 
-O deslocamento de cinco minutos evita que este job dispute o rate limit com o
-`VaultSyncJob`, executado nos minutos 0 e 30.
+O deslocamento de quinze minutos evita que este job dispute o rate limit com o
+`VaultSyncJob`, executado na hora cheia. O intervalo de seis horas existe pelo mesmo
+motivo: cada passada custa uma chamada DeFindex por vault, e em intervalos curtos o
+catálogo consumia a cota que as rotas sob demanda precisam.
 
 Para cada vault ativo no banco:
 1. Chama `DefindexService.getVaultInfo()` — uma única chamada que retorna APY e TVL
@@ -52,13 +54,25 @@ Snapshots com saldo zero não são persistidos para economizar espaço.
 
 ### VaultSyncJob
 **Arquivo:** `vault-sync.job.ts`
-**Frequência:** A cada 30 minutos (`0 */30 * * * *`)
+**Frequência:** A cada 6 horas (`0 0 */6 * * *`)
 
 Chama `DefindexService.discoverVaults()` (endpoint `GET /vault/discover`) e faz upsert no `VaultCatalog` para cada vault retornado:
 - **Novo vault**: cria registro com endereço, APY e TVL
 - **Vault existente**: atualiza APY, TVL e `lastSyncedAt`
 
 Isso garante que novos vaults deployados no DeFindex apareçam automaticamente no SmartPig sem intervenção manual.
+
+---
+
+### AccountDeletionCleanupJob
+**Arquivo:** `account-deletion-cleanup.job.ts`
+**Frequência:** A cada 15 minutos (`*/15 * * * *`)
+
+Termina exclusões de conta que pararam nos passos externos. Para cada solicitação em `LOCAL_SCRUBBED`, refaz **somente** as chamadas a BlindPay e Privy — o encerramento on-chain e o scrub já aconteceram atomicamente, e repetir qualquer um dos dois seria destrutivo.
+
+Processa até 20 solicitações por execução. Depois de `ACCOUNT_DELETION_MAX_CLEANUP_RETRIES` tentativas (padrão 10), a solicitação vira `FAILED` e pede investigação manual.
+
+Ver [account-deletion.md](./account-deletion.md#job-de-limpeza).
 
 ---
 

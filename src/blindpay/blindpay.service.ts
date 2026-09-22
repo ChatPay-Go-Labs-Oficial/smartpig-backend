@@ -160,6 +160,34 @@ export class BlindPayService implements OnModuleInit {
     }
   }
 
+  /**
+   * Deletes the customer at BlindPay. Used by the account-deletion saga.
+   *
+   * 404 counts as success: the customer is already gone, which is the state we
+   * were asking for. Treating it as an error would make the cleanup job retry
+   * forever over something already done.
+   *
+   * Deleting the customer is not the same as BlindPay erasing the KYC records —
+   * they are a regulated provider with their own retention. That is declared to
+   * the user on the consent screen.
+   */
+  async deleteCustomer(receiverId: string): Promise<void> {
+    try {
+      await this.http.delete(
+        `/instances/${this.instanceId}/customers/${receiverId}`,
+      );
+      this.logger.log(`BlindPay customer ${receiverId} deleted`);
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 404) {
+        this.logger.log(
+          `BlindPay customer ${receiverId} already absent, treating as deleted`,
+        );
+        return;
+      }
+      mapBlindPayError(err);
+    }
+  }
+
   // ─── RFI (Request for Information) ─────────────────────────────────────────
   // Só existe um RFI aberto por customer, então não há id de RFI na URL.
 

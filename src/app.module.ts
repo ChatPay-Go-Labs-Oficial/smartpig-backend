@@ -4,6 +4,7 @@ import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
 import { PrismaModule } from './infra/prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
+import { AccountDeletionModule } from './account-deletion/account-deletion.module';
 import { UsersModule } from './users/users.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { DefindexModule } from './defindex/defindex.module';
@@ -34,6 +35,7 @@ import { AppConfigModule } from './app-config/app-config.module';
     RampModule,
     EtherfuseRampModule,
     AppConfigModule,
+    AccountDeletionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

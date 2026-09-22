@@ -103,7 +103,7 @@ Presente em USDC entregue via claimable balance nativa da Stellar. Ver [modules/
 Índices: `(senderUserId, status)` e `(status, expiresAt)`.
 
 ### VaultCatalog
-Cache local dos vaults disponíveis no DeFindex. **Populado automaticamente** pelo `VaultSyncJob` a cada 30 minutos via `GET /vault/discover`.
+Cache local dos vaults disponíveis no DeFindex. **Populado automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover`.
 
 | Campo | Tipo | Descrição |
 |-------|------|-----------|
