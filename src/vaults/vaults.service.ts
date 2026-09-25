@@ -1,3 +1,4 @@
+import { LearningService } from '../learning/learning.service';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../infra/prisma/prisma.service';
@@ -11,21 +12,38 @@ const APY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 @Injectable()
 export class VaultsService {
   private readonly logger = new Logger(VaultsService.name);
-  private readonly apyCache = new Map<string, { apy: number; expiresAt: number }>();
+  private readonly apyCache = new Map<
+    string,
+    { apy: number; expiresAt: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
     private readonly vaultSyncJob: VaultSyncJob,
     private readonly config: ConfigService,
-  ) { }
+    private readonly learning: LearningService,
+  ) {}
 
-  async listVaults() {
+  async listVaults(userId?: string) {
     const allowedIds = readAllowedVaultIds(this.config);
-    return this.prisma.vaultCatalog.findMany({
+    const vaults = await this.prisma.vaultCatalog.findMany({
       where: {
-        isActive: true,
-        ...(allowedIds.length > 0 ? { id: { in: allowedIds } } : {}),
+        OR: [
+          {
+            isActive: true,
+            ...(allowedIds.length > 0 ? { id: { in: allowedIds } } : {}),
+          },
+          ...(userId
+            ? [
+                {
+                  depositIntents: {
+                    some: { userId, status: 'CONFIRMED' as const },
+                  },
+                },
+              ]
+            : []),
+        ],
       },
       orderBy: { name: 'asc' },
       select: {
@@ -37,11 +55,17 @@ export class VaultsService {
         apy: true,
         tvl: true,
         lastSyncedAt: true,
+        isActive: true,
       },
     });
+    const points = userId ? (await this.learning.progress(userId)).points : 0;
+    return vaults.map((vault) => ({
+      ...vault,
+      access: this.vaultAccess(vault, points),
+    }));
   }
 
-  async getVault(id: string) {
+  async getVault(id: string, userId?: string) {
     const vault = await this.prisma.vaultCatalog.findUnique({
       where: { id },
       select: {
@@ -62,13 +86,18 @@ export class VaultsService {
 
     if (!vault) throw new NotFoundException(`Vault ${id} not found`);
 
+    const points = userId ? (await this.learning.progress(userId)).points : 0;
+    const access = this.vaultAccess(vault, points);
+
     // Fetch live info from DeFindex and merge
     try {
       const liveInfo = await this.defindex.getVaultInfo(vault.defindexVaultId);
-      return { ...vault, liveInfo };
+      return { ...vault, liveInfo, access };
     } catch (err) {
-      this.logger.warn(`Could not fetch live vault info for ${id}: ${(err as Error).message}`);
-      return vault;
+      this.logger.warn(
+        `Could not fetch live vault info for ${id}: ${(err as Error).message}`,
+      );
+      return { ...vault, access };
     }
   }
 
@@ -90,21 +119,32 @@ export class VaultsService {
           where: { id },
           data: { apy: new Decimal(apy), lastSyncedAt: new Date() },
         })
-        .catch((e) => this.logger.error(`Failed to persist APY for vault ${id}`, e));
+        .catch((e) =>
+          this.logger.error(`Failed to persist APY for vault ${id}`, e),
+        );
 
       return { vaultId: id, apy, cached: false };
     } catch (err) {
       // Fallback to stored APY
       if (vault.apy !== null) {
-        return { vaultId: id, apy: Number(vault.apy), cached: true, stale: true };
+        return {
+          vaultId: id,
+          apy: Number(vault.apy),
+          cached: true,
+          stale: true,
+        };
       }
       throw err;
     }
   }
 
   async getVaultBalance(id: string, walletAddress: string) {
-    const vault = await this.findActiveVaultOrThrow(id);
-    const balance = await this.defindex.getVaultBalance(vault.defindexVaultId, walletAddress);
+    const vault = await this.prisma.vaultCatalog.findUnique({ where: { id } });
+    if (!vault) throw new NotFoundException(`Vault ${id} not found`);
+    const balance = await this.defindex.getVaultBalance(
+      vault.defindexVaultId,
+      walletAddress,
+    );
     return { vaultId: id, walletAddress, ...balance };
   }
 
@@ -113,12 +153,38 @@ export class VaultsService {
     return { message: 'Vault sync triggered successfully' };
   }
 
+  private vaultAccess(
+    vault: { id: string; isActive: boolean; assetSymbol: string },
+    points: number,
+  ) {
+    const access = this.learning.access(vault.assetSymbol, points);
+    const disabled = this.config
+      .get<string>('DISABLED_DEPOSIT_VAULT_IDS', '')
+      .split(',')
+      .map((id) => id.trim());
+    const allowed = this.config
+      .get<string>('ALLOWED_VAULT_IDS', '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const depositsEnabled =
+      vault.isActive &&
+      !disabled.includes(vault.id) &&
+      (!allowed.length || allowed.includes(vault.id));
+    return {
+      ...access,
+      depositsEnabled,
+      canDeposit: depositsEnabled && access.unlocked,
+    };
+  }
+
   private async findActiveVaultOrThrow(id: string) {
     const vault = await this.prisma.vaultCatalog.findUnique({
       where: { id },
       select: { id: true, defindexVaultId: true, apy: true, isActive: true },
     });
-    if (!vault || !vault.isActive) throw new NotFoundException(`Vault ${id} not found`);
+    if (!vault || !vault.isActive)
+      throw new NotFoundException(`Vault ${id} not found`);
     return vault;
   }
 }

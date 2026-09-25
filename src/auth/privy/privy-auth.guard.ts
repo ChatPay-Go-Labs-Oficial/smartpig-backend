@@ -1,6 +1,8 @@
+import { timingSafeEqual } from 'node:crypto';
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -54,14 +56,18 @@ export class PrivyAuthGuard implements CanActivate {
     if (isAdmin) {
       const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
       const adminKey = this.extractAdminKey(request);
+      const configuredKey = this.configService.get<string>('ADMIN_API_KEY');
 
       if (
         adminKey &&
-        adminKey === this.configService.get<string>('ADMIN_API_KEY')
+        configuredKey &&
+        Buffer.byteLength(adminKey) === Buffer.byteLength(configuredKey) &&
+        timingSafeEqual(Buffer.from(adminKey), Buffer.from(configuredKey))
       ) {
         request.user = { id: 'admin' };
         return true;
       }
+      throw new ForbiddenException('Administrative access required');
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();

@@ -113,6 +113,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  learningRewards    LearningReward[]
   wallets            WalletAccount[]
   depositIntents     DepositIntent[]
   withdrawalIntents  WithdrawalIntent[]
@@ -674,4 +675,19 @@ model AccountDeletionRequest {
   @@index([status])
   @@index([userId])
   @@map("account_deletion_requests")
+}
+
+// An immutable reward per user and question. Revisions do not grant points twice.
+model LearningReward {
+  id             String   @id @default(cuid())
+  userId         String
+  questionId     String
+  lessonId       Int
+  contentVersion Int
+  points         Int
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@map("learning_rewards")
 }

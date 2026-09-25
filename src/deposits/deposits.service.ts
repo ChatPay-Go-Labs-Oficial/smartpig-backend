@@ -1,3 +1,4 @@
+import { LearningService } from '../learning/learning.service';
 import {
   BadRequestException,
   ConflictException,
@@ -37,6 +38,7 @@ export class DepositsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orchestrator: DefindexOrchestrator,
+    private readonly learning: LearningService,
   ) {}
 
   async createDeposit(dto: CreateDepositDto) {
@@ -46,12 +48,18 @@ export class DepositsService {
       select: { ...intentSelect, unsignedXdr: true },
     });
     if (existing) {
+      if (existing.userId !== dto.userId)
+        throw new ConflictException('Idempotency key already used');
+      const existingVault = await this.prisma.vaultCatalog.findUniqueOrThrow({
+        where: { id: existing.vaultId },
+      });
+      await this.learning.assertDepositAccess(dto.userId, existingVault);
       this.logger.log(`Idempotent deposit hit: ${dto.idempotencyKey}`);
       return existing;
     }
 
     // Validate vault exists and is active
-    const vault = (await this.prisma.vaultCatalog.findUnique({
+    const vault = await this.prisma.vaultCatalog.findUnique({
       where: { id: dto.vaultId },
       select: {
         id: true,
@@ -59,12 +67,7 @@ export class DepositsService {
         assetSymbol: true,
         assetDecimals: true,
       },
-    } as never)) as {
-      id: string;
-      isActive: boolean;
-      assetSymbol: string;
-      assetDecimals: number;
-    } | null;
+    });
     if (!vault || !vault.isActive) {
       throw new NotFoundException(`Vault ${dto.vaultId} not found or inactive`);
     }
@@ -74,6 +77,8 @@ export class DepositsService {
         `Vault ${dto.vaultId} accepts ${vault.assetSymbol}, not ${dto.assetSymbol}`,
       );
     }
+
+    await this.learning.assertDepositAccess(dto.userId, vault);
 
     // Validate precision and SDK numeric limits before persisting the intent.
     toAssetUnits(dto.amount, vault.assetDecimals);
@@ -125,8 +130,15 @@ export class DepositsService {
     return { ...intent, unsignedXdr: xdr };
   }
 
-  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto) {
+  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto, userId: string) {
     const intent = await this.findIntentOrThrow(id);
+
+    if (intent.userId !== userId)
+      throw new NotFoundException('Deposit not found');
+    const vault = await this.prisma.vaultCatalog.findUniqueOrThrow({
+      where: { id: intent.vaultId },
+    });
+    await this.learning.assertDepositAccess(userId, vault);
 
     if (intent.status === IntentStatus.CONFIRMED) {
       throw new ConflictException(`Deposit ${id} already confirmed`);
@@ -151,8 +163,11 @@ export class DepositsService {
     return { id, txHash, status: IntentStatus.SUBMITTED };
   }
 
-  async getDeposit(id: string) {
-    return this.findIntentOrThrow(id);
+  async getDeposit(id: string, userId: string) {
+    const intent = await this.findIntentOrThrow(id);
+    if (intent.userId !== userId)
+      throw new NotFoundException('Deposit not found');
+    return intent;
   }
 
   async listDeposits(userId: string) {
