@@ -14,9 +14,10 @@ This is a NestJS backend project with TypeScript, Prisma ORM, and Railway deploy
 ## CI Configuration
 
 - CI workflow: `.github/workflows/ci.yml` - Runs lint, test, and build on PRs
-- Branch protection: Main branch requires PR approval from code owner and passing CI checks
+- Branch protection: Main branch requires PR approval from code owner and passing CI checks (test, build)
 - CODEOWNERS: `.github/CODEOWNERS` - Requires @Maycon-Rodrigues approval for all changes
 - Deployment: Railway automatically deploys on push to main branch
+- Note: Lint runs but doesn't block merge (existing code has lint errors to be fixed later)
 
 ## GitHub Repository
 

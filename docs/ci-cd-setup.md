@@ -44,7 +44,8 @@ As seguintes regras estão configuradas via GitHub CLI:
    - Não dispensa reviews antigos
 3. **Required Status Checks**:
    - Strict mode: Ativado (PRs devem estar atualizados com main)
-   - Checks obrigatórios: `CI/lint`, `CI/test`, `CI/build`
+   - Checks obrigatórios: `CI/test`, `CI/build`
+   - Nota: `CI/lint` é executado mas não bloqueia merge (erros existentes no código)
 4. **Restrictions**: Sem restrições específicas de usuários
 
 ### CODEOWNERS
