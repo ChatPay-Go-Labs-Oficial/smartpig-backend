@@ -1,0 +1,19 @@
+# Code Owners Configuration
+# This file defines who must approve changes before they can be merged
+
+# Require approval from Maycon-Rodrigues for all changes
+* @Maycon-Rodrigues
+
+# Uncomment below to require approval only for specific files/directories
+# # Require approval for sensitive files
+# .env @Maycon-Rodrigues
+# prisma/schema.prisma @Maycon-Rodrigues
+# 
+# # Require approval for core application code
+# src/modules/ @Maycon-Rodrigues
+# src/common/ @Maycon-Rodrigues
+# 
+# # Require approval for configuration files
+# package.json @Maycon-Rodrigues
+# tsconfig.json @Maycon-Rodrigues
+# nest-cli.json @Maycon-Rodrigues
