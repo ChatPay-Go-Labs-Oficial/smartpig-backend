@@ -1,8 +1,8 @@
-# CI/CD e Proteção de Branch
+# CI e Proteção de Branch
 
 ## Visão Geral
 
-Este projeto está configurado com pipelines de CI/CD e proteção de branch para garantir qualidade e segurança no código.
+Este projeto está configurado com pipeline de CI e proteção de branch para garantir qualidade e segurança no código. O deploy é feito automaticamente pelo Railway quando há push na branch main.
 
 ## Estrutura de Branches
 
@@ -27,24 +27,9 @@ O pipeline de CI é executado automaticamente em:
 
 Todos os jobs devem passar para que o PR possa ser merged.
 
-## Configuração de CD (Continuous Deployment)
+## Deploy Automático
 
-### Workflow: `.github/workflows/cd.yml`
-
-O pipeline de CD é executado automaticamente quando há push para `main`.
-
-#### Deploy
-
-O workflow realiza deploy automático para Railway usando:
-- Railway CLI Action
-- Tokens configurados como secrets no GitHub
-
-### Secrets Necessários
-
-Configure os seguintes secrets no repositório GitHub:
-
-- `RAILWAY_TOKEN`: Token de autenticação do Railway
-- `RAILWAY_SERVICE_ID`: ID do serviço Railway para deploy
+O Railway está configurado para fazer deploy automático quando há push na branch `main`. Não é necessário um workflow de CD adicional - o Railway monitora a branch e realiza o deploy automaticamente após o merge.
 
 ## Proteção de Branch
 
@@ -89,8 +74,8 @@ Isso garante que mesmo que outros administradores existam no repositório, a apr
 
 5. Após aprovação e checks passados, o PR pode ser merged
 
-6. O merge para `main` acionará o CD automaticamente
-   - O projeto será deployado para Railway
+6. O merge para `main` acionará o deploy automático no Railway
+   - O Railway detecta o push e faz o deploy automaticamente
 
 ## Verificação da Configuração
 
@@ -129,10 +114,11 @@ Edite o arquivo `.github/CODEOWNERS` para alterar quem pode aprovar mudanças.
 - Certifique-se de que `npm ci` funciona localmente
 - Verifique se dependências estão atualizadas
 
-### CD falhando
+### Deploy no Railway falhando
 
-- Verifique se `RAILWAY_TOKEN` e `RAILWAY_SERVICE_ID` estão configurados corretamente
-- Verifique logs do deploy na aba "Actions" do GitHub
+- Verifique os logs do deploy no painel do Railway
+- Certifique-se de que a branch `main` está configurada corretamente no Railway
+- Verifique se as variáveis de ambiente estão configuradas no Railway
 
 ### Não é possível fazer merge
 

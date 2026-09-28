@@ -11,12 +11,12 @@ This is a NestJS backend project with TypeScript, Prisma ORM, and Railway deploy
 - `npm run test` - Run Jest tests
 - `npm run start:dev` - Start development server with watch mode
 
-## CI/CD Configuration
+## CI Configuration
 
 - CI workflow: `.github/workflows/ci.yml` - Runs lint, test, and build on PRs
-- CD workflow: `.github/workflows/cd.yml` - Deploys to Railway on merge to main
 - Branch protection: Main branch requires PR approval from code owner and passing CI checks
 - CODEOWNERS: `.github/CODEOWNERS` - Requires @Maycon-Rodrigues approval for all changes
+- Deployment: Railway automatically deploys on push to main branch
 
 ## GitHub Repository
 
