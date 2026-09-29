@@ -76,6 +76,7 @@ function createService(
       update: record('gift', 'update'),
     },
     apiAuditLog: { updateMany: record('apiAuditLog', 'updateMany') },
+    learningReward: { deleteMany: record('learningReward', 'deleteMany') },
     portfolioSnapshot: {
       deleteMany: record('portfolioSnapshot', 'deleteMany'),
     },
@@ -384,7 +385,7 @@ describe('ScrubService', () => {
   });
 
   describe('what is never deleted', () => {
-    it('deletes rows from exactly two tables, and updates the rest', async () => {
+    it('deletes rows from exactly three tables, and updates the rest', async () => {
       // Every other table keeps its rows: the counts of deposits, withdrawals,
       // transactions, ramps and gifts have to survive the deletion untouched.
       const { service, calls } = createService({
@@ -395,6 +396,7 @@ describe('ScrubService', () => {
 
       const deletes = calls.filter((c) => c.op === 'deleteMany');
       expect(deletes.map((c) => c.model).sort()).toEqual([
+        'learningReward',
         'portfolioSnapshot',
         'refreshToken',
       ]);

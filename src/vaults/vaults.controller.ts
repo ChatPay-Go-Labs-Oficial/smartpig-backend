@@ -1,5 +1,14 @@
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { LearningService } from '../learning/learning.service';
 import { Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiProperty,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Admin } from '../auth/privy/admin.decorator';
 import { VaultsService } from './vaults.service';
@@ -19,10 +28,12 @@ class BalanceQuery {
 }
 
 @ApiTags('Vaults')
-@Admin()
 @Controller('vaults')
 export class VaultsController {
-  constructor(private readonly vaultsService: VaultsService) {}
+  constructor(
+    private readonly vaultsService: VaultsService,
+    private readonly learning: LearningService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all available investment vaults' })
@@ -46,24 +57,37 @@ export class VaultsController {
       ],
     },
   })
-  listVaults() {
-    return this.vaultsService.listVaults();
+  async listVaults(@CurrentUser() user: { id: string }) {
+    return this.vaultsService.listVaults(
+      await this.learning.resolveUserId(user.id),
+    );
   }
 
   @Post('sync')
+  @Admin()
   @ApiOperation({
     summary: 'Trigger vault synchronization',
     description: 'Manually triggers a sync with the Defindex SDK.',
   })
-  @ApiResponse({ status: 201, description: 'Synchronization triggered successfully.' })
-  @ApiResponse({ status: 502, description: 'DeFindex SDK unreachable or returned an error.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Synchronization triggered successfully.',
+  })
+  @ApiResponse({
+    status: 502,
+    description: 'DeFindex SDK unreachable or returned an error.',
+  })
   triggerSync() {
     return this.vaultsService.triggerSync();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get vault details' })
-  @ApiParam({ name: 'id', description: 'Vault ID (cuid)', example: 'cmp6vault001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Vault ID (cuid)',
+    example: 'cmp6vault001',
+  })
   @ApiResponse({
     status: 200,
     description: 'Vault details returned successfully.',
@@ -83,13 +107,20 @@ export class VaultsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Vault not found.' })
-  getVault(@Param('id') id: string) {
-    return this.vaultsService.getVault(id);
+  async getVault(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    return this.vaultsService.getVault(
+      id,
+      await this.learning.resolveUserId(user.id),
+    );
   }
 
   @Get(':id/apy')
   @ApiOperation({ summary: 'Get current vault APY' })
-  @ApiParam({ name: 'id', description: 'Vault ID (cuid)', example: 'cmp6vault001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Vault ID (cuid)',
+    example: 'cmp6vault001',
+  })
   @ApiResponse({
     status: 200,
     description: 'Current APY for the vault.',
@@ -104,21 +135,33 @@ export class VaultsController {
 
   @Get(':id/balance')
   @ApiOperation({ summary: 'Get user balance in a specific vault' })
-  @ApiParam({ name: 'id', description: 'Vault ID (cuid)', example: 'cmp6vault001' })
-  @ApiQuery({ name: 'walletAddress', description: 'Stellar wallet address to check the balance for', example: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE' })
+  @ApiParam({
+    name: 'id',
+    description: 'Vault ID (cuid)',
+    example: 'cmp6vault001',
+  })
+  @ApiQuery({
+    name: 'walletAddress',
+    description: 'Stellar wallet address to check the balance for',
+    example: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+  })
   @ApiResponse({
     status: 200,
     description: 'Wallet balance in the specified vault.',
     schema: {
       example: {
         vaultId: 'cmp6vault001',
-        walletAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        walletAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         balance: '250.000000',
         assetSymbol: 'USDC',
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Missing or invalid walletAddress query parameter.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing or invalid walletAddress query parameter.',
+  })
   @ApiResponse({ status: 404, description: 'Vault not found.' })
   getVaultBalance(@Param('id') id: string, @Query() query: BalanceQuery) {
     return this.vaultsService.getVaultBalance(id, query.walletAddress);

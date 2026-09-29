@@ -47,6 +47,8 @@ export class WithdrawalsService {
       select: { ...intentSelect, unsignedXdr: true },
     });
     if (existing) {
+      if (existing.userId !== dto.userId)
+        throw new ConflictException('Idempotency key already used');
       this.logger.log(`Idempotent withdrawal hit: ${dto.idempotencyKey}`);
       return existing;
     }
@@ -56,8 +58,8 @@ export class WithdrawalsService {
       where: { id: dto.vaultId },
       select: { id: true, isActive: true },
     });
-    if (!vault || !vault.isActive) {
-      throw new NotFoundException(`Vault ${dto.vaultId} not found or inactive`);
+    if (!vault) {
+      throw new NotFoundException(`Vault ${dto.vaultId} not found`);
     }
 
     // Validate wallet belongs to user
@@ -106,8 +108,10 @@ export class WithdrawalsService {
     return { ...intent, unsignedXdr: xdr };
   }
 
-  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto) {
+  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto, userId: string) {
     const intent = await this.findIntentOrThrow(id);
+    if (intent.userId !== userId)
+      throw new NotFoundException('Withdrawal not found');
 
     if (intent.status === IntentStatus.CONFIRMED) {
       throw new ConflictException(`Withdrawal ${id} already confirmed`);
@@ -135,8 +139,11 @@ export class WithdrawalsService {
     return { id, txHash, status: IntentStatus.SUBMITTED };
   }
 
-  async getWithdrawal(id: string) {
-    return this.findIntentOrThrow(id);
+  async getWithdrawal(id: string, userId: string) {
+    const intent = await this.findIntentOrThrow(id);
+    if (intent.userId !== userId)
+      throw new NotFoundException('Withdrawal not found');
+    return intent;
   }
 
   async listWithdrawals(userId: string) {

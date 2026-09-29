@@ -9,8 +9,7 @@ const INTER_VAULT_DELAY_MS = 500;
 
 /**
  * Discovers vaults from the DeFindex API and upserts them into the local VaultCatalog.
- * This ensures new vaults deployed on DeFindex appear in the app without manual
- * intervention.
+ * Newly discovered vaults remain inactive until an operator reviews them.
  *
  * Runs every 6 hours. Discovery plus one enrichment call per vault shares the same
  * DeFindex rate limit as the balance reads the app makes on demand, and every 30
@@ -58,7 +57,11 @@ export class VaultSyncJob {
         try {
           const info = await this.defindex.getVaultInfo(vault.address);
           if (info?.name) vaultName = info.name;
-          if (info?.assetSymbol) assetSymbol = info.assetSymbol;
+          if (info?.assetSymbol)
+            assetSymbol =
+              info.assetSymbol.toLowerCase() === 'native'
+                ? 'XLM'
+                : info.assetSymbol;
           if (info?.tvl) tvl = new Decimal(info.tvl);
         } catch (infoErr) {
           this.logger.warn(
@@ -75,7 +78,7 @@ export class VaultSyncJob {
             assetDecimals: 7,
             apy: vault.apy != null ? new Decimal(vault.apy) : null,
             tvl,
-            isActive: true,
+            isActive: false,
             lastSyncedAt: new Date(),
           },
           update: {
@@ -83,10 +86,9 @@ export class VaultSyncJob {
             assetSymbol,
             apy: vault.apy != null ? new Decimal(vault.apy) : undefined,
             tvl: tvl ?? undefined,
-            isActive: true,
             lastSyncedAt: new Date(),
           },
-        } as never);
+        });
 
         upserted++;
       } catch (err) {
