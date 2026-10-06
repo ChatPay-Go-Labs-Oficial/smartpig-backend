@@ -125,8 +125,9 @@ model User {
   onrampTxns         OnrampTransaction[]
   offrampTxns        OfframpTransaction[]
   etherfuseCustomer  EtherfuseCustomer?
-  giftsSent          Gift[]               @relation("giftsSent")
-  giftsReceived      Gift[]               @relation("giftsReceived")
+  giftsSent          Gift[]                          @relation("giftsSent")
+  giftsReceived      Gift[]                          @relation("giftsReceived")
+  disclosureAcks     VaultDisclosureAcknowledgment[]
 
   @@index([deletedAt])
   @@map("users")
@@ -189,18 +190,113 @@ model VaultCatalog {
   apy             Decimal?  @db.Decimal(10, 4)
   tvl             Decimal?  @db.Decimal(30, 8)
   metadata        Json?
+  /// Admin-owned. Means "listed and usable". The discovery job must never write it,
+  /// otherwise a deactivation is undone on the next run.
   isActive        Boolean   @default(true)
   lastSyncedAt    DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  // ── Registry: admin-owned ──────────────────────────────────────────────
+  /// Selects the VaultAdapter implementation.
+  protocol            String  @default("DEFINDEX")
+  /// When true the discovery job leaves name/assetSymbol/description alone.
+  /// DeFindex reports XLM as "native" and sometimes a truncated contract id as the
+  /// symbol, so curated rows must survive a sync.
+  isCurated           Boolean @default(false)
+  /// Freezes deposits while withdrawals stay open. Separate from isActive, which
+  /// also gates createWithdrawal — a paused vault must not trap funds.
+  depositsEnabled     Boolean @default(true)
+  displayOrder        Int     @default(100)
+  isFeatured          Boolean @default(false)
+  /// The VaultConfigRecord: contract ids, strategies, roles, fees, liquidity,
+  /// oracle and protocol dependencies, and the principal risks.
+  configRecord        Json?
+  configSchemaVersion Int     @default(1)
+  /// Stellar Asset Contract id (C…) of the vault asset.
+  assetContractId     String?
+
+  // ── Registry: discovery-job-owned ──────────────────────────────────────
+  /// What DeFindex last reported, kept apart from the curated values so the two
+  /// provenances never overwrite each other.
+  discoveredName        String?
+  discoveredAssetSymbol String?
+  /// Last time discovery still listed this vault. A vault disappearing upstream is
+  /// observable without flipping isActive.
+  lastSeenAt            DateTime?
+
   depositIntents     DepositIntent[]
   withdrawalIntents  WithdrawalIntent[]
   portfolioSnapshots PortfolioSnapshot[]
   managedVault       ManagedVault?
+  disclosures        VaultDisclosure[]
+  disclosureAcks     VaultDisclosureAcknowledgment[]
 
   @@index([isActive])
+  @@index([isActive, displayOrder])
   @@map("vault_catalog")
+}
+
+// ─────────────────────────────────────────────
+// Vault risk disclosures & acknowledgments
+// ─────────────────────────────────────────────
+
+/// A versioned, vault-specific risk disclosure.
+///
+/// `risks` holds structured entries, never prose: `[{ code, severity, params?,
+/// fallbackText? }]`. The backend ships codes and numbers; the app writes the
+/// sentence, so the Lite/Pro voice stays in the repo under code review. The
+/// optional `fallbackText` exists because a published app cannot know a code added
+/// after its release — without it, "update disclosures with no new release" and
+/// "wording lives in the app" could not both be true.
+model VaultDisclosure {
+  id      String @id @default(cuid())
+  vaultId String
+  version Int
+
+  risks    Json
+  /// Plain-language principal risks plus liquidity and withdrawal conditions.
+  sections Json?
+
+  /// Null while a draft. Only a published row can be acknowledged, and a vault
+  /// cannot be activated without one.
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  vault           VaultCatalog                    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  acknowledgments VaultDisclosureAcknowledgment[]
+
+  @@unique([vaultId, version])
+  @@index([vaultId, publishedAt])
+  @@map("vault_disclosures")
+}
+
+/// Proof that a user accepted a specific disclosure version for a specific vault.
+///
+/// The composite unique key is the whole enforcement rule: per user, per vault, per
+/// version. Acknowledging vault A cannot satisfy vault B (vaultId is in the key),
+/// and publishing a new version leaves no matching row, so consent is asked again
+/// (version is in the key). Re-POSTing the same acceptance is idempotent.
+model VaultDisclosureAcknowledgment {
+  id             String   @id @default(cuid())
+  userId         String
+  vaultId        String
+  disclosureId   String
+  version        Int
+  acknowledgedAt DateTime @default(now())
+  /// Audit trail: the codes shown, the app version, and the Lite/Pro mode at the
+  /// moment of consent.
+  context        Json?
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vault      VaultCatalog    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  disclosure VaultDisclosure @relation(fields: [disclosureId], references: [id])
+
+  @@unique([userId, vaultId, version])
+  @@index([userId, vaultId])
+  @@index([disclosureId])
+  @@map("vault_disclosure_acknowledgments")
 }
 
 // ─────────────────────────────────────────────
@@ -219,6 +315,9 @@ model DepositIntent {
   unsignedXdr     String?      @db.Text
   signedXdr       String?      @db.Text
   errorMessage    String?
+  /// Machine-readable reason, so the app can tell REJECTED (user-actionable,
+  /// retryable) apart from FAILED (chain or upstream).
+  failureCode     String?
   expiresAt       DateTime
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -248,6 +347,9 @@ model WithdrawalIntent {
   unsignedXdr     String?      @db.Text
   signedXdr       String?      @db.Text
   errorMessage    String?
+  /// Machine-readable reason, so the app can tell REJECTED (user-actionable,
+  /// retryable) apart from FAILED (chain or upstream).
+  failureCode     String?
   expiresAt       DateTime
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
