@@ -12,6 +12,8 @@ import { DefindexOrchestrator } from '../defindex/defindex.orchestrator';
 import { CreateDepositDto } from './dto/create-deposit.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
 import { toAssetUnits } from '../defindex/asset-amount';
+import { VaultRegistryService } from '../vault-registry/vault-registry.service';
+import { DisclosureGuardService } from '../vault-registry/disclosure.guard.service';
 
 const INTENT_TTL_HOURS = 24;
 
@@ -37,6 +39,8 @@ export class DepositsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orchestrator: DefindexOrchestrator,
+    private readonly registry: VaultRegistryService,
+    private readonly disclosureGuard: DisclosureGuardService,
   ) {}
 
   async createDeposit(dto: CreateDepositDto) {
@@ -50,24 +54,16 @@ export class DepositsService {
       return existing;
     }
 
-    // Validate vault exists and is active
-    const vault = (await this.prisma.vaultCatalog.findUnique({
-      where: { id: dto.vaultId },
-      select: {
-        id: true,
-        isActive: true,
-        assetSymbol: true,
-        assetDecimals: true,
-      },
-    } as never)) as {
-      id: string;
-      isActive: boolean;
-      assetSymbol: string;
-      assetDecimals: number;
-    } | null;
-    if (!vault || !vault.isActive) {
-      throw new NotFoundException(`Vault ${dto.vaultId} not found or inactive`);
-    }
+    // The registry is the single answer to "is this vault usable", and it
+    // distinguishes a delisted vault (404) from one with deposits frozen (409).
+    const vault = await this.registry.assertDepositable(dto.vaultId);
+
+    // No first deposit before the current risk disclosure is acknowledged. Checked
+    // here, before anything is persisted and before any XDR is generated, so a
+    // deposit the user is not allowed to make leaves no trace. The admin route
+    // refuses to activate a vault without a published disclosure, so this is the
+    // second of two independent gates rather than the only one.
+    await this.disclosureGuard.assertAcknowledged(dto.userId, vault.id);
 
     if (dto.assetSymbol.toUpperCase() !== vault.assetSymbol.toUpperCase()) {
       throw new BadRequestException(
