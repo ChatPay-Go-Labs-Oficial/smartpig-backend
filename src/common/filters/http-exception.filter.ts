@@ -37,6 +37,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // Exceções que carregam um corpo estruturado (ex.: BlindPayUpstreamError)
     // trazem `code` e `fields` além da mensagem. Repassar os dois é o que
     // permite ao app reagir por código em vez de dar match na string.
+    //
+    // `details` existe pelo mesmo motivo, para payload que o app precisa
+    // renderizar e não apenas identificar: o 409 de disclosure pendente manda os
+    // riscos a exibir junto do código. Sem este passthrough, qualquer chave fora
+    // de `code` e `fields` era silenciosamente descartada aqui.
     const body =
       typeof message === 'object' && message !== null
         ? (message as Record<string, unknown>)
@@ -51,6 +56,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? { code: body['code'] }
         : {}),
       ...(body && body['fields'] ? { fields: body['fields'] } : {}),
+      ...(body && body['details'] ? { details: body['details'] } : {}),
     });
   }
 }
