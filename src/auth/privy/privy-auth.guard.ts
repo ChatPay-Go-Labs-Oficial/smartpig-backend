@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { InvalidAuthTokenError } from '@privy-io/node';
 import type { AuthenticatedRequest } from './authenticated-request.interface';
 import { IS_ADMIN_KEY } from './admin.decorator';
+import { IS_ADMIN_ONLY_KEY } from './admin-only.decorator';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { PrivyAuthService } from './privy-auth.service';
 
@@ -44,6 +45,26 @@ export class PrivyAuthGuard implements CanActivate {
           'Invalid or expired authentication token',
         );
       }
+    }
+
+    const isAdminOnly = this.reflector.getAllAndOverride<boolean>(
+      IS_ADMIN_ONLY_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (isAdminOnly) {
+      const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+      const adminKey = this.extractAdminKey(request);
+      const expected = this.configService.get<string>('ADMIN_API_KEY');
+
+      // Deliberately no fallthrough to bearer auth, and no access at all when the
+      // key is unconfigured: an operator route must never be reachable by accident.
+      if (!expected || !adminKey || adminKey !== expected) {
+        throw new UnauthorizedException('Admin credentials required');
+      }
+
+      request.user = { id: 'admin' };
+      return true;
     }
 
     const isAdmin = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_KEY, [
