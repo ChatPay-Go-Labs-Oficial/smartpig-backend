@@ -72,7 +72,12 @@ export const envSchema = Joi.object({
   ADMIN_API_KEY: Joi.string().optional(),
 
   // Vaults
-  ALLOWED_VAULT_IDS: Joi.string().default(''),
+  // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
+  // `.default('')` only applies when the key is absent. Without it, the documented
+  // "empty means no allowlist" could only be expressed by deleting the variable —
+  // setting it empty refused to boot. That is the migration path once the registry
+  // is authoritative, so it has to be expressible.
+  ALLOWED_VAULT_IDS: Joi.string().allow('').default(''),
 
   // Account deletion
   ACCOUNT_DELETION_DUST_USD: Joi.number().min(0).default(0.01),
