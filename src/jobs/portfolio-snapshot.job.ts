@@ -48,14 +48,16 @@ export class PortfolioSnapshotJob {
             wallet.stellarAddress,
           );
 
-          // Only persist if user has a non-zero balance
-          if (balance.dfTokens <= 0) continue;
+          // The API reports these as JSON strings, so compare through Decimal
+          // rather than relying on `"0" <= 0` coercing the way we want.
+          const shares = new Decimal(String(balance.dfTokens ?? 0));
+          if (shares.lte(0)) continue;
 
           await this.prisma.portfolioSnapshot.create({
             data: {
               userId: wallet.userId,
               vaultId: vault.id,
-              balanceAmount: new Decimal(balance.dfTokens),
+              balanceAmount: shares,
               capturedAt,
             },
           });
@@ -68,6 +70,8 @@ export class PortfolioSnapshotJob {
       }
     }
 
-    this.logger.log(`Portfolio snapshot complete: ${snapshots} record(s) created`);
+    this.logger.log(
+      `Portfolio snapshot complete: ${snapshots} record(s) created`,
+    );
   }
 }

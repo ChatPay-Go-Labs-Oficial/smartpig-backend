@@ -250,7 +250,10 @@ export class EligibilityService {
           return {
             vault,
             underlying: this.toWholeUnits(
-              balance.underlyingBalance?.[0] ?? 0,
+              // The API sends these as JSON strings; Number() here keeps the
+              // existing signature while making the conversion explicit instead
+              // of accidental.
+              Number(balance.underlyingBalance?.[0] ?? 0),
               vault.assetDecimals,
             ),
             transient: false,

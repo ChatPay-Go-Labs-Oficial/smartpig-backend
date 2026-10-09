@@ -20,6 +20,23 @@ export class DefindexMapper {
       assetSymbol: primaryAsset?.symbol ?? null,
       tvl: primaryFunds?.total_amount ?? null,
       apy: raw.apy,
+      // Both of these used to be dropped here. The configuration record the
+      // deliverable requires cannot be filled from chain without them, and the
+      // fee is one of the risks the disclosure has to state.
+      roles: raw.roles
+        ? {
+            manager: raw.roles.manager,
+            emergencyManager: raw.roles.emergencyManager,
+            rebalanceManager: raw.roles.rebalanceManager,
+            feeReceiver: raw.roles.feeReceiver,
+          }
+        : null,
+      fees: raw.feesBps
+        ? {
+            vaultFeeBps: raw.feesBps.vaultFee,
+            defindexFeeBps: raw.feesBps.defindexFee,
+          }
+        : null,
       assets:
         raw.assets?.map((a) => ({
           address: a.address,
