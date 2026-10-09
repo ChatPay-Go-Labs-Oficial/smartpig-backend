@@ -71,6 +71,10 @@ export const envSchema = Joi.object({
   // Admin API Key for administrative routes
   ADMIN_API_KEY: Joi.string().optional(),
 
+  /// Replaces the built-in asset registry entirely. Lets an asset be added on
+  /// Railway without a deploy. Validated at boot; malformed config stops startup.
+  STELLAR_ASSETS_JSON: Joi.string().allow('').optional(),
+
   // Vaults
   // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
   // `.default('')` only applies when the key is absent. Without it, the documented
