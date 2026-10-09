@@ -75,6 +75,12 @@ export const envSchema = Joi.object({
   /// Railway without a deploy. Validated at boot; malformed config stops startup.
   STELLAR_ASSETS_JSON: Joi.string().allow('').optional(),
 
+  /// `DEX` uses a classic path payment against the Stellar order book. `DISABLED`
+  /// leaves a vault listed and withdrawable with deposits paused, which is the
+  /// honest degradation when a pair has no usable market.
+  CONVERSION_MODE: Joi.string().valid('DEX', 'DISABLED').default('DEX'),
+  STELLAR_HORIZON_TIMEOUT_MS: Joi.number().integer().min(1000).default(15000),
+
   // Vaults
   // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
   // `.default('')` only applies when the key is absent. Without it, the documented

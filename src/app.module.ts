@@ -18,6 +18,7 @@ import { RampModule } from './ramp/ramp.module';
 import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
 import { AppConfigModule } from './app-config/app-config.module';
 import { VaultRegistryModule } from './vault-registry/vault-registry.module';
+import { ConversionsModule } from './conversions/conversions.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { VaultRegistryModule } from './vault-registry/vault-registry.module';
     VaultRegistryModule,
     VaultsModule,
     DepositsModule,
+    ConversionsModule,
     WithdrawalsModule,
     GiftsModule,
     JobsModule,

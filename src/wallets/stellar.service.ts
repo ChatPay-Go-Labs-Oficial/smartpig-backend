@@ -279,6 +279,120 @@ export class StellarService {
   }
 
   /**
+   * Builds a **sponsored path payment**, pre-signed by the Treasury.
+   *
+   * A self-payment: source and destination are both the user's account, so their
+   * funding asset leaves and the target asset arrives in the same operation. The
+   * counterparty is the market — the SDEX order book and the classic liquidity
+   * pools — which is why this needs no inventory of ours.
+   *
+   * `destMin` is the protection that matters. If the route degrades between
+   * building this and it reaching the ledger, the operation fails atomically and
+   * the user keeps their funds; they never get a bad rate silently.
+   *
+   * Treasury is the transaction source with `fee: '0'` and signs the inner
+   * transaction, exactly as in activation: the user's wallet holds no spendable
+   * XLM. The caller submits through `submitFeeBumpTransaction`, which pins the
+   * hash so the client can only add a signature.
+   */
+  async buildPathPaymentXdr(params: {
+    userAddress: string;
+    sendAsset: Asset;
+    sendAmount: string;
+    destAsset: Asset;
+    destMin: string;
+    path: Asset[];
+  }): Promise<string> {
+    const { userAddress, sendAsset, sendAmount, destAsset, destMin, path } =
+      params;
+
+    const treasuryKeypair = this.loadTreasury();
+    const treasuryPublicKey = treasuryKeypair.publicKey();
+
+    let treasuryAccount: Horizon.AccountResponse;
+    try {
+      treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
+    } catch {
+      throw new BadRequestException(
+        `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
+      );
+    }
+
+    const tx = new TransactionBuilder(treasuryAccount, {
+      fee: '0',
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.pathPaymentStrictSend({
+          source: userAddress,
+          sendAsset,
+          sendAmount,
+          destination: userAddress,
+          destAsset,
+          destMin,
+          path,
+        }),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    tx.sign(treasuryKeypair);
+
+    this.logger.log(
+      `Path payment XDR built for ${userAddress}: ${sendAmount} ${sendAsset.getCode()} → min ${destMin} ${destAsset.getCode()} (hops=${path.length})`,
+    );
+
+    return tx.toEnvelope().toXDR('base64');
+  }
+
+  /**
+   * How much the account actually received from a submitted path payment.
+   *
+   * Read from the transaction's effects rather than from the quote: the quote is a
+   * prediction, and the deposit that follows must be sized by what arrived. Falls
+   * back to null rather than guessing, so a caller cannot mistake an unread result
+   * for a zero.
+   */
+  async readPathPaymentReceived(
+    txHash: string,
+    userAddress: string,
+    destAsset: Asset,
+  ): Promise<Decimal | null> {
+    try {
+      const { records } = await this.server
+        .effects()
+        .forTransaction(txHash)
+        .limit(200)
+        .call();
+
+      const wanted = destAsset.isNative()
+        ? { asset_type: 'native' }
+        : {
+            asset_code: destAsset.getCode(),
+            asset_issuer: destAsset.getIssuer(),
+          };
+
+      const credit = records.find((effect) => {
+        const e = effect as unknown as Record<string, unknown>;
+        if (e.type !== 'account_credited') return false;
+        if (e.account !== userAddress) return false;
+        if (destAsset.isNative()) return e.asset_type === 'native';
+        return (
+          e.asset_code === wanted.asset_code &&
+          e.asset_issuer === wanted.asset_issuer
+        );
+      }) as unknown as { amount?: string } | undefined;
+
+      return credit?.amount ? new Decimal(credit.amount) : null;
+    } catch (err) {
+      this.logger.warn(
+        `Could not read received amount for tx ${txHash}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Submits a signed Stellar transaction to the network via the Horizon HTTP API.
    * Uses direct HTTP call instead of Transaction constructor to avoid SDK
    * parsing issues with certain operation types (e.g. ChangeTrust).

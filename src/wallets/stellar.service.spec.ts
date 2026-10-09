@@ -789,3 +789,115 @@ describe('StellarService wallet activation', () => {
     }
   });
 });
+
+describe('StellarService path payment', () => {
+  const treasury = Keypair.random();
+  const user = Keypair.random();
+  const USDC_ISSUER =
+    'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+  const EURC_ISSUER =
+    'GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2';
+
+  function createService() {
+    const values: Record<string, string | number> = {
+      DEFINDEX_NETWORK: 'mainnet',
+      STELLAR_NETWORK_PASSPHRASE: Networks.PUBLIC,
+      STELLAR_HORIZON_URL: 'https://horizon.stellar.org',
+      STELLAR_USDC_ASSET_CODE: 'USDC',
+      STELLAR_USDC_ISSUER: USDC_ISSUER,
+      TREASURY_STELLAR_SECRET: treasury.secret(),
+    };
+    const config = {
+      get: jest.fn((key: string, fallback?: unknown) =>
+        key in values ? values[key] : fallback,
+      ),
+      getOrThrow: jest.fn((key: string) => {
+        if (!(key in values)) throw new Error(`Missing ${key}`);
+        return values[key];
+      }),
+    } as unknown as ConfigService;
+
+    const service = new StellarService(config);
+    const server = (service as unknown as { server: { loadAccount: unknown } })
+      .server;
+    server.loadAccount = jest.fn(() =>
+      Promise.resolve(
+        Object.assign(new Account(treasury.publicKey(), '1'), { balances: [] }),
+      ),
+    );
+    return service;
+  }
+
+  async function build(service: StellarService, path: unknown[] = []) {
+    const { Asset } = await import('@stellar/stellar-sdk');
+    return service.buildPathPaymentXdr({
+      userAddress: user.publicKey(),
+      sendAsset: new Asset('USDC', USDC_ISSUER),
+      sendAmount: '10.0000000',
+      destAsset: new Asset('EURC', EURC_ISSUER),
+      destMin: '8.9403461',
+      path: path as never,
+    });
+  }
+
+  function txOf(xdr: string) {
+    return TransactionBuilder.fromXDR(xdr, Networks.PUBLIC) as Transaction;
+  }
+
+  it('builds a single path payment, sponsored by the treasury', async () => {
+    const tx = txOf(await build(createService()));
+
+    expect(tx.operations.map((op) => op.type)).toEqual([
+      'pathPaymentStrictSend',
+    ]);
+    // Treasury is the source and pays nothing inside; the fee bump covers it.
+    expect(tx.source).toBe(treasury.publicKey());
+    expect(tx.fee).toBe('0');
+    expect(tx.signatures).toHaveLength(1);
+  });
+
+  it('is a self-payment: the user is both source and destination', async () => {
+    // Their funding asset leaves and the target asset arrives in the same
+    // operation; the counterparty is the order book, not us.
+    const tx = txOf(await build(createService()));
+    const op = tx.operations[0] as unknown as {
+      source: string;
+      destination: string;
+      destMin: string;
+      sendAmount: string;
+    };
+
+    expect(op.source).toBe(user.publicKey());
+    expect(op.destination).toBe(user.publicKey());
+  });
+
+  it('carries destMin, which is what stops a silent bad rate', async () => {
+    const tx = txOf(await build(createService()));
+    const op = tx.operations[0] as unknown as {
+      destMin: string;
+      sendAmount: string;
+    };
+
+    expect(op.destMin).toBe('8.9403461');
+    expect(op.sendAmount).toBe('10.0000000');
+  });
+
+  it('builds a direct route with an empty path', async () => {
+    // What Horizon reports for USDC→EURC and USDC→XLM today.
+    const tx = txOf(await build(createService(), []));
+    const op = tx.operations[0] as unknown as { path: unknown[] };
+
+    expect(op.path).toEqual([]);
+  });
+
+  it('carries a native hop through, which raw Horizon JSON would not', async () => {
+    const { Asset } = await import('@stellar/stellar-sdk');
+    const tx = txOf(await build(createService(), [Asset.native()]));
+    const op = tx.operations[0] as unknown as {
+      path: { isNative: () => boolean }[];
+    };
+
+    expect(op.path).toHaveLength(1);
+    expect(op.path[0].isNative()).toBe(true);
+  });
+});

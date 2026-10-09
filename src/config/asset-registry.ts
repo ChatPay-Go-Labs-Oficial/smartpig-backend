@@ -311,3 +311,15 @@ export function requireContractId(asset: AssetDefinition): string {
   }
   return asset.contractId;
 }
+
+/**
+ * The asset as Horizon's `/paths` query expects it.
+ *
+ * Deliberately not {@link assetIdOf}: that returns `XLM` for the native asset,
+ * matching how `getWalletBalances` reports a balance, while the path finder wants
+ * the literal `native`. Reusing the first for the second silently returns no
+ * route at all.
+ */
+export function horizonPathAssetParam(asset: AssetDefinition): string {
+  return asset.kind === 'NATIVE' ? 'native' : `${asset.code}:${asset.issuer}`;
+}

@@ -757,6 +757,75 @@ model Gift {
 }
 
 // ─────────────────────────────────────────────
+// Asset conversion (swap before deposit)
+// ─────────────────────────────────────────────
+
+enum ConversionStatus {
+  CREATED
+  XDR_GENERATED
+  SIGNED_XDR_RECEIVED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  EXPIRED
+}
+
+/// A classic path payment that turns the funding asset into a vault's asset.
+///
+/// Exists because the ramp delivers USDC while the EURC and XLM vaults want their
+/// own asset, and because the two cannot share a transaction: a path payment is a
+/// classic operation and a DeFindex deposit is Soroban, which admits exactly one
+/// operation per transaction.
+///
+/// `depositIntentId` stays null until the deposit it was meant for is created. A
+/// row left CONFIRMED with no deposit is the recovery record: the user holds the
+/// converted asset and still owes the deposit, which `plannedDeposit` describes.
+model AssetConversion {
+  id             String @id @default(cuid())
+  idempotencyKey String @unique
+
+  userId          String
+  walletAccountId String
+
+  /// Set once the deposit this conversion funded exists.
+  depositIntentId String? @unique
+  /// What the conversion was for, so an unconsumed one is resumable.
+  plannedDeposit  Json?
+
+  sourceAssetId String
+  targetAssetId String
+  sourceSymbol  String
+  targetSymbol  String
+
+  /// Whole units. `destMin` is the slippage floor the operation enforces: below
+  /// it the payment fails atomically and nothing moves.
+  sendAmount       Decimal  @db.Decimal(30, 8)
+  quotedDestAmount Decimal  @db.Decimal(30, 8)
+  destMin          Decimal  @db.Decimal(30, 8)
+  slippageBps      Int
+  /// Read from the transaction result, never from the quote.
+  receivedAmount   Decimal? @db.Decimal(30, 8)
+
+  /// The intermediate assets of the route, as Horizon reported them.
+  path Json
+
+  status       ConversionStatus @default(CREATED)
+  unsignedXdr  String?          @db.Text
+  signedXdr    String?          @db.Text
+  txHash       String?          @unique
+  failureCode  String?
+  errorMessage String?
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("asset_conversions")
+}
+
+// ─────────────────────────────────────────────
 // App Version Config — force update / update banner
 // ─────────────────────────────────────────────
 
