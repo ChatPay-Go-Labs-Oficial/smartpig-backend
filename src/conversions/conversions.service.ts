@@ -324,6 +324,82 @@ export class ConversionsService {
     });
   }
 
+  /**
+   * A confirmed conversion that is still owed its deposit.
+   *
+   * Every rejection here is a different situation the caller must not confuse:
+   * not confirmed yet, already consumed, or no planned vault to deposit into. A
+   * conversion whose received amount could not be read is also refused — sizing a
+   * deposit from the quote would claim an amount the user may not hold.
+   */
+  async getConsumable(
+    id: string,
+    userId: string,
+  ): Promise<{
+    id: string;
+    vaultId: string;
+    targetSymbol: string;
+    receivedAmount: Decimal;
+  }> {
+    const conversion = await this.prisma.assetConversion.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        targetSymbol: true,
+        receivedAmount: true,
+        depositIntentId: true,
+        plannedDeposit: true,
+      },
+    });
+
+    if (!conversion || conversion.userId !== userId) {
+      throw new NotFoundException(`Conversion ${id} not found`);
+    }
+
+    if (conversion.status !== ConversionStatus.CONFIRMED) {
+      throw new ConflictException({
+        message: `Conversion ${id} is ${conversion.status}, not confirmed`,
+        code: 'CONVERSION_NOT_CONFIRMED',
+        details: { conversionId: id, status: conversion.status },
+      });
+    }
+
+    if (conversion.depositIntentId) {
+      throw new ConflictException({
+        message: `Conversion ${id} was already deposited`,
+        code: 'CONVERSION_ALREADY_CONSUMED',
+        details: {
+          conversionId: id,
+          depositIntentId: conversion.depositIntentId,
+        },
+      });
+    }
+
+    const planned = conversion.plannedDeposit as { vaultId?: string } | null;
+    if (!planned?.vaultId) {
+      throw new BadRequestException(
+        `Conversion ${id} has no planned deposit to complete`,
+      );
+    }
+
+    if (!conversion.receivedAmount) {
+      throw new ConflictException({
+        message: `The amount received by conversion ${id} is unknown; it cannot size a deposit`,
+        code: 'CONVERSION_AMOUNT_UNKNOWN',
+        details: { conversionId: id },
+      });
+    }
+
+    return {
+      id: conversion.id,
+      vaultId: planned.vaultId,
+      targetSymbol: conversion.targetSymbol,
+      receivedAmount: conversion.receivedAmount,
+    };
+  }
+
   /** Links a conversion to the deposit it funded, so it stops being pending. */
   async attachDeposit(conversionId: string, depositIntentId: string) {
     await this.prisma.assetConversion.update({

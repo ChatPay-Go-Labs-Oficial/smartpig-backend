@@ -11,6 +11,10 @@ import { IsNotEmpty, IsString } from 'class-validator';
 import { DepositsService } from './deposits.service';
 import { CreateDepositDto } from './dto/create-deposit.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
+import { CreateDepositFromConversionDto } from './dto/from-conversion.dto';
 
 class ListDepositsQuery {
   @ApiProperty({ description: 'The ID of the user whose deposits to list' })
@@ -22,7 +26,11 @@ class ListDepositsQuery {
 @ApiTags('Deposits')
 @Controller('deposits')
 export class DepositsController {
-  constructor(private readonly depositsService: DepositsService) {}
+  constructor(
+    private readonly depositsService: DepositsService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * POST /deposits
@@ -73,6 +81,37 @@ export class DepositsController {
    * POST /deposits/:id/signed-xdr
    * Submit the signed XDR back to the backend for broadcast to Stellar.
    */
+  @Post('from-conversion')
+  @ApiOperation({
+    summary: 'Create the deposit a confirmed conversion was for',
+    description:
+      'Sized by what the conversion actually yielded, floored to the asset ' +
+      'precision — a market operation rarely returns its quote. Only callable ' +
+      'once the conversion confirms, because DeFindex simulates the account ' +
+      'state when it builds the deposit XDR.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Deposit intent with the XDR to sign.',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'The conversion is not confirmed, was already deposited, or its received ' +
+      'amount is unknown.',
+  })
+  async createFromConversion(
+    @Body() dto: CreateDepositFromConversionDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(user.id);
+    const userId = await this.accountOwner.resolveUserId(
+      verifiedStellarAddresses,
+    );
+    return this.depositsService.createDepositFromConversion(userId, dto);
+  }
+
   @Post(':id/signed-xdr')
   @ApiOperation({
     summary: 'Submit signed transaction',

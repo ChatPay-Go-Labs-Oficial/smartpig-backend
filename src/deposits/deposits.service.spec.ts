@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DepositsService } from './deposits.service';
+import { Decimal } from '@prisma/client/runtime/library';
 import { DisclosureNotAcknowledgedError } from '../vault-registry/vault-registry.errors';
 
 const VAULT = {
@@ -68,14 +69,36 @@ function createService(options: Options = {}) {
       : jest.fn().mockResolvedValue(undefined),
   };
 
+  const conversions = {
+    createConversion: jest.fn().mockResolvedValue({
+      id: 'conv-1',
+      unsignedXdr: 'AAAAconvert',
+      sendAmount: '10.0000000',
+      quotedDestAmount: '8.9852725',
+      destMin: '8.9403461',
+      sourceSymbol: 'USDC',
+      targetSymbol: 'EURC',
+    }),
+    getConsumable: jest.fn(),
+    attachDeposit: jest.fn().mockResolvedValue(undefined),
+  };
+
   const service = new DepositsService(
     prisma as unknown as never,
     orchestrator as unknown as never,
     registry as unknown as never,
     disclosureGuard as unknown as never,
+    conversions as unknown as never,
   );
 
-  return { service, prisma, orchestrator, registry, disclosureGuard };
+  return {
+    service,
+    prisma,
+    orchestrator,
+    registry,
+    disclosureGuard,
+    conversions,
+  };
 }
 
 describe('DepositsService.createDeposit', () => {
@@ -126,7 +149,9 @@ describe('DepositsService.createDeposit', () => {
     it('proceeds once the disclosure has been acknowledged', async () => {
       const { service, prisma, orchestrator } = createService();
 
-      const result = await service.createDeposit(DTO);
+      const result = (await service.createDeposit(DTO)) as {
+        unsignedXdr: string | null;
+      };
 
       expect(prisma.depositIntent.create).toHaveBeenCalled();
       expect(orchestrator.buildDepositXdr).toHaveBeenCalledWith('intent-1');
@@ -401,6 +426,198 @@ describe('DepositsService.createDeposit', () => {
         { data: { failureCode: string } },
       ];
       expect(args.data.failureCode).toBe('XDR_GENERATION_FAILED');
+    });
+  });
+
+  describe('autoConvert turns an asset mismatch into a plan', () => {
+    it('still rejects flatly without autoConvert, so old clients are unchanged', async () => {
+      const { service, conversions } = createService();
+
+      await expect(
+        service.createDeposit({ ...DTO, assetSymbol: 'USDC' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(conversions.createConversion).not.toHaveBeenCalled();
+    });
+
+    it('returns the steps, with the deposit deferred', async () => {
+      const { service } = createService();
+
+      const result = (await service.createDeposit({
+        ...DTO,
+        assetSymbol: 'USDC',
+        autoConvert: true,
+      })) as {
+        plan: {
+          steps: { type: string; deferred?: boolean; id: string | null }[];
+        };
+      };
+
+      expect(result.plan.steps.map((s) => s.type)).toEqual([
+        'CONVERT',
+        'DEPOSIT',
+      ]);
+      // The deposit cannot exist yet: DeFindex simulates the account state when
+      // it builds that XDR, and the converted asset has not arrived.
+      expect(result.plan.steps[1]).toMatchObject({ id: null, deferred: true });
+    });
+
+    it('persists no deposit intent, because the amount is still a quote', async () => {
+      const { service, prisma, orchestrator } = createService();
+
+      await service.createDeposit({
+        ...DTO,
+        assetSymbol: 'USDC',
+        autoConvert: true,
+      });
+
+      expect(prisma.depositIntent.create).not.toHaveBeenCalled();
+      expect(orchestrator.buildDepositXdr).not.toHaveBeenCalled();
+    });
+
+    it('converts into the vault asset and records what it is for', async () => {
+      const { service, conversions } = createService();
+
+      await service.createDeposit({
+        ...DTO,
+        assetSymbol: 'USDC',
+        autoConvert: true,
+      });
+
+      expect(conversions.createConversion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toSymbol: 'EURC',
+          amount: '2',
+          plannedDeposit: { vaultId: 'vault-1', assetSymbol: 'EURC' },
+        }),
+      );
+    });
+
+    it('derives the conversion key from the deposit key, so a retry reuses it', async () => {
+      // Otherwise retrying the same deposit opens a second conversion and the
+      // user is asked to swap twice.
+      const { service, conversions } = createService();
+
+      await service.createDeposit({
+        ...DTO,
+        assetSymbol: 'USDC',
+        autoConvert: true,
+      });
+
+      const [args] = conversions.createConversion.mock.calls[0] as [
+        { idempotencyKey: string },
+      ];
+      expect(args.idempotencyKey).toBe(`conv:${DTO.idempotencyKey}`);
+    });
+
+    it('checks the disclosure before planning anything', async () => {
+      const { service, conversions } = createService({
+        disclosureThrows: new DisclosureNotAcknowledgedError('vault-1', 1, []),
+      });
+
+      await expect(
+        service.createDeposit({
+          ...DTO,
+          assetSymbol: 'USDC',
+          autoConvert: true,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(conversions.createConversion).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createDepositFromConversion', () => {
+    const FROM = {
+      conversionId: 'conv-1',
+      idempotencyKey: 'dep-from-conv',
+      walletAccountId: 'wallet-1',
+    };
+
+    function consumable(received = '8.97123456789') {
+      return {
+        id: 'conv-1',
+        vaultId: 'vault-1',
+        targetSymbol: 'EURC',
+        receivedAmount: new Decimal(received),
+      };
+    }
+
+    it('sizes the deposit by what arrived, not by the quote', async () => {
+      const { service, prisma, conversions } = createService();
+      conversions.getConsumable.mockResolvedValue(consumable('8.9712345'));
+
+      await service.createDepositFromConversion('user-1', FROM);
+
+      const [{ data }] = prisma.depositIntent.create.mock.calls[0] as [
+        { data: { amount: Decimal; assetSymbol: string } },
+      ];
+      expect(data.amount.toString()).toBe('8.9712345');
+      expect(data.assetSymbol).toBe('EURC');
+    });
+
+    it('floors to the asset precision rather than rounding up', async () => {
+      // Rounding up would claim more than the user holds and fail on chain.
+      const { service, prisma, conversions } = createService();
+      conversions.getConsumable.mockResolvedValue(consumable('8.99999999'));
+
+      await service.createDepositFromConversion('user-1', FROM);
+
+      const [{ data }] = prisma.depositIntent.create.mock.calls[0] as [
+        { data: { amount: Decimal } },
+      ];
+      expect(data.amount.toString()).toBe('8.9999999');
+    });
+
+    it('links the conversion before generating the XDR', async () => {
+      // If the XDR fails, the conversion is still consumed — otherwise the same
+      // leftover balance would be offered to the user twice.
+      const { service, conversions, orchestrator } = createService();
+      conversions.getConsumable.mockResolvedValue(consumable());
+      orchestrator.buildDepositXdr.mockRejectedValue(
+        new Error('defindex down'),
+      );
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).rejects.toThrow('defindex down');
+
+      expect(conversions.attachDeposit).toHaveBeenCalledWith(
+        'conv-1',
+        'intent-1',
+      );
+    });
+
+    it('still enforces the disclosure', async () => {
+      const { service, conversions, prisma } = createService({
+        disclosureThrows: new DisclosureNotAcknowledgedError('vault-1', 1, []),
+      });
+      conversions.getConsumable.mockResolvedValue(consumable());
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.depositIntent.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a conversion that yielded nothing', async () => {
+      const { service, prisma, conversions } = createService();
+      conversions.getConsumable.mockResolvedValue(consumable('0'));
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).rejects.toThrow(/yielded nothing to deposit/);
+      expect(prisma.depositIntent.create).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent on the deposit key', async () => {
+      const existing = { id: 'intent-existing', unsignedXdr: 'AAAAold' };
+      const { service, conversions } = createService({
+        existingIntent: existing,
+      });
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).resolves.toBe(existing);
+      expect(conversions.getConsumable).not.toHaveBeenCalled();
     });
   });
 });

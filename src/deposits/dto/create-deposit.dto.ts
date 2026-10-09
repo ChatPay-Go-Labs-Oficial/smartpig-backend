@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDecimal, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsDecimal,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateDepositDto {
   @ApiProperty({
@@ -56,4 +63,16 @@ export class CreateDepositDto {
   @IsString()
   @IsNotEmpty()
   assetSymbol: string;
+
+  @ApiProperty({
+    description:
+      'When the asset does not match the vault, returns a step plan that ' +
+      'converts first instead of rejecting. The ramp delivers USDC while the ' +
+      'EURC and XLM vaults want their own asset.',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoConvert?: boolean;
 }
