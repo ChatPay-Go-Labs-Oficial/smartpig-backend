@@ -482,7 +482,13 @@ describe('EligibilityService', () => {
       expect(codes(result.blockers)).toContain('WALLET_ASSET_BALANCE');
     });
 
-    it('ignores TESOURO entirely when the asset is not configured', async () => {
+    it('blocks on an asset the configuration never mentioned', async () => {
+      // The reverse of what this asserted before, because the old behaviour lost
+      // money: any balance that was not USDC or TESOURO was skipped, so the
+      // account was reported deletable and the closure — which sweeps whatever it
+      // finds on chain — moved that balance to the Treasury with no blocker and no
+      // warning. A false positive costs the user a withdrawal; the old behaviour
+      // cost them the balance.
       const { service } = createService({
         tesouroConfigured: false,
         walletBalances: [{ asset: TESOURO, balance: '3.0000000' }],
@@ -490,8 +496,53 @@ describe('EligibilityService', () => {
 
       const result = await service.check(USER);
 
+      expect(result.eligible).toBe(false);
+      expect(codes(result.blockers)).toContain('WALLET_ASSET_BALANCE');
+    });
+
+    it('blocks on EURC, which the new vault puts in the wallet', async () => {
+      const { service } = createService({
+        walletBalances: [
+          {
+            asset:
+              'EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
+            balance: '2.5000000',
+          },
+        ],
+      });
+
+      const result = await service.check(USER);
+
+      expect(result.eligible).toBe(false);
+      const blocker = result.blockers.find(
+        (b) => b.code === 'WALLET_ASSET_BALANCE',
+      );
+      // The app writes the sentence from the code and the params; EURC has to be
+      // named or the user cannot tell what to withdraw.
+      expect(blocker?.params?.assetCode).toBe('EURC');
+    });
+
+    it('still reports a dust balance of any asset as a residual, not a blocker', async () => {
+      const { service } = createService({
+        walletBalances: [
+          {
+            asset:
+              'EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
+            balance: '0.0000100',
+          },
+        ],
+      });
+
+      const result = await service.check(USER);
+
       expect(result.eligible).toBe(true);
-      expect(result.residuals.walletAssets).toEqual([]);
+      expect(result.residuals.walletAssets).toEqual([
+        {
+          assetId:
+            'EURC:GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
+          amount: '0.00001',
+        },
+      ]);
     });
 
     it('never evaluates XLM, which is sponsored reserve and not the user money', async () => {

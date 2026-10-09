@@ -398,7 +398,6 @@ export class EligibilityService {
       wallet.stellarAddress,
     );
     const usdcAssetId = this.stellar.getUsdcAssetId();
-    const tesouroAssetId = this.stellar.getTesouroAssetId();
 
     const blockers: Blocker[] = [];
     const assetResiduals: WalletAssetResidual[] = [];
@@ -406,11 +405,19 @@ export class EligibilityService {
     let sweptTotal = new Decimal(0);
 
     for (const entry of balances) {
-      const isUsdc = entry.asset === usdcAssetId;
-      const isTesouro =
-        tesouroAssetId !== null && entry.asset === tesouroAssetId;
-      if (!isUsdc && !isTesouro) continue;
+      // Every non-native balance is evaluated, not just USDC and TESOURO.
+      //
+      // The old pair of checks skipped everything else, which meant a wallet
+      // holding EURC was reported as deletable and the closure — which sweeps
+      // whatever it finds — moved that balance to the Treasury with no blocker and
+      // no warning. Losing a user's money silently is worse than any false
+      // positive this can produce.
+      //
+      // XLM stays out on purpose: the native balance leaves with the AccountMerge
+      // and is reported under the residuals, never as a blocker.
+      if (entry.asset === 'XLM') continue;
 
+      const isUsdc = entry.asset === usdcAssetId;
       const amount = new Decimal(entry.balance);
 
       if (amount.gt(this.dustUsd)) {
