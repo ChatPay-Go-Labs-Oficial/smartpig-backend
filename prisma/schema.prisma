@@ -171,9 +171,47 @@ model WalletAccount {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   depositIntents    DepositIntent[]
   withdrawalIntents WithdrawalIntent[]
+  trustlines        WalletTrustline[]
 
   @@index([userId])
   @@map("wallet_accounts")
+}
+
+enum TrustlineStatus {
+  PENDING_SIGNATURE
+  ACTIVE
+  FAILED
+}
+
+/// A non-funding asset trustline opened on demand.
+///
+/// Horizon stays the source of truth — `StellarService.hasTrustline` reads it
+/// there. This table is a cache and an audit trail: it records which XDR we issued
+/// and whether it landed, so a half-finished flow is recoverable and so the
+/// deposit path can skip a Horizon round trip on the common case.
+///
+/// Separate from `WalletAccount.isActivated`, which keeps meaning "has the
+/// trustlines onboarding creates". Widening that flag would report every existing
+/// user as needing activation again.
+model WalletTrustline {
+  id              String          @id @default(cuid())
+  walletAccountId String
+  /// `EURC:GDHU…` — the same form `getWalletBalances` reports.
+  assetId         String
+  assetSymbol     String
+  status          TrustlineStatus @default(PENDING_SIGNATURE)
+  unsignedXdr     String?         @db.Text
+  expiresAt       DateTime?
+  txHash          String?
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([walletAccountId, assetId])
+  @@index([walletAccountId])
+  @@map("wallet_trustlines")
 }
 
 // ─────────────────────────────────────────────
@@ -764,6 +802,9 @@ model AccountDeletionRequest {
   /// Dust actually swept to the treasury, for accounting reconciliation.
   sweptAmount        Decimal?              @db.Decimal(30, 8)
   sweptAssetSymbol   String?
+  /// Every asset swept, since the two scalars above can only describe one and a
+  /// closure now sweeps whatever trustlines the account holds.
+  sweptAssets        Json?
   /// The three acknowledgements, with timestamps. Proof of informed consent.
   acknowledgements   Json
   blindpayDeletedAt  DateTime?
