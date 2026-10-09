@@ -4,11 +4,13 @@ export interface DiscoveredVaultDto {
   address: string;
   apy: number | null;
   /** null when the on-chain simulation for this vault failed */
-  totalManagedFunds: {
-    /** Asset contract address (not a human-readable symbol) */
-    asset: string;
-    total_amount: string;
-  }[] | null;
+  totalManagedFunds:
+    | {
+        /** Asset contract address (not a human-readable symbol) */
+        asset: string;
+        total_amount: string;
+      }[]
+    | null;
 }
 
 export interface DiscoverVaultsResponseDto {

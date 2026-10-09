@@ -12,6 +12,11 @@ import { DefindexOrchestrator } from '../defindex/defindex.orchestrator';
 import { CreateDepositDto } from './dto/create-deposit.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
 import { toAssetUnits } from '../defindex/asset-amount';
+import { classifyFailure } from '../defindex/failure-classifier';
+import {
+  normalizeTransactionState,
+  type FailureCode,
+} from '../defindex/transaction-state';
 import { VaultRegistryService } from '../vault-registry/vault-registry.service';
 import { DisclosureGuardService } from '../vault-registry/disclosure.guard.service';
 
@@ -27,6 +32,8 @@ const intentSelect = {
   amount: true,
   assetSymbol: true,
   status: true,
+  failureCode: true,
+  errorMessage: true,
   expiresAt: true,
   createdAt: true,
   updatedAt: true,
@@ -112,6 +119,9 @@ export class DepositsService {
         data: {
           status: IntentStatus.FAILED,
           errorMessage: (err as Error).message,
+          // Where it failed is the context the message lacks: a throw here is
+          // always about building the XDR, whatever the upstream text says.
+          failureCode: classifyFailure(err, 'XDR_GENERATION_FAILED'),
         },
       });
       throw err;
@@ -142,13 +152,49 @@ export class DepositsService {
       throw new BadRequestException(`Deposit intent ${id} has expired`);
     }
 
-    const { txHash } = await this.orchestrator.submitDeposit(id, dto.signedXdr);
-    this.logger.log(`Deposit ${id} submitted to chain → txHash=${txHash}`);
-    return { id, txHash, status: IntentStatus.SUBMITTED };
+    // The orchestrator reports what it actually wrote. This used to return a
+    // hardcoded SUBMITTED even when the row had already reached CONFIRMED, which
+    // left the client unable to distinguish "on chain" from "done".
+    const { txHash, status } = await this.orchestrator.submitDeposit(
+      id,
+      dto.signedXdr,
+    );
+    this.logger.log(
+      `Deposit ${id} submitted to chain → txHash=${txHash} status=${status}`,
+    );
+    return { id, txHash, status };
   }
 
+  /**
+   * The intent plus the client-facing state.
+   *
+   * `state` is the projection the app renders; the raw `status` stays for
+   * backwards compatibility with the published build, which reads it. `txHash`
+   * comes from the transaction record — without it a failed deposit gives
+   * support nothing to look up.
+   */
   async getDeposit(id: string) {
-    return this.findIntentOrThrow(id);
+    const intent = await this.prisma.depositIntent.findUnique({
+      where: { id },
+      select: {
+        ...intentSelect,
+        transaction: { select: { status: true, txHash: true } },
+      },
+    });
+    if (!intent) throw new NotFoundException(`Deposit intent ${id} not found`);
+
+    const { transaction, ...rest } = intent;
+    return {
+      ...rest,
+      txHash: transaction?.txHash ?? null,
+      state: normalizeTransactionState({
+        status: rest.status,
+        expiresAt: rest.expiresAt,
+        failureCode: rest.failureCode,
+        txConfirmed: transaction?.status === 'CONFIRMED',
+      }),
+      failureCode: (rest.failureCode ?? null) as FailureCode | null,
+    };
   }
 
   async listDeposits(userId: string) {
@@ -156,18 +202,32 @@ export class DepositsService {
       where: { userId },
       select: {
         ...intentSelect,
-        transaction: { select: { status: true } },
+        transaction: { select: { status: true, txHash: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return deposits.map(({ transaction, ...deposit }) => ({
-      ...deposit,
-      status:
+    return deposits.map(({ transaction, ...deposit }) => {
+      const status =
         transaction?.status === 'CONFIRMED'
           ? IntentStatus.CONFIRMED
-          : deposit.status,
-    }));
+          : deposit.status;
+
+      return {
+        ...deposit,
+        status,
+        txHash: transaction?.txHash ?? null,
+        // Same projection as the detail route, so history and detail can never
+        // disagree about what the user is looking at.
+        state: normalizeTransactionState({
+          status,
+          expiresAt: deposit.expiresAt,
+          failureCode: deposit.failureCode,
+          txConfirmed: transaction?.status === 'CONFIRMED',
+        }),
+        failureCode: (deposit.failureCode ?? null) as FailureCode | null,
+      };
+    });
   }
 
   private async findIntentOrThrow(id: string) {

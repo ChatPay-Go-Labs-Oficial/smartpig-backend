@@ -43,6 +43,7 @@ function createService(options: Options = {}) {
   const prisma = {
     depositIntent: {
       findUnique: jest.fn().mockResolvedValue(existingIntent),
+      findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'intent-1', ...DTO }),
       update: jest.fn().mockResolvedValue({}),
     },
@@ -244,6 +245,162 @@ describe('DepositsService.createDeposit', () => {
       expect(args.where).toEqual({ id: 'intent-1' });
       expect(args.data.status).toBe('FAILED');
       expect(args.data.errorMessage).toBe('defindex down');
+    });
+  });
+
+  describe('what the client is told', () => {
+    const FUTURE = new Date(Date.now() + 86_400_000);
+    const PAST = new Date(Date.now() - 86_400_000);
+
+    function intentRow(over: Record<string, unknown> = {}) {
+      return {
+        id: 'intent-1',
+        status: 'XDR_GENERATED',
+        failureCode: null,
+        errorMessage: null,
+        expiresAt: FUTURE,
+        transaction: null,
+        ...over,
+      };
+    }
+
+    it('projects a normalized state, not just the raw status', async () => {
+      const { service, prisma } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue(intentRow());
+
+      const result = await service.getDeposit('intent-1');
+
+      // The raw status stays for the published build; `state` is what new screens
+      // render.
+      expect(result.status).toBe('XDR_GENERATED');
+      expect(result.state).toBe('PENDING_SIGNATURE');
+    });
+
+    it('exposes the txHash, so a failure is traceable', async () => {
+      const { service, prisma } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue(
+        intentRow({
+          status: 'SUBMITTED',
+          transaction: { status: 'PENDING', txHash: 'abc123' },
+        }),
+      );
+
+      const result = await service.getDeposit('intent-1');
+
+      expect(result.txHash).toBe('abc123');
+      expect(result.state).toBe('PENDING');
+    });
+
+    it('reports SUCCESS when the transaction confirmed before the intent caught up', async () => {
+      const { service, prisma } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue(
+        intentRow({
+          status: 'SUBMITTED',
+          transaction: { status: 'CONFIRMED', txHash: 'abc123' },
+        }),
+      );
+
+      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+        state: 'SUCCESS',
+      });
+    });
+
+    it('reports EXPIRED for an intent never signed in time', async () => {
+      const { service, prisma } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue(
+        intentRow({ expiresAt: PAST }),
+      );
+
+      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+        state: 'EXPIRED',
+      });
+    });
+
+    it('separates a user-fixable failure from one needing support', async () => {
+      const { service, prisma } = createService();
+
+      prisma.depositIntent.findUnique.mockResolvedValue(
+        intentRow({ status: 'FAILED', failureCode: 'NO_TRUSTLINE' }),
+      );
+      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+        state: 'REJECTED',
+        failureCode: 'NO_TRUSTLINE',
+      });
+
+      prisma.depositIntent.findUnique.mockResolvedValue(
+        intentRow({
+          status: 'FAILED',
+          failureCode: 'UPSTREAM_UNAVAILABLE',
+        }),
+      );
+      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+        state: 'FAILED',
+      });
+    });
+
+    it('404s an unknown intent', async () => {
+      const { service, prisma } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue(null);
+
+      await expect(service.getDeposit('nope')).rejects.toThrow(/not found/);
+    });
+  });
+
+  describe('submitSignedXdr returns what was actually written', () => {
+    it('reports CONFIRMED rather than a hardcoded SUBMITTED', async () => {
+      // The old code always answered SUBMITTED, so the client could not tell
+      // "on chain" from "done" and the modal guessed.
+      const { service, prisma, orchestrator } = createService();
+      prisma.depositIntent.findUnique.mockResolvedValue({
+        id: 'intent-1',
+        status: 'XDR_GENERATED',
+        failureCode: null,
+        errorMessage: null,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      });
+      (
+        orchestrator as unknown as {
+          submitDeposit: jest.Mock;
+        }
+      ).submitDeposit = jest
+        .fn()
+        .mockResolvedValue({ txHash: 'tx-1', status: 'CONFIRMED' });
+
+      await expect(
+        service.submitSignedXdr('intent-1', { signedXdr: 'signed' }),
+      ).resolves.toEqual({
+        id: 'intent-1',
+        txHash: 'tx-1',
+        status: 'CONFIRMED',
+      });
+    });
+  });
+
+  describe('a failed XDR generation records why', () => {
+    it('classifies the cause instead of only storing the message', async () => {
+      const { service, prisma, orchestrator } = createService();
+      orchestrator.buildDepositXdr.mockRejectedValue(new Error('ETIMEDOUT'));
+
+      await expect(service.createDeposit(DTO)).rejects.toThrow('ETIMEDOUT');
+
+      const [args] = prisma.depositIntent.update.mock.calls[0] as [
+        { data: { failureCode: string; status: string } },
+      ];
+      expect(args.data.status).toBe('FAILED');
+      // A timeout is upstream, not a chain rejection.
+      expect(args.data.failureCode).toBe('UPSTREAM_UNAVAILABLE');
+    });
+
+    it('falls back to XDR_GENERATION_FAILED when the text says nothing', async () => {
+      const { service, prisma, orchestrator } = createService();
+      orchestrator.buildDepositXdr.mockRejectedValue(new Error('weird'));
+
+      await expect(service.createDeposit(DTO)).rejects.toThrow('weird');
+
+      const [args] = prisma.depositIntent.update.mock.calls[0] as [
+        { data: { failureCode: string } },
+      ];
+      expect(args.data.failureCode).toBe('XDR_GENERATION_FAILED');
     });
   });
 });
