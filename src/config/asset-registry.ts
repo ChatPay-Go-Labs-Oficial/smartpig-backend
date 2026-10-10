@@ -58,6 +58,16 @@ export interface AssetDefinition {
   isFundingAsset: boolean;
 }
 
+/**
+ * Reflector's external CEX/DEX oracle on mainnet.
+ *
+ * Verified on 2026-10-09: it quotes XLM, EURC and USDC against a USD base with 14
+ * decimals and a 300-second resolution, which covers every asset here. Reflector's
+ * separate FX oracle serves fiat pairs and is not needed.
+ */
+const REFLECTOR_CEX_ORACLE =
+  'CAFJZQWSED6YAWZU3GWRTOCNPPCGBN32L7QV43XX5LZLFTK6JLN34DLN';
+
 /** Mainnet. Issuers and SACs verified against chain on 2026-10-09. */
 const MAINNET: AssetDefinition[] = [
   {
@@ -73,7 +83,7 @@ const MAINNET: AssetDefinition[] = [
     liteName: 'dólar',
     liteDecimals: 2,
     proDecimals: 7,
-    reflectorFeed: null,
+    reflectorFeed: { contractId: REFLECTOR_CEX_ORACLE, asset: 'USDC' },
     maxSlippageBps: 50,
     isFundingAsset: true,
   },
@@ -90,7 +100,7 @@ const MAINNET: AssetDefinition[] = [
     liteName: 'euro',
     liteDecimals: 2,
     proDecimals: 7,
-    reflectorFeed: null,
+    reflectorFeed: { contractId: REFLECTOR_CEX_ORACLE, asset: 'EURC' },
     maxSlippageBps: 50,
     isFundingAsset: false,
   },
@@ -110,7 +120,7 @@ const MAINNET: AssetDefinition[] = [
     liteName: 'XLM',
     liteDecimals: 2,
     proDecimals: 7,
-    reflectorFeed: null,
+    reflectorFeed: { contractId: REFLECTOR_CEX_ORACLE, asset: 'XLM' },
     // Wider than the stablecoins: XLM moves, so a tight ceiling would just make
     // conversions fail.
     maxSlippageBps: 100,

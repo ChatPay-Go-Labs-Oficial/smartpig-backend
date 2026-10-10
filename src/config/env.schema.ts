@@ -75,6 +75,18 @@ export const envSchema = Joi.object({
   /// Railway without a deploy. Validated at boot; malformed config stops startup.
   STELLAR_ASSETS_JSON: Joi.string().allow('').optional(),
 
+  /// Soroban RPC, required to read the Reflector oracle. Without it pricing falls
+  /// back to STATIC, so the mode always describes what will actually happen.
+  STELLAR_SOROBAN_RPC_URL: Joi.string().uri().optional(),
+  /// `REFLECTOR` reads the oracle. `STATIC` uses PRICING_STATIC_USD, which is an
+  /// explicit escape hatch rather than a silent fallback: a configured constant
+  /// presented as a market price is worse than no price.
+  PRICING_MODE: Joi.string().valid('REFLECTOR', 'STATIC').default('REFLECTOR'),
+  /// `USDC=1,EURC=1.12,XLM=0.19`
+  PRICING_STATIC_USD: Joi.string().allow('').default(''),
+  /// Any funded account; a simulation never charges or signs it.
+  REFLECTOR_SIMULATION_SOURCE: Joi.string().optional(),
+
   /// `DEX` uses a classic path payment against the Stellar order book. `DISABLED`
   /// leaves a vault listed and withdrawable with deposits paused, which is the
   /// honest degradation when a pair has no usable market.

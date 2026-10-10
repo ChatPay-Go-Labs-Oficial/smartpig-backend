@@ -432,13 +432,33 @@ model TransactionRecord {
 // Portfolio
 // ─────────────────────────────────────────────
 
+/// A daily point of a user's position in a vault.
+///
+/// Each row is self-describing on purpose: it carries the price and where that
+/// price came from, so a historical value can be explained later instead of
+/// being an unsourced number. It is a financial record.
 model PortfolioSnapshot {
-  id            String   @id @default(cuid())
-  userId        String
+  id     String @id @default(cuid())
+  userId String
+
   vaultId       String
+  /// The underlying position in whole asset units.
+  ///
+  /// Used to hold raw share units, which nothing could interpret: the figure was
+  /// neither the asset amount nor a value, and the column had no stated scale.
   balanceAmount Decimal  @db.Decimal(30, 8)
+  /// Vault shares in whole units, kept separately from the underlying.
+  shareAmount   Decimal? @db.Decimal(30, 8)
+  /// Null when nothing could price the asset. Never a substituted guess — the
+  /// snapshot is still taken, and the absence is the honest record.
   balanceUsd    Decimal? @db.Decimal(20, 4)
-  capturedAt    DateTime @default(now())
+  /// The rate applied, so the row reproduces.
+  priceUsd      Decimal? @db.Decimal(20, 8)
+  /// `REFLECTOR` or `STATIC`. A constant must never be mistaken for a market price.
+  priceSource   String?
+  assetSymbol   String?
+
+  capturedAt DateTime @default(now())
 
   user  User         @relation(fields: [userId], references: [id])
   vault VaultCatalog @relation(fields: [vaultId], references: [id])
@@ -446,6 +466,24 @@ model PortfolioSnapshot {
   @@index([userId, capturedAt])
   @@index([vaultId, capturedAt])
   @@map("portfolio_snapshots")
+}
+
+/// The price used on a given run, recorded once rather than per position.
+///
+/// Lets a day's valuation be audited without re-reading an oracle that only
+/// serves the latest price.
+model AssetPriceSnapshot {
+  id          String   @id @default(cuid())
+  assetSymbol String
+  priceUsd    Decimal  @db.Decimal(20, 8)
+  source      String
+  /// The oracle's own timestamp, not when we read it.
+  asOf        DateTime
+  stale       Boolean  @default(false)
+  capturedAt  DateTime @default(now())
+
+  @@index([assetSymbol, capturedAt])
+  @@map("asset_price_snapshots")
 }
 
 // ─────────────────────────────────────────────
