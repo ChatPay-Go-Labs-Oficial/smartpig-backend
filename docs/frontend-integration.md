@@ -17,8 +17,9 @@ Guia para quem vai implementar o lado do app (`../pigfi`) do Deliverable 1.
 7. [Depósito com conversão](#7-depósito-com-conversão)
 8. [Trustline sob demanda](#8-trustline-sob-demanda)
 9. [Conversões pendentes](#9-conversões-pendentes)
-10. [Autenticação](#10-autenticação)
-11. [Problemas conhecidos no app](#11-problemas-conhecidos-no-app)
+10. [Portfólio em USD](#10-portfólio-em-usd)
+11. [Autenticação](#11-autenticação)
+12. [Problemas conhecidos no app](#12-problemas-conhecidos-no-app)
 
 ---
 
@@ -55,6 +56,7 @@ Rotas novas:
 | POST | `/conversions` |
 | POST | `/conversions/:id/signed-xdr` |
 | POST | `/deposits/from-conversion` |
+| GET | `/portfolio/summary` |
 
 ---
 
@@ -435,7 +437,53 @@ para desfazer o que o usuário pediu.
 
 ---
 
-## 10. Autenticação
+## 10. Portfólio em USD
+
+`GET /portfolio/summary` — substitui o app ler cada vault e somar os valores como
+se fossem a mesma moeda.
+
+```json
+{
+  "totalUsd": "2.0406",
+  "asOf": "2026-10-10T00:30:00.000Z",
+  "priceSource": "REFLECTOR",
+  "stale": false,
+  "positions": [
+    {
+      "vaultId": "cmp8dq...", "vaultName": "Cofrinho PigFy",
+      "assetSymbol": "USDC",
+      "amountAsset": "2.0391202",
+      "amountUsd": "2.0406",
+      "shares": "1.9999000"
+    }
+  ]
+}
+```
+
+Os preços vêm do oráculo Reflector, lidos do contrato de CEX/DEX que cota USDC,
+EURC e XLM contra USD.
+
+**`totalUsd` pode vir `null`.** Acontece quando alguma posição não pôde ser
+precificada, ou quando algum vault não pôde ser lido. É deliberado: um total
+parcial parece completo e **subestima** o que a pessoa tem. Quando vier `null`,
+exiba a lista por ativo em vez de um total.
+
+**`stale: true`** significa que algum preço usado está mais velho do que
+garantimos — vale indicar na tela que o valor pode estar defasado. Preço de
+`priceSource: "STATIC"` vem sempre marcado assim, porque é constante de
+configuração e não cotação de mercado.
+
+**`priceSource`** pode ser `REFLECTOR`, `STATIC`, `MIXED` ou `null`.
+
+Vault em que o usuário não tem nada é omitido de `positions`.
+
+Uma observação de desempenho: essa rota faz numa chamada o que o
+`useAllVaultBalances` faz em N, e é a maior fonte de leitura da DeFindex na tela
+inicial. Vale trocar lá.
+
+---
+
+## 11. Autenticação
 
 Três comportamentos diferentes, e a diferença importa:
 
@@ -452,7 +500,7 @@ admin.
 
 ---
 
-## 11. Problemas conhecidos no app
+## 12. Problemas conhecidos no app
 
 Levantados ao mapear a integração. Nenhum é novo, mas os vaults de EURC e XLM
 tornam todos visíveis.
@@ -492,9 +540,12 @@ colisão, mas o Lite os renderiza com cada palavra capitalizada.
 total dirige os limiares de nível do porquinho (500/1000/5000). Com USDC, EURC e
 XLM juntos o número não significa nada.
 
-O backend ainda **não** tem `GET /portfolio/summary` com valor em USD — depende do
-Reflector, que é o próximo item. Até lá, o caminho honesto é exibir por ativo em
-vez de um total consolidado.
+**Resolvido no backend:** use `GET /portfolio/summary` (seção 10) em vez de somar
+no cliente. O nível do porquinho deve rodar sobre `totalUsd`.
+
+Um cuidado: quando `totalUsd` vier `null`, não calcule um nível — mantenha o que
+já está em `lastSeenPigLevelByWallet`. Derivar nível de um total incompleto faria
+o porquinho regredir sozinho quando o oráculo estivesse fora.
 
 **Dupla normalização.** `lib/api/vaults.ts` normaliza `dfTokens` e
 `app/vault/[id].tsx` normaliza de novo. Resolve-se migrando para `sharesAsset`.
