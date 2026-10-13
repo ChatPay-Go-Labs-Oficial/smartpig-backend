@@ -94,6 +94,10 @@ export const envSchema = Joi.object({
   STELLAR_HORIZON_TIMEOUT_MS: Joi.number().integer().min(1000).default(15000),
 
   // Vaults
+  // Keep disabled during the staged rollout: the new app collects acknowledgments,
+  // while installed legacy builds can still deposit. Enable only after every active
+  // vault has a published disclosure and the compatible app is mandatory.
+  ENFORCE_VAULT_DISCLOSURE: Joi.boolean().default(false),
   // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
   // `.default('')` only applies when the key is absent. Without it, the documented
   // "empty means no allowlist" could only be expressed by deleting the variable —

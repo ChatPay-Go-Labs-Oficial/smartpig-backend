@@ -3,20 +3,42 @@ import { DisclosureGuardService } from './disclosure.guard.service';
 
 const RISKS = [{ code: 'SMART_CONTRACT' as const, severity: 'HIGH' as const }];
 
-function createGuard(result: {
-  acknowledged: boolean;
-  current: { version: number; risks: typeof RISKS } | null;
-}) {
+function createGuard(
+  result: {
+    acknowledged: boolean;
+    current: { version: number; risks: typeof RISKS } | null;
+  },
+  enforcementEnabled = true,
+) {
   const disclosures = {
     hasAcknowledgedCurrent: jest.fn().mockResolvedValue(result),
   };
+  const config = {
+    get: jest.fn().mockReturnValue(enforcementEnabled),
+  };
   return {
-    guard: new DisclosureGuardService(disclosures as unknown as never),
+    guard: new DisclosureGuardService(
+      disclosures as unknown as never,
+      config as unknown as never,
+    ),
     disclosures,
+    config,
   };
 }
 
 describe('DisclosureGuardService', () => {
+  it('does not block legacy clients while enforcement is disabled', async () => {
+    const { guard, disclosures } = createGuard(
+      { acknowledged: false, current: null },
+      false,
+    );
+
+    await expect(
+      guard.assertAcknowledged('user-1', 'vault-1'),
+    ).resolves.toBeUndefined();
+    expect(disclosures.hasAcknowledgedCurrent).not.toHaveBeenCalled();
+  });
+
   it('passes when the user accepted the current version', async () => {
     const { guard } = createGuard({
       acknowledged: true,
