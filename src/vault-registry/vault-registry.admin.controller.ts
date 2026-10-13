@@ -48,7 +48,7 @@ export class VaultRegistryAdminController {
   @ApiOperation({
     summary: 'Activate, deactivate, pause deposits, or edit vault metadata',
     description:
-      'Activating a vault requires a published disclosure. Editing display ' +
+      'Activating a non-USDC vault requires a published disclosure. Editing display ' +
       'metadata marks the row curated so the discovery job stops overwriting it.',
   })
   @ApiParam({ name: 'id', description: 'VaultCatalog id (cuid)' })
@@ -56,7 +56,7 @@ export class VaultRegistryAdminController {
   @ApiResponse({ status: 404, description: 'Vault not found.' })
   @ApiResponse({
     status: 409,
-    description: 'Activation attempted with no published disclosure.',
+    description: 'Non-USDC activation attempted with no published disclosure.',
   })
   update(@Param('id') id: string, @Body() dto: UpdateVaultRegistryDto) {
     return this.admin.update(id, dto);

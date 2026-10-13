@@ -4,7 +4,7 @@ import { VaultRegistryAdminService } from './vault-registry.admin.service';
 const VAULT_ID = 'vault-1';
 
 interface Options {
-  vault?: { id: string; isActive: boolean } | null;
+  vault?: { id: string; isActive: boolean; assetSymbol?: string } | null;
   /** The currently published disclosure, or null when there is none. */
   current?: { id: string; version: number } | null;
 }
@@ -17,10 +17,11 @@ function createService(options: Options = {}) {
 
   const updates: Record<string, unknown>[] = [];
   const updateManyCalls: Record<string, unknown>[] = [];
+  const resolvedVault = vault ? { assetSymbol: 'EURC', ...vault } : null;
 
   const prisma = {
     vaultCatalog: {
-      findUnique: jest.fn().mockResolvedValue(vault),
+      findUnique: jest.fn().mockResolvedValue(resolvedVault),
       update: jest.fn(({ data }: { data: Record<string, unknown> }) => {
         updates.push(data);
         return Promise.resolve({ id: VAULT_ID, ...data });
@@ -82,6 +83,18 @@ describe('VaultRegistryAdminService', () => {
         service.update(VAULT_ID, { isActive: true }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.vaultCatalog.update).not.toHaveBeenCalled();
+    });
+
+    it('activates the default USDC vault without a disclosure', async () => {
+      const { service, disclosures, updates } = createService({
+        vault: { id: VAULT_ID, isActive: false, assetSymbol: 'usdc' },
+        current: null,
+      });
+
+      await service.update(VAULT_ID, { isActive: true });
+
+      expect(disclosures.findCurrent).not.toHaveBeenCalled();
+      expect(updates[0]).toMatchObject({ isActive: true });
     });
 
     it('deactivates without requiring a disclosure', async () => {

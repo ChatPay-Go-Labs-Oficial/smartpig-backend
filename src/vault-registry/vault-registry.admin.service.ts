@@ -75,19 +75,22 @@ export class VaultRegistryAdminService {
   /**
    * Applies runtime changes.
    *
-   * Activating a vault requires a published disclosure. Without that check an
-   * operator could list a vault users are then blocked from depositing into at the
-   * last step — the rule is enforced here and again in `createDeposit`, so neither
-   * path can be the only gate.
+   * Activating a non-USDC vault requires a published disclosure. Without that
+   * check an operator could list a vault users are then blocked from depositing
+   * into at the last step. USDC follows the same product exemption as deposits.
    */
   async update(id: string, dto: UpdateVaultRegistryDto) {
     const existing = await this.prisma.vaultCatalog.findUnique({
       where: { id },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, assetSymbol: true },
     });
     if (!existing) throw new VaultNotFoundError(id);
 
-    if (dto.isActive === true && !existing.isActive) {
+    if (
+      dto.isActive === true &&
+      !existing.isActive &&
+      existing.assetSymbol.toUpperCase() !== 'USDC'
+    ) {
       const current = await this.disclosures.findCurrent(id);
       if (!current) throw new DisclosureMissingError(id);
     }

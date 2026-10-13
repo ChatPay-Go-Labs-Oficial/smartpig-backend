@@ -23,18 +23,26 @@ export class DisclosureGuardService {
   ) {}
 
   /**
-   * Throws unless this user has accepted the vault's current disclosure version.
+   * Throws unless this user has accepted the non-USDC vault's current disclosure.
    *
-   * Fails closed when no disclosure is published at all: a vault we cannot describe
-   * the risks of is a vault nobody should be depositing into. The admin route
-   * refuses to activate such a vault for the same reason, so this is the second of
-   * two independent checks rather than the only one.
+   * USDC is the default product vault and is exempt from explicit acknowledgment.
+   * Other assets fail closed when no disclosure is published: a vault whose risks
+   * we cannot describe is a vault nobody should be depositing into.
    */
-  async assertAcknowledged(userId: string, vaultId: string): Promise<void> {
+  async assertAcknowledged(
+    userId: string,
+    vaultId: string,
+    vaultAssetSymbol: string,
+  ): Promise<void> {
     // Rollout switch: the new app can already display and record acknowledgments,
     // while older installed builds keep depositing until adoption is sufficient.
     // Once enabled, the guard below remains fail-closed as originally designed.
     if (!this.config.get<boolean>('ENFORCE_VAULT_DISCLOSURE', false)) return;
+
+    // USDC is the product's default vault. Its deposits keep the established
+    // experience and do not require an explicit disclosure acknowledgment.
+    // The symbol comes from the server-side registry, never from client input.
+    if (vaultAssetSymbol.toUpperCase() === 'USDC') return;
 
     const { acknowledged, current } =
       await this.disclosures.hasAcknowledgedCurrent(userId, vaultId);

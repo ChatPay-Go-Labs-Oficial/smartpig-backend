@@ -68,12 +68,15 @@ export class DepositsService {
     // distinguishes a delisted vault (404) from one with deposits frozen (409).
     const vault = await this.registry.assertDepositable(dto.vaultId);
 
-    // No first deposit before the current risk disclosure is acknowledged. Checked
-    // here, before anything is persisted and before any XDR is generated, so a
-    // deposit the user is not allowed to make leaves no trace. The admin route
-    // refuses to activate a vault without a published disclosure, so this is the
-    // second of two independent gates rather than the only one.
-    await this.disclosureGuard.assertAcknowledged(dto.userId, vault.id);
+    // Non-USDC vaults require acknowledgment of their current risk disclosure.
+    // Checked here, before anything is persisted and before any XDR is generated,
+    // so a blocked deposit leaves no trace. The exemption uses the registry asset,
+    // never the asset symbol supplied by the client.
+    await this.disclosureGuard.assertAcknowledged(
+      dto.userId,
+      vault.id,
+      vault.assetSymbol,
+    );
 
     if (dto.assetSymbol.toUpperCase() !== vault.assetSymbol.toUpperCase()) {
       // Without autoConvert this stays a flat rejection, so older clients behave
@@ -326,7 +329,11 @@ export class DepositsService {
     );
 
     const vault = await this.registry.assertDepositable(conversion.vaultId);
-    await this.disclosureGuard.assertAcknowledged(userId, vault.id);
+    await this.disclosureGuard.assertAcknowledged(
+      userId,
+      vault.id,
+      vault.assetSymbol,
+    );
 
     const amount = conversion.receivedAmount.toDecimalPlaces(
       vault.assetDecimals,

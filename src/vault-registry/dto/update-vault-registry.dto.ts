@@ -20,7 +20,7 @@ import {
 export class UpdateVaultRegistryDto {
   @ApiPropertyOptional({
     description:
-      'Lists or delists the vault. Activating requires a published disclosure.',
+      'Lists or delists the vault. Non-USDC activation requires a published disclosure.',
   })
   @IsOptional()
   @IsBoolean()
