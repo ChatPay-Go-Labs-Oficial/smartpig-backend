@@ -9,7 +9,7 @@ import { VaultDisclosureController } from './vault-disclosure.controller';
 
 /**
  * The single vault registry behind every vault read, plus the versioned risk
- * disclosures and the gate that blocks a first deposit without consent.
+ * disclosures and the gate that blocks a non-USDC deposit without consent.
  *
  * Exports the services rather than wiring Prisma directly into consumers, so
  * `DepositsService`, `WithdrawalsService` and `VaultsService` all answer "which

@@ -102,7 +102,7 @@ function createService(options: Options = {}) {
 }
 
 describe('DepositsService.createDeposit', () => {
-  describe('risk disclosure must be acknowledged before the first deposit', () => {
+  describe('risk disclosure for non-USDC deposits', () => {
     it('rejects with 409 DISCLOSURE_NOT_ACKNOWLEDGED', async () => {
       const risks = [
         { code: 'SMART_CONTRACT' as const, severity: 'HIGH' as const },
@@ -172,6 +172,7 @@ describe('DepositsService.createDeposit', () => {
       expect(disclosureGuard.assertAcknowledged).toHaveBeenCalledWith(
         'user-9',
         'vault-1',
+        'EURC',
       );
     });
 

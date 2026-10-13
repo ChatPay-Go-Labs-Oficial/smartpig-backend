@@ -118,7 +118,7 @@ disclosure e registra o aceite; a flag controla apenas o bloqueio server-side.
 
 Ative `ENFORCE_VAULT_DISCLOSURE=true` somente depois de confirmar que:
 
-1. Todo vault ativo possui uma versão publicada do disclosure.
+1. Todo vault ativo que não seja USDC possui uma versão publicada do disclosure.
 2. A versão do app que permite revisar e aceitar o disclosure tornou-se obrigatória.
 3. Um depósito de smoke test concluiu o ciclo de leitura, aceite e criação do intent.
 

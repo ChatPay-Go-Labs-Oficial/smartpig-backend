@@ -139,9 +139,10 @@ do grant, e é o que a tela de detalhe deve exibir.
 
 ## 4. Disclosure de risco
 
-Antes do **primeiro depósito em cada vault**, o usuário tem que aceitar o aviso
-de risco daquele vault. Isso é exigência do grant, e é **bloqueado no servidor** —
-não dá para contornar pelo cliente.
+Antes do **primeiro depósito em cada vault não-USDC**, o usuário tem que aceitar
+o aviso de risco daquele vault. O vault USDC padrão é isento desse aceite. Para os
+demais ativos, a regra é **bloqueada no servidor** e não pode ser contornada pelo
+cliente.
 
 ### Como funciona
 

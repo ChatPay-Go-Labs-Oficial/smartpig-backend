@@ -34,7 +34,7 @@ describe('DisclosureGuardService', () => {
     );
 
     await expect(
-      guard.assertAcknowledged('user-1', 'vault-1'),
+      guard.assertAcknowledged('user-1', 'vault-1', 'EURC'),
     ).resolves.toBeUndefined();
     expect(disclosures.hasAcknowledgedCurrent).not.toHaveBeenCalled();
   });
@@ -46,7 +46,7 @@ describe('DisclosureGuardService', () => {
     });
 
     await expect(
-      guard.assertAcknowledged('user-1', 'vault-1'),
+      guard.assertAcknowledged('user-1', 'vault-1', 'EURC'),
     ).resolves.toBeUndefined();
   });
 
@@ -57,7 +57,7 @@ describe('DisclosureGuardService', () => {
     });
 
     const error = await guard
-      .assertAcknowledged('user-1', 'vault-1')
+      .assertAcknowledged('user-1', 'vault-1', 'EURC')
       .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(ConflictException);
@@ -73,12 +73,12 @@ describe('DisclosureGuardService', () => {
     });
   });
 
-  it('fails closed when no disclosure is published', async () => {
-    // A vault whose risks we cannot describe is a vault nobody should deposit into.
+  it('fails closed for non-USDC when no disclosure is published', async () => {
+    // A non-default vault whose risks we cannot describe cannot take deposits.
     const { guard } = createGuard({ acknowledged: false, current: null });
 
     const error = await guard
-      .assertAcknowledged('user-1', 'vault-1')
+      .assertAcknowledged('user-1', 'vault-1', 'EURC')
       .catch((e: unknown) => e);
 
     expect((error as ConflictException).getResponse()).toMatchObject({
@@ -92,11 +92,23 @@ describe('DisclosureGuardService', () => {
       current: { version: 1, risks: RISKS },
     });
 
-    await guard.assertAcknowledged('user-7', 'vault-9');
+    await guard.assertAcknowledged('user-7', 'vault-9', 'XLM');
 
     expect(disclosures.hasAcknowledgedCurrent).toHaveBeenCalledWith(
       'user-7',
       'vault-9',
     );
+  });
+
+  it('exempts the default USDC vault from disclosure acknowledgment', async () => {
+    const { guard, disclosures } = createGuard({
+      acknowledged: false,
+      current: null,
+    });
+
+    await expect(
+      guard.assertAcknowledged('user-1', 'vault-usdc', 'usdc'),
+    ).resolves.toBeUndefined();
+    expect(disclosures.hasAcknowledgedCurrent).not.toHaveBeenCalled();
   });
 });
