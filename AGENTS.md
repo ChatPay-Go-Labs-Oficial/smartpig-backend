@@ -1,0 +1,32 @@
+# Agent Configuration
+
+## Project Information
+
+This is a NestJS backend project with TypeScript, Prisma ORM, and Railway deployment.
+
+## Build Commands
+
+- `npm run build` - Build the project
+- `npm run lint` - Run ESLint
+- `npm run test` - Run Jest tests
+- `npm run start:dev` - Start development server with watch mode
+
+## CI Configuration
+
+- CI workflow: `.github/workflows/ci.yml` - Runs lint, test, and build on PRs
+- Branch protection: Main branch requires PR approval from code owner and passing CI checks (test, build)
+- CODEOWNERS: `.github/CODEOWNERS` - Requires @Maycon-Rodrigues approval for all changes
+- Deployment: Railway automatically deploys on push to main branch
+- Note: Lint runs but doesn't block merge (existing code has lint errors to be fixed later)
+
+## GitHub Repository
+
+- Owner: ChatPay-Go-Labs-Oficial
+- Repository: smartpig-backend
+- Main branch is protected with branch rules
+
+## Deployment
+
+- Platform: Railway
+- Config: `railway.toml`
+- Health check: `/health` path with 60s timeout

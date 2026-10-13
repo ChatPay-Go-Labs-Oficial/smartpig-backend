@@ -67,7 +67,7 @@ export class DefindexOrchestrator {
   async submitDeposit(
     intentId: string,
     signedXdr: string,
-  ): Promise<{ txHash: string }> {
+  ): Promise<{ txHash: string; status: IntentStatus }> {
     const intent = await this.prisma.depositIntent.findUniqueOrThrow({
       where: { id: intentId },
       select: { unsignedXdr: true },
@@ -117,14 +117,16 @@ export class DefindexOrchestrator {
       }),
     ]);
 
-    this.logger.log(`Deposit ${intentId} submitted → txHash=${result.txHash}`);
-    return { txHash: result.txHash };
+    this.logger.log(
+      `Deposit ${intentId} submitted → txHash=${result.txHash} status=${depositStatus}`,
+    );
+    return { txHash: result.txHash, status: depositStatus };
   }
 
   async submitWithdrawal(
     intentId: string,
     signedXdr: string,
-  ): Promise<{ txHash: string }> {
+  ): Promise<{ txHash: string; status: IntentStatus }> {
     const intent = await this.prisma.withdrawalIntent.findUniqueOrThrow({
       where: { id: intentId },
       select: { unsignedXdr: true },
@@ -179,6 +181,6 @@ export class DefindexOrchestrator {
     this.logger.log(
       `Withdrawal ${intentId} submitted → txHash=${result.txHash}`,
     );
-    return { txHash: result.txHash };
+    return { txHash: result.txHash, status: withdrawalStatus };
   }
 }

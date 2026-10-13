@@ -4,11 +4,13 @@ export interface DiscoveredVaultDto {
   address: string;
   apy: number | null;
   /** null when the on-chain simulation for this vault failed */
-  totalManagedFunds: {
-    /** Asset contract address (not a human-readable symbol) */
-    asset: string;
-    total_amount: string;
-  }[] | null;
+  totalManagedFunds:
+    | {
+        /** Asset contract address (not a human-readable symbol) */
+        asset: string;
+        total_amount: string;
+      }[]
+    | null;
 }
 
 export interface DiscoverVaultsResponseDto {
@@ -27,6 +29,20 @@ export interface StrategyDto {
   apyAllTime: number;
 }
 
+/** The four privileged addresses of a vault. */
+export interface VaultRolesDto {
+  manager: string;
+  emergencyManager: string;
+  rebalanceManager: string;
+  feeReceiver: string;
+}
+
+/** Both fees are in basis points: 1000 = 10%. */
+export interface VaultFeesDto {
+  vaultFeeBps: number;
+  defindexFeeBps: number;
+}
+
 export interface VaultInfoDto {
   defindexVaultId: string;
   name: string;
@@ -36,6 +52,16 @@ export interface VaultInfoDto {
   /** TVL of the primary asset as a raw string (stroops or token decimals), null if unavailable */
   tvl: string | null;
   apy: number;
+  /**
+   * Who can manage, pause, rebalance and collect fees.
+   *
+   * Kept rather than dropped because the deliverable requires roles recorded per
+   * vault, and because they are a real risk the disclosure declares: whoever holds
+   * these can pause a strategy or rebalance user funds.
+   */
+  roles: VaultRolesDto | null;
+  /** Also required by the configuration record, and disclosed as the FEES risk. */
+  fees: VaultFeesDto | null;
   assets: {
     address: string;
     name: string;
@@ -44,9 +70,17 @@ export interface VaultInfoDto {
   }[];
 }
 
+/**
+ * A holder's position, in raw contract units.
+ *
+ * Typed as `number | string` because the DeFindex API returns these as JSON
+ * strings (`"19999000"`), not numbers — the previous `number` type was a lie that
+ * happened to work only because nothing did arithmetic on them. Normalize through
+ * `fromAssetUnits`, which accepts either and keeps precision.
+ */
 export interface VaultBalanceDto {
-  dfTokens: number;
-  underlyingBalance: number[];
+  dfTokens: number | string;
+  underlyingBalance: (number | string)[];
 }
 
 export interface VaultApyDto {

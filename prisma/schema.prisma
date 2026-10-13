@@ -125,8 +125,9 @@ model User {
   onrampTxns         OnrampTransaction[]
   offrampTxns        OfframpTransaction[]
   etherfuseCustomer  EtherfuseCustomer?
-  giftsSent          Gift[]               @relation("giftsSent")
-  giftsReceived      Gift[]               @relation("giftsReceived")
+  giftsSent          Gift[]                          @relation("giftsSent")
+  giftsReceived      Gift[]                          @relation("giftsReceived")
+  disclosureAcks     VaultDisclosureAcknowledgment[]
 
   @@index([deletedAt])
   @@map("users")
@@ -170,9 +171,47 @@ model WalletAccount {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   depositIntents    DepositIntent[]
   withdrawalIntents WithdrawalIntent[]
+  trustlines        WalletTrustline[]
 
   @@index([userId])
   @@map("wallet_accounts")
+}
+
+enum TrustlineStatus {
+  PENDING_SIGNATURE
+  ACTIVE
+  FAILED
+}
+
+/// A non-funding asset trustline opened on demand.
+///
+/// Horizon stays the source of truth — `StellarService.hasTrustline` reads it
+/// there. This table is a cache and an audit trail: it records which XDR we issued
+/// and whether it landed, so a half-finished flow is recoverable and so the
+/// deposit path can skip a Horizon round trip on the common case.
+///
+/// Separate from `WalletAccount.isActivated`, which keeps meaning "has the
+/// trustlines onboarding creates". Widening that flag would report every existing
+/// user as needing activation again.
+model WalletTrustline {
+  id              String          @id @default(cuid())
+  walletAccountId String
+  /// `EURC:GDHU…` — the same form `getWalletBalances` reports.
+  assetId         String
+  assetSymbol     String
+  status          TrustlineStatus @default(PENDING_SIGNATURE)
+  unsignedXdr     String?         @db.Text
+  expiresAt       DateTime?
+  txHash          String?
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  walletAccount WalletAccount @relation(fields: [walletAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([walletAccountId, assetId])
+  @@index([walletAccountId])
+  @@map("wallet_trustlines")
 }
 
 // ─────────────────────────────────────────────
@@ -189,18 +228,113 @@ model VaultCatalog {
   apy             Decimal?  @db.Decimal(10, 4)
   tvl             Decimal?  @db.Decimal(30, 8)
   metadata        Json?
+  /// Admin-owned. Means "listed and usable". The discovery job must never write it,
+  /// otherwise a deactivation is undone on the next run.
   isActive        Boolean   @default(true)
   lastSyncedAt    DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  // ── Registry: admin-owned ──────────────────────────────────────────────
+  /// Selects the VaultAdapter implementation.
+  protocol            String  @default("DEFINDEX")
+  /// When true the discovery job leaves name/assetSymbol/description alone.
+  /// DeFindex reports XLM as "native" and sometimes a truncated contract id as the
+  /// symbol, so curated rows must survive a sync.
+  isCurated           Boolean @default(false)
+  /// Freezes deposits while withdrawals stay open. Separate from isActive, which
+  /// also gates createWithdrawal — a paused vault must not trap funds.
+  depositsEnabled     Boolean @default(true)
+  displayOrder        Int     @default(100)
+  isFeatured          Boolean @default(false)
+  /// The VaultConfigRecord: contract ids, strategies, roles, fees, liquidity,
+  /// oracle and protocol dependencies, and the principal risks.
+  configRecord        Json?
+  configSchemaVersion Int     @default(1)
+  /// Stellar Asset Contract id (C…) of the vault asset.
+  assetContractId     String?
+
+  // ── Registry: discovery-job-owned ──────────────────────────────────────
+  /// What DeFindex last reported, kept apart from the curated values so the two
+  /// provenances never overwrite each other.
+  discoveredName        String?
+  discoveredAssetSymbol String?
+  /// Last time discovery still listed this vault. A vault disappearing upstream is
+  /// observable without flipping isActive.
+  lastSeenAt            DateTime?
+
   depositIntents     DepositIntent[]
   withdrawalIntents  WithdrawalIntent[]
   portfolioSnapshots PortfolioSnapshot[]
   managedVault       ManagedVault?
+  disclosures        VaultDisclosure[]
+  disclosureAcks     VaultDisclosureAcknowledgment[]
 
   @@index([isActive])
+  @@index([isActive, displayOrder])
   @@map("vault_catalog")
+}
+
+// ─────────────────────────────────────────────
+// Vault risk disclosures & acknowledgments
+// ─────────────────────────────────────────────
+
+/// A versioned, vault-specific risk disclosure.
+///
+/// `risks` holds structured entries, never prose: `[{ code, severity, params?,
+/// fallbackText? }]`. The backend ships codes and numbers; the app writes the
+/// sentence, so the Lite/Pro voice stays in the repo under code review. The
+/// optional `fallbackText` exists because a published app cannot know a code added
+/// after its release — without it, "update disclosures with no new release" and
+/// "wording lives in the app" could not both be true.
+model VaultDisclosure {
+  id      String @id @default(cuid())
+  vaultId String
+  version Int
+
+  risks    Json
+  /// Plain-language principal risks plus liquidity and withdrawal conditions.
+  sections Json?
+
+  /// Null while a draft. Only a published row can be acknowledged, and a vault
+  /// cannot be activated without one.
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  vault           VaultCatalog                    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  acknowledgments VaultDisclosureAcknowledgment[]
+
+  @@unique([vaultId, version])
+  @@index([vaultId, publishedAt])
+  @@map("vault_disclosures")
+}
+
+/// Proof that a user accepted a specific disclosure version for a specific vault.
+///
+/// The composite unique key is the whole enforcement rule: per user, per vault, per
+/// version. Acknowledging vault A cannot satisfy vault B (vaultId is in the key),
+/// and publishing a new version leaves no matching row, so consent is asked again
+/// (version is in the key). Re-POSTing the same acceptance is idempotent.
+model VaultDisclosureAcknowledgment {
+  id             String   @id @default(cuid())
+  userId         String
+  vaultId        String
+  disclosureId   String
+  version        Int
+  acknowledgedAt DateTime @default(now())
+  /// Audit trail: the codes shown, the app version, and the Lite/Pro mode at the
+  /// moment of consent.
+  context        Json?
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vault      VaultCatalog    @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  disclosure VaultDisclosure @relation(fields: [disclosureId], references: [id])
+
+  @@unique([userId, vaultId, version])
+  @@index([userId, vaultId])
+  @@index([disclosureId])
+  @@map("vault_disclosure_acknowledgments")
 }
 
 // ─────────────────────────────────────────────
@@ -219,6 +353,9 @@ model DepositIntent {
   unsignedXdr     String?      @db.Text
   signedXdr       String?      @db.Text
   errorMessage    String?
+  /// Machine-readable reason, so the app can tell REJECTED (user-actionable,
+  /// retryable) apart from FAILED (chain or upstream).
+  failureCode     String?
   expiresAt       DateTime
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -248,6 +385,9 @@ model WithdrawalIntent {
   unsignedXdr     String?      @db.Text
   signedXdr       String?      @db.Text
   errorMessage    String?
+  /// Machine-readable reason, so the app can tell REJECTED (user-actionable,
+  /// retryable) apart from FAILED (chain or upstream).
+  failureCode     String?
   expiresAt       DateTime
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -292,13 +432,33 @@ model TransactionRecord {
 // Portfolio
 // ─────────────────────────────────────────────
 
+/// A daily point of a user's position in a vault.
+///
+/// Each row is self-describing on purpose: it carries the price and where that
+/// price came from, so a historical value can be explained later instead of
+/// being an unsourced number. It is a financial record.
 model PortfolioSnapshot {
-  id            String   @id @default(cuid())
-  userId        String
+  id     String @id @default(cuid())
+  userId String
+
   vaultId       String
+  /// The underlying position in whole asset units.
+  ///
+  /// Used to hold raw share units, which nothing could interpret: the figure was
+  /// neither the asset amount nor a value, and the column had no stated scale.
   balanceAmount Decimal  @db.Decimal(30, 8)
+  /// Vault shares in whole units, kept separately from the underlying.
+  shareAmount   Decimal? @db.Decimal(30, 8)
+  /// Null when nothing could price the asset. Never a substituted guess — the
+  /// snapshot is still taken, and the absence is the honest record.
   balanceUsd    Decimal? @db.Decimal(20, 4)
-  capturedAt    DateTime @default(now())
+  /// The rate applied, so the row reproduces.
+  priceUsd      Decimal? @db.Decimal(20, 8)
+  /// `REFLECTOR` or `STATIC`. A constant must never be mistaken for a market price.
+  priceSource   String?
+  assetSymbol   String?
+
+  capturedAt DateTime @default(now())
 
   user  User         @relation(fields: [userId], references: [id])
   vault VaultCatalog @relation(fields: [vaultId], references: [id])
@@ -306,6 +466,24 @@ model PortfolioSnapshot {
   @@index([userId, capturedAt])
   @@index([vaultId, capturedAt])
   @@map("portfolio_snapshots")
+}
+
+/// The price used on a given run, recorded once rather than per position.
+///
+/// Lets a day's valuation be audited without re-reading an oracle that only
+/// serves the latest price.
+model AssetPriceSnapshot {
+  id          String   @id @default(cuid())
+  assetSymbol String
+  priceUsd    Decimal  @db.Decimal(20, 8)
+  source      String
+  /// The oracle's own timestamp, not when we read it.
+  asOf        DateTime
+  stale       Boolean  @default(false)
+  capturedAt  DateTime @default(now())
+
+  @@index([assetSymbol, capturedAt])
+  @@map("asset_price_snapshots")
 }
 
 // ─────────────────────────────────────────────
@@ -617,6 +795,75 @@ model Gift {
 }
 
 // ─────────────────────────────────────────────
+// Asset conversion (swap before deposit)
+// ─────────────────────────────────────────────
+
+enum ConversionStatus {
+  CREATED
+  XDR_GENERATED
+  SIGNED_XDR_RECEIVED
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  EXPIRED
+}
+
+/// A classic path payment that turns the funding asset into a vault's asset.
+///
+/// Exists because the ramp delivers USDC while the EURC and XLM vaults want their
+/// own asset, and because the two cannot share a transaction: a path payment is a
+/// classic operation and a DeFindex deposit is Soroban, which admits exactly one
+/// operation per transaction.
+///
+/// `depositIntentId` stays null until the deposit it was meant for is created. A
+/// row left CONFIRMED with no deposit is the recovery record: the user holds the
+/// converted asset and still owes the deposit, which `plannedDeposit` describes.
+model AssetConversion {
+  id             String @id @default(cuid())
+  idempotencyKey String @unique
+
+  userId          String
+  walletAccountId String
+
+  /// Set once the deposit this conversion funded exists.
+  depositIntentId String? @unique
+  /// What the conversion was for, so an unconsumed one is resumable.
+  plannedDeposit  Json?
+
+  sourceAssetId String
+  targetAssetId String
+  sourceSymbol  String
+  targetSymbol  String
+
+  /// Whole units. `destMin` is the slippage floor the operation enforces: below
+  /// it the payment fails atomically and nothing moves.
+  sendAmount       Decimal  @db.Decimal(30, 8)
+  quotedDestAmount Decimal  @db.Decimal(30, 8)
+  destMin          Decimal  @db.Decimal(30, 8)
+  slippageBps      Int
+  /// Read from the transaction result, never from the quote.
+  receivedAmount   Decimal? @db.Decimal(30, 8)
+
+  /// The intermediate assets of the route, as Horizon reported them.
+  path Json
+
+  status       ConversionStatus @default(CREATED)
+  unsignedXdr  String?          @db.Text
+  signedXdr    String?          @db.Text
+  txHash       String?          @unique
+  failureCode  String?
+  errorMessage String?
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+  @@index([status, expiresAt])
+  @@map("asset_conversions")
+}
+
+// ─────────────────────────────────────────────
 // App Version Config — force update / update banner
 // ─────────────────────────────────────────────
 
@@ -662,6 +909,9 @@ model AccountDeletionRequest {
   /// Dust actually swept to the treasury, for accounting reconciliation.
   sweptAmount        Decimal?              @db.Decimal(30, 8)
   sweptAssetSymbol   String?
+  /// Every asset swept, since the two scalars above can only describe one and a
+  /// closure now sweeps whatever trustlines the account holds.
+  sweptAssets        Json?
   /// The three acknowledgements, with timestamps. Proof of informed consent.
   acknowledgements   Json
   blindpayDeletedAt  DateTime?

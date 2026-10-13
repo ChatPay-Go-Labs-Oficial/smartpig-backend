@@ -32,3 +32,31 @@ export function toAssetUnits(
 
   return units;
 }
+
+/**
+ * Raw contract units to a decimal string in whole asset units.
+ *
+ * The inverse of {@link toAssetUnits}, and the only place the conversion should
+ * happen. Returns a string, not a number: a balance is money, and `number` loses
+ * precision past 2^53 while `0.1 + 0.2` is the classic way to misreport one.
+ *
+ * Only the backend knows an asset's decimals, which is why normalizing here —
+ * rather than in the client — is what let the app stop hardcoding 7.
+ */
+export function fromAssetUnits(
+  units: number | string | bigint,
+  assetDecimals: number,
+): string {
+  if (!Number.isInteger(assetDecimals) || assetDecimals < 0) {
+    throw new BadRequestException('Asset decimals configuration is invalid');
+  }
+
+  const raw = new Decimal(String(units));
+  if (!raw.isInteger()) {
+    throw new BadRequestException(
+      `Raw amount ${String(units)} is not an integer number of units`,
+    );
+  }
+
+  return raw.div(new Decimal(10).pow(assetDecimals)).toFixed(assetDecimals);
+}
