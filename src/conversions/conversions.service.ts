@@ -209,7 +209,7 @@ export class ConversionsService {
         path: toPathAssets(quote.path),
       });
     } catch (err) {
-      await this.fail(conversion.id, err, 'XDR_GENERATION_FAILED');
+      await this.fail(conversion.id, err, 'XDR_GENERATION_FAILED', 'build-xdr');
       throw err;
     }
 
@@ -252,6 +252,7 @@ export class ConversionsService {
         conversion.id,
         new Error('Conversion intent has expired'),
         'INTENT_EXPIRED',
+        'validate-expiry',
       );
       throw new BadRequestException(`Conversion ${params.id} has expired`);
     }
@@ -272,7 +273,12 @@ export class ConversionsService {
       );
       txHash = result.hash;
     } catch (err) {
-      await this.fail(conversion.id, err, 'CHAIN_REJECTED');
+      await this.fail(
+        conversion.id,
+        err,
+        'CHAIN_REJECTED',
+        'submit-signed-xdr',
+      );
       throw err;
     }
 
@@ -446,12 +452,21 @@ export class ConversionsService {
     return { ...conversion, walletAddress: wallet.stellarAddress };
   }
 
-  private async fail(id: string, err: unknown, fallback: string) {
+  private async fail(
+    id: string,
+    err: unknown,
+    fallback: string,
+    stage = fallback,
+  ) {
+    const failureCode = classifyFailure(err, fallback as never);
+    this.logger.warn(
+      `Conversion ${id} failed stage=${stage} code=${failureCode}: ${safeFailureReason(err)}`,
+    );
     await this.prisma.assetConversion.update({
       where: { id },
       data: {
         status: ConversionStatus.FAILED,
-        failureCode: classifyFailure(err, fallback as never),
+        failureCode,
         errorMessage: (err as Error)?.message ?? String(err),
       },
     });
@@ -476,4 +491,17 @@ export class ConversionsService {
       createdAt: true,
     } as const;
   }
+}
+
+function safeFailureReason(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'unknown error';
+  return message
+    .replace(/[GC][A-Z2-7]{55}/g, '[stellar-id]')
+    .replace(/[A-Za-z0-9+/=]{100,}/g, '[redacted]')
+    .slice(0, 300);
 }
