@@ -30,6 +30,7 @@ const intentSelect = {
   walletAccountId: true,
   vaultId: true,
   shareAmount: true,
+  requestedAmount: true,
   status: true,
   failureCode: true,
   errorMessage: true,
@@ -91,6 +92,9 @@ export class WithdrawalsService {
         walletAccountId: dto.walletAccountId,
         vaultId: dto.vaultId,
         shareAmount: new Decimal(dto.shareAmount),
+        requestedAmount: dto.requestedAmount
+          ? new Decimal(dto.requestedAmount)
+          : undefined,
         expiresAt,
       },
     });
