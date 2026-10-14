@@ -381,6 +381,9 @@ model WithdrawalIntent {
   walletAccountId String
   vaultId         String
   shareAmount     Decimal      @db.Decimal(30, 8)
+  /// Underlying asset amount requested by the user. Kept separately from shares
+  /// so receipts and history never present dfTokens as if they were the asset.
+  requestedAmount Decimal?     @db.Decimal(30, 8)
   status          IntentStatus @default(CREATED)
   unsignedXdr     String?      @db.Text
   signedXdr       String?      @db.Text

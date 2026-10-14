@@ -556,7 +556,8 @@ Cria uma intenção de saque e gera um XDR não assinado.
   "userId": "clx...",
   "walletAccountId": "clx...",
   "vaultId": "clx...",
-  "shareAmount": "50.00000000"
+  "shareAmount": "49.0200000",
+  "requestedAmount": "50.0000000"
 }
 ```
 
@@ -565,11 +566,17 @@ Cria uma intenção de saque e gera um XDR não assinado.
 {
   "id": "clx...",
   "status": "XDR_GENERATED",
-  "shareAmount": "50.00000000",
+  "shareAmount": "49.0200000",
+  "requestedAmount": "50.0000000",
   "unsignedXdr": "AAAAAgAAAA...",
   "expiresAt": "2026-05-09T14:00:00.000Z"
 }
 ```
+
+`shareAmount` é a quantidade de dfTokens executada pelo contrato.
+`requestedAmount` é o valor do ativo solicitado pelo usuário e deve ser usado
+em recibos e no histórico. O campo é opcional apenas para manter clientes
+publicados compatíveis; novos clientes devem sempre enviá-lo.
 
 ---
 
