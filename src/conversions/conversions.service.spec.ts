@@ -12,6 +12,7 @@ import { readAssetRegistry } from '../config/asset-registry';
 const MAINNET = readAssetRegistry('mainnet');
 const USDC = MAINNET.find((a) => a.symbol === 'USDC')!;
 const EURC = MAINNET.find((a) => a.symbol === 'EURC')!;
+const XLM = MAINNET.find((a) => a.symbol === 'XLM')!;
 
 const USER = 'user-a';
 const WALLET = 'wallet-1';
@@ -67,9 +68,12 @@ function createService(options: Options = {}) {
   };
 
   const stellar = {
-    getAsset: jest.fn((symbol: string) =>
-      symbol.toUpperCase() === 'USDC' ? USDC : EURC,
-    ),
+    getAsset: jest.fn((symbol: string) => {
+      const normalized = symbol.toUpperCase();
+      if (normalized === 'USDC') return USDC;
+      if (normalized === 'XLM') return XLM;
+      return EURC;
+    }),
     getFundingAsset: jest.fn().mockReturnValue(USDC),
     toStellarAsset: jest.fn(() => new Asset(EURC.code, EURC.issuer as string)),
     buildPathPaymentXdr: buildThrows
@@ -184,6 +188,21 @@ describe('ConversionsService.createConversion', () => {
       unsignedXdr: 'AAAApathpayment',
       status: 'XDR_GENERATED',
     });
+  });
+
+  it('uses the selected source asset for a standalone wallet swap', async () => {
+    const { service, stellar, quotes } = createService();
+
+    await service.createConversion({
+      ...CREATE,
+      fromSymbol: 'XLM',
+      toSymbol: 'USDC',
+    });
+
+    expect(stellar.getFundingAsset).not.toHaveBeenCalled();
+    expect(quotes.quote).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceAsset: XLM, targetAsset: USDC }),
+    );
   });
 
   it('demands the trustline before moving anything', async () => {

@@ -433,8 +433,9 @@ saldo que parece inexplicado.
 vault era o destino. Vale um card retomável que pula direto para o
 `POST /deposits/from-conversion`.
 
-Não existe swap reverso, de propósito: custaria outra assinatura e outro spread
-para desfazer o que o usuário pediu.
+O swap avulso da Carteira usa os mesmos endpoints sem `vaultId`: envie também
+`from` no `POST /conversions` para escolher o ativo de origem. Sem `from`, USDC
+continua sendo o padrão para manter compatibilidade com o fluxo de depósito.
 
 ---
 

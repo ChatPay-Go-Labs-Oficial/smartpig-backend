@@ -12,7 +12,7 @@ import {
 } from './dto/conversion.dto';
 
 /**
- * Converting the funding asset into a vault's asset, on the Stellar DEX.
+ * Converting supported wallet assets on the Stellar DEX.
  *
  * The ramp delivers USDC; the EURC and XLM vaults want their own asset. A classic
  * `pathPaymentStrictSend` bridges the two against the order book, so the
@@ -93,6 +93,7 @@ export class ConversionsController {
       idempotencyKey: dto.idempotencyKey,
       userId,
       walletAccountId: dto.walletAccountId,
+      fromSymbol: dto.from,
       toSymbol: dto.to,
       amount: dto.amount,
       plannedDeposit: dto.vaultId
