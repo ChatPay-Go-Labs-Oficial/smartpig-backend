@@ -48,12 +48,21 @@ export class CreateConversionDto {
   @IsNotEmpty()
   walletAccountId: string;
 
+  @ApiPropertyOptional({
+    description: 'Source asset symbol. Defaults to the funding asset (USDC).',
+    example: 'XLM',
+  })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  from?: string;
+
   @ApiProperty({ description: 'Target asset symbol.', example: 'EURC' })
   @IsString()
   @IsNotEmpty()
   to: string;
 
-  @ApiProperty({ description: 'Amount of the funding asset, in whole units.' })
+  @ApiProperty({ description: 'Amount of the source asset, in whole units.' })
   @IsDecimal({ decimal_digits: '0,7' })
   amount: string;
 

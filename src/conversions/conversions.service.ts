@@ -112,6 +112,7 @@ export class ConversionsService {
     idempotencyKey: string;
     userId: string;
     walletAccountId: string;
+    fromSymbol?: string;
     toSymbol: string;
     amount: string;
     plannedDeposit?: PlannedDeposit;
@@ -141,7 +142,9 @@ export class ConversionsService {
       );
     }
 
-    const sourceAsset = this.stellar.getFundingAsset();
+    const sourceAsset = params.fromSymbol
+      ? this.stellar.getAsset(params.fromSymbol)
+      : this.stellar.getFundingAsset();
     const targetAsset = this.stellar.getAsset(params.toSymbol);
     if (sourceAsset.symbol === targetAsset.symbol) {
       throw new BadRequestException(
