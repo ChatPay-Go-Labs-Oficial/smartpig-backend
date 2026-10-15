@@ -22,7 +22,11 @@ function createService() {
   const service = new BlindPayService(config);
   service.onModuleInit();
 
-  const http = (service as unknown as { http: { delete: unknown } }).http;
+  const http = (
+    service as unknown as {
+      http: { delete: unknown; post: unknown };
+    }
+  ).http;
   return { service, http };
 }
 
@@ -60,5 +64,52 @@ describe('BlindPayService.deleteCustomer', () => {
     http.delete = jest.fn().mockRejectedValue(httpError(500));
 
     await expect(service.deleteCustomer(RECEIVER)).rejects.toBeDefined();
+  });
+});
+
+describe('BlindPayService.createBlockchainWallet', () => {
+  /**
+   * Desde 10/10/2026 a BlindPay rejeita o registro de wallet de customer
+   * brasileiro sem `is_self_custody` (400 `WALLETS_SELF_CUSTODY_REQUIRED`).
+   * Quem registramos é sempre a embedded wallet do próprio usuário, então o
+   * default precisa sair no corpo mesmo quando o caller não diz nada.
+   */
+  it('declares self-custody by default, which BR customers require', async () => {
+    const { service, http } = createService();
+    http.post = jest.fn().mockResolvedValue({ data: { id: 'bw_1' } });
+
+    await service.createBlockchainWallet(RECEIVER, {
+      name: 'Stellar wallet for Maria',
+      network: 'stellar_testnet',
+      address: 'GABC',
+    });
+
+    expect(http.post).toHaveBeenCalledWith(
+      `/instances/${INSTANCE}/customers/${RECEIVER}/blockchain-wallets`,
+      {
+        name: 'Stellar wallet for Maria',
+        network: 'stellar_testnet',
+        is_account_abstraction: true,
+        is_self_custody: true,
+        address: 'GABC',
+      },
+    );
+  });
+
+  it('lets the caller override the declaration', async () => {
+    const { service, http } = createService();
+    http.post = jest.fn().mockResolvedValue({ data: { id: 'bw_1' } });
+
+    await service.createBlockchainWallet(RECEIVER, {
+      name: 'Custodied wallet',
+      network: 'stellar',
+      address: 'GABC',
+      is_self_custody: false,
+    });
+
+    expect(http.post).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ is_self_custody: false }),
+    );
   });
 });
