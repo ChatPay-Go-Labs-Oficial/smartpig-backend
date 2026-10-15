@@ -121,6 +121,17 @@ export interface CreateBlockchainWalletParams {
   network: 'stellar' | 'stellar_testnet';
   address?: string;
   is_account_abstraction?: boolean;
+  /**
+   * Declara se o usuário detém a chave privada da wallet. Obrigatório para
+   * customers brasileiros desde 10/10/2026 (Resolução BCB 588, que obriga a
+   * BlindPay a reportar transferências a partir de US$ 10.000 de/para wallets
+   * auto-custodiadas); sem o campo a API devolve 400
+   * `WALLETS_SELF_CUSTODY_REQUIRED`.
+   *
+   * Omitir usa o default do service (`true`), que é o que vale para toda wallet
+   * que registramos — ver `BlindPayService.createBlockchainWallet`.
+   */
+  is_self_custody?: boolean;
 }
 
 export interface BlindPayBlockchainWallet {
@@ -129,6 +140,8 @@ export interface BlindPayBlockchainWallet {
   name: string;
   network: string;
   address: string | null;
+  /** `null` nas wallets registradas antes de o campo passar a ser enviado. */
+  is_self_custody: boolean | null;
   created_at: string;
 }
 
