@@ -23,6 +23,19 @@ import {
   StellarDelegationResult,
 } from './dto/blindpay.dto';
 
+/**
+ * Toda wallet que registramos na BlindPay é a embedded wallet Stellar do próprio
+ * usuário, provisionada pela Privy: quem detém as key shares é ele, e o backend
+ * só guarda a chave da treasury — nunca a do usuário. Por isso devolvemos XDR
+ * para o client assinar em vez de assinar aqui. Logo, auto-custódia.
+ *
+ * Essa declaração é imutável na BlindPay (um segundo PATCH devolve 409
+ * `self_custody_already_set`), então não é um default a mudar sem compliance:
+ * ela faz a BlindPay reportar ao BCB transferências a partir de US$ 10.000
+ * de/para essas wallets (Resolução 588).
+ */
+const SELF_CUSTODY_DEFAULT = true;
+
 @Injectable()
 export class BlindPayService implements OnModuleInit {
   private readonly logger = new Logger(BlindPayService.name);
@@ -272,6 +285,7 @@ export class BlindPayService implements OnModuleInit {
         name: params.name,
         network: params.network,
         is_account_abstraction: isStellar ? true : false,
+        is_self_custody: params.is_self_custody ?? SELF_CUSTODY_DEFAULT,
       };
       if (params.address) body.address = params.address;
 
