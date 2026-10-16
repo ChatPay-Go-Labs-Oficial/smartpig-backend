@@ -1,14 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsDecimal,
   IsNotEmpty,
+  IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
 
 export class CreateDepositDto {
   @ApiProperty({
-    description: 'Unique key to prevent duplicate processing of the same intent',
+    description:
+      'Unique key to prevent duplicate processing of the same intent',
     example: 'd290f1ee-6c54-4b01-90e6-d701748f0851',
   })
   @IsString()
@@ -60,4 +63,16 @@ export class CreateDepositDto {
   @IsString()
   @IsNotEmpty()
   assetSymbol: string;
+
+  @ApiProperty({
+    description:
+      'When the asset does not match the vault, returns a step plan that ' +
+      'converts first instead of rejecting. The ramp delivers USDC while the ' +
+      'EURC and XLM vaults want their own asset.',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoConvert?: boolean;
 }

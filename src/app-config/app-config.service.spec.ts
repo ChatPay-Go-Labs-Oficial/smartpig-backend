@@ -11,9 +11,16 @@ describe('AppConfigService', () => {
       },
     };
 
+    const config = {
+      get: jest.fn((key: string, fallback?: string) =>
+        key === 'DEFINDEX_NETWORK' ? 'mainnet' : fallback,
+      ),
+    };
+
     return {
-      service: new AppConfigService(prisma as any),
+      service: new AppConfigService(prisma as any, config as any),
       prisma,
+      config,
     };
   }
 
@@ -61,6 +68,54 @@ describe('AppConfigService', () => {
     expect(prisma.appVersionConfig.update).toHaveBeenCalledWith({
       where: { platform: 'IOS' },
       data: dto,
+    });
+  });
+
+  describe('listAssets', () => {
+    it('serves the registry for the active network', () => {
+      const { service } = createHarness();
+
+      const assets = service.listAssets();
+
+      expect(assets.map((a) => a.symbol).sort()).toEqual([
+        'EURC',
+        'USDC',
+        'XLM',
+      ]);
+    });
+
+    it('includes what the app needs to format and to match a balance', () => {
+      const { service } = createHarness();
+
+      const eurc = service.listAssets().find((a) => a.symbol === 'EURC');
+
+      expect(eurc).toMatchObject({
+        code: 'EURC',
+        decimals: 7,
+        kind: 'CLASSIC',
+        displayPrefix: '\u20ac',
+        liteSymbol: 'EUR',
+      });
+      // CODE:ISSUER is how getWalletBalances reports a classic asset.
+      expect(eurc?.assetId).toBe(`EURC:${eurc?.issuer ?? ''}`);
+    });
+
+    it('reports the native asset with a null issuer and a bare assetId', () => {
+      const { service } = createHarness();
+
+      const xlm = service.listAssets().find((a) => a.symbol === 'XLM');
+
+      expect(xlm?.issuer).toBeNull();
+      expect(xlm?.assetId).toBe('XLM');
+    });
+
+    it('marks exactly one funding asset, so the app knows what the ramp delivers', () => {
+      const { service } = createHarness();
+
+      const funding = service.listAssets().filter((a) => a.isFundingAsset);
+
+      expect(funding).toHaveLength(1);
+      expect(funding[0].symbol).toBe('USDC');
     });
   });
 });

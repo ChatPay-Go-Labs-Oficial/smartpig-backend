@@ -19,7 +19,7 @@ function parsePlatform(raw: string): AppPlatform {
   if (normalized !== 'IOS' && normalized !== 'ANDROID') {
     throw new BadRequestException('platform must be "ios" or "android"');
   }
-  return normalized as AppPlatform;
+  return normalized;
 }
 
 @ApiTags('App Config')
@@ -47,6 +47,22 @@ export class AppConfigController {
   async getVersion(@Query('platform') platform?: string) {
     if (!platform) return this.appConfigService.listAll();
     return this.appConfigService.getByPlatform(parsePlatform(platform));
+  }
+
+  @Get('assets')
+  @Public()
+  @ApiOperation({
+    summary: 'Assets this deployment supports, with display rules',
+    description:
+      'Lets the app format a new asset without a store release. Public for the ' +
+      'same reason /app-config/version is: the client needs it before auth.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Asset registry for the active network.',
+  })
+  getAssets() {
+    return this.appConfigService.listAssets();
   }
 
   @Patch('version/:platform')

@@ -3,6 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import {
+  assetIdOf,
+  findAssetBySymbol,
+  readAssetRegistry,
+  type AssetDefinition,
+} from '../config/asset-registry';
+import {
   Asset,
   Horizon,
   Keypair,
@@ -27,6 +33,8 @@ export class StellarService {
   private readonly horizonUrl: string;
   private readonly usdcAsset: Asset;
   private readonly tesouroAsset: Asset | null;
+  /** Every asset this deployment knows, from the shared registry. */
+  private readonly assetRegistry: AssetDefinition[];
   private readonly feeBumpBaseFee: string;
   private readonly feeBumpMultiplier: number;
   private treasuryKeypair: Keypair | null = null;
@@ -64,9 +72,14 @@ export class StellarService {
         ? new Asset(tesouroCode, tesouroIssuer)
         : null;
 
+    this.assetRegistry = readAssetRegistry(
+      network,
+      this.config.get<string>('STELLAR_ASSETS_JSON'),
+    );
+
     this.server = new Horizon.Server(this.horizonUrl);
     this.logger.log(
-      `StellarService initialized on ${network} (${this.horizonUrl}), USDC=${this.getUsdcAssetId()}, TESOURO=${this.tesouroAsset ? this.assetId(this.tesouroAsset) : 'disabled'}`,
+      `StellarService initialized on ${network} (${this.horizonUrl}), USDC=${this.getUsdcAssetId()}, TESOURO=${this.tesouroAsset ? this.assetId(this.tesouroAsset) : 'disabled'}, registry=${this.assetRegistry.map((a) => a.symbol).join('/')}`,
     );
   }
 
@@ -92,6 +105,145 @@ export class StellarService {
       );
     this.treasuryKeypair = Keypair.fromSecret(secret);
     return this.treasuryKeypair;
+  }
+
+  /** Every asset this deployment supports. */
+  listAssets(): AssetDefinition[] {
+    return this.assetRegistry;
+  }
+
+  /**
+   * Resolves a symbol from the registry.
+   *
+   * Accepts DeFindex's `"native"` for XLM, which is what reaches us from
+   * `getVaultInfo` and from the strategies catalog.
+   */
+  getAsset(symbol: string): AssetDefinition {
+    const asset = findAssetBySymbol(this.assetRegistry, symbol);
+    if (!asset) {
+      throw new BadRequestException(
+        `Asset ${symbol} is not supported on this network (known: ${this.assetRegistry
+          .map((a) => a.symbol)
+          .join(', ')})`,
+      );
+    }
+    return asset;
+  }
+
+  /** The asset the ramp delivers and balances are quoted in. */
+  getFundingAsset(): AssetDefinition {
+    const funding = this.assetRegistry.find((a) => a.isFundingAsset);
+    // The registry validator guarantees exactly one; this keeps the type honest.
+    if (!funding) throw new Error('No funding asset in the registry');
+    return funding;
+  }
+
+  /** A registry definition as a Stellar SDK asset. */
+  toStellarAsset(definition: AssetDefinition): Asset {
+    return definition.kind === 'NATIVE'
+      ? Asset.native()
+      : new Asset(definition.code, definition.issuer as string);
+  }
+
+  /**
+   * Whether the account already trusts an asset.
+   *
+   * Deliberately separate from `isAccountActivated`, which still means "has the
+   * trustlines the onboarding creates". Widening that would make it return false
+   * for every existing user, and `auth.service` turns that into
+   * `needsActivation: true` while `activateWallet` throws for an already-activated
+   * wallet — a broken login for the whole installed base.
+   *
+   * The native asset needs no trustline, so it is always trusted.
+   */
+  async hasTrustline(
+    stellarAddress: string,
+    definition: AssetDefinition,
+  ): Promise<boolean> {
+    if (definition.kind === 'NATIVE') return true;
+
+    let account: Horizon.AccountResponse;
+    try {
+      account = await this.server.loadAccount(stellarAddress);
+    } catch {
+      // No account on chain means no trustline, which is the honest answer here.
+      return false;
+    }
+
+    return account.balances.some(
+      (balance) =>
+        balance.asset_type !== 'native' &&
+        'asset_code' in balance &&
+        balance.asset_code === definition.code &&
+        balance.asset_issuer === definition.issuer,
+    );
+  }
+
+  /**
+   * Builds a **sponsored** trustline XDR, pre-signed by the Treasury.
+   *
+   * `buildUsdcTrustlineXdr` cannot be used for a PigFi wallet: it builds on the
+   * user's account with `fee: BASE_FEE`, and our wallets are created with
+   * `startingBalance: '0'` and sponsored reserves — they hold no spendable XLM, so
+   * they can pay neither the fee nor the 0.5 XLM a new trustline reserves.
+   *
+   * Same shape as activation: Treasury is the transaction source with `fee: '0'`,
+   * the user's operation carries an explicit source, and the Treasury sponsors the
+   * reserve. The caller submits it through `submitFeeBumpTransaction`, which pins
+   * the hash and escalates the fee.
+   */
+  async buildSponsoredTrustlineXdr(
+    userAddress: string,
+    definition: AssetDefinition,
+  ): Promise<string> {
+    if (definition.kind === 'NATIVE') {
+      throw new BadRequestException(
+        `${definition.symbol} is the native asset and needs no trustline`,
+      );
+    }
+
+    const treasuryKeypair = this.loadTreasury();
+    const treasuryPublicKey = treasuryKeypair.publicKey();
+
+    if (!(await this.accountExistsOnChain(userAddress))) {
+      throw new BadRequestException(
+        `Stellar account ${userAddress} does not exist yet. Activate the wallet before adding a trustline.`,
+      );
+    }
+
+    let treasuryAccount: Horizon.AccountResponse;
+    try {
+      treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
+    } catch {
+      throw new BadRequestException(
+        `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
+      );
+    }
+
+    const asset = this.toStellarAsset(definition);
+
+    const tx = new TransactionBuilder(treasuryAccount, {
+      fee: '0',
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.beginSponsoringFutureReserves({ sponsoredId: userAddress }),
+      )
+      .addOperation(Operation.changeTrust({ asset, source: userAddress }))
+      .addOperation(
+        Operation.endSponsoringFutureReserves({ source: userAddress }),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    // The Treasury signs the inner transaction, authorizing the sponsorship.
+    tx.sign(treasuryKeypair);
+
+    this.logger.log(
+      `Sponsored trustline XDR built for ${userAddress} asset=${assetIdOf(definition)}`,
+    );
+
+    return tx.toEnvelope().toXDR('base64');
   }
 
   /**
@@ -124,6 +276,120 @@ export class StellarService {
     const xdr = tx.toXDR();
     this.logger.log(`USDC trustline XDR built for account ${stellarAddress}`);
     return xdr;
+  }
+
+  /**
+   * Builds a **sponsored path payment**, pre-signed by the Treasury.
+   *
+   * A self-payment: source and destination are both the user's account, so their
+   * funding asset leaves and the target asset arrives in the same operation. The
+   * counterparty is the market — the SDEX order book and the classic liquidity
+   * pools — which is why this needs no inventory of ours.
+   *
+   * `destMin` is the protection that matters. If the route degrades between
+   * building this and it reaching the ledger, the operation fails atomically and
+   * the user keeps their funds; they never get a bad rate silently.
+   *
+   * Treasury is the transaction source with `fee: '0'` and signs the inner
+   * transaction, exactly as in activation: the user's wallet holds no spendable
+   * XLM. The caller submits through `submitFeeBumpTransaction`, which pins the
+   * hash so the client can only add a signature.
+   */
+  async buildPathPaymentXdr(params: {
+    userAddress: string;
+    sendAsset: Asset;
+    sendAmount: string;
+    destAsset: Asset;
+    destMin: string;
+    path: Asset[];
+  }): Promise<string> {
+    const { userAddress, sendAsset, sendAmount, destAsset, destMin, path } =
+      params;
+
+    const treasuryKeypair = this.loadTreasury();
+    const treasuryPublicKey = treasuryKeypair.publicKey();
+
+    let treasuryAccount: Horizon.AccountResponse;
+    try {
+      treasuryAccount = await this.server.loadAccount(treasuryPublicKey);
+    } catch {
+      throw new BadRequestException(
+        `Treasury account ${treasuryPublicKey} not found on the Stellar network. Ensure it is funded.`,
+      );
+    }
+
+    const tx = new TransactionBuilder(treasuryAccount, {
+      fee: '0',
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        Operation.pathPaymentStrictSend({
+          source: userAddress,
+          sendAsset,
+          sendAmount,
+          destination: userAddress,
+          destAsset,
+          destMin,
+          path,
+        }),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    tx.sign(treasuryKeypair);
+
+    this.logger.log(
+      `Path payment XDR built for ${userAddress}: ${sendAmount} ${sendAsset.getCode()} → min ${destMin} ${destAsset.getCode()} (hops=${path.length})`,
+    );
+
+    return tx.toEnvelope().toXDR('base64');
+  }
+
+  /**
+   * How much the account actually received from a submitted path payment.
+   *
+   * Read from the transaction's effects rather than from the quote: the quote is a
+   * prediction, and the deposit that follows must be sized by what arrived. Falls
+   * back to null rather than guessing, so a caller cannot mistake an unread result
+   * for a zero.
+   */
+  async readPathPaymentReceived(
+    txHash: string,
+    userAddress: string,
+    destAsset: Asset,
+  ): Promise<Decimal | null> {
+    try {
+      const { records } = await this.server
+        .effects()
+        .forTransaction(txHash)
+        .limit(200)
+        .call();
+
+      const wanted = destAsset.isNative()
+        ? { asset_type: 'native' }
+        : {
+            asset_code: destAsset.getCode(),
+            asset_issuer: destAsset.getIssuer(),
+          };
+
+      const credit = records.find((effect) => {
+        const e = effect as unknown as Record<string, unknown>;
+        if (e.type !== 'account_credited') return false;
+        if (e.account !== userAddress) return false;
+        if (destAsset.isNative()) return e.asset_type === 'native';
+        return (
+          e.asset_code === wanted.asset_code &&
+          e.asset_issuer === wanted.asset_issuer
+        );
+      }) as unknown as { amount?: string } | undefined;
+
+      return credit?.amount ? new Decimal(credit.amount) : null;
+    } catch (err) {
+      this.logger.warn(
+        `Could not read received amount for tx ${txHash}: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -215,8 +481,15 @@ export class StellarService {
     });
 
     if (accountExists) {
+      // The account exists, so no CreateAccount — but the trustlines still reserve
+      // 0.5 XLM each, and our wallets hold no spendable XLM. Without sponsorship
+      // this branch failed with op_low_reserve for exactly the users it was meant
+      // to repair.
       this.logger.log(
-        `Activation: account ${userAddress} already exists, skipping sponsorship`,
+        `Activation: account ${userAddress} already exists, adding sponsored trustlines`,
+      );
+      builder.addOperation(
+        Operation.beginSponsoringFutureReserves({ sponsoredId: userAddress }),
       );
       builder.addOperation(
         Operation.changeTrust({
@@ -232,6 +505,9 @@ export class StellarService {
           }),
         );
       }
+      builder.addOperation(
+        Operation.endSponsoringFutureReserves({ source: userAddress }),
+      );
     } else {
       builder
         .addOperation(
@@ -303,6 +579,8 @@ export class StellarService {
     xdr: string;
     sweptAmount: Decimal;
     sweptAssetSymbol: string | null;
+    /** Every asset swept, since the scalars above can only carry one. */
+    sweptAssets: { assetSymbol: string; assetId: string; amount: string }[];
   }> {
     const treasuryKeypair = this.loadTreasury();
     const treasuryPublicKey = treasuryKeypair.publicKey();
@@ -325,10 +603,6 @@ export class StellarService {
       );
     }
 
-    const closable = [this.usdcAsset, this.tesouroAsset].filter(
-      (asset): asset is Asset => asset !== null,
-    );
-
     const builder = new TransactionBuilder(treasuryAccount, {
       fee: '0',
       networkPassphrase: this.networkPassphrase,
@@ -337,17 +611,27 @@ export class StellarService {
     const sweeps: { asset: Asset; amount: string }[] = [];
     const trustlinesToRemove: Asset[] = [];
 
-    for (const asset of closable) {
-      const line = userAccount.balances.find(
-        (balance) =>
-          balance.asset_type !== 'native' &&
-          'asset_code' in balance &&
-          balance.asset_code === asset.getCode() &&
-          balance.asset_issuer === asset.getIssuer(),
-      );
+    // Every non-native trustline the account actually holds, read from the
+    // balances already loaded above.
+    //
+    // This used to iterate a fixed [usdcAsset, tesouroAsset] list, which meant any
+    // other trustline survived the closure and AccountMerge then failed with
+    // op_has_sub_entries — the user could not delete their account at all. The
+    // EURC vault makes that concrete, but the account is the user's and another
+    // client could have opened any trustline on it.
+    for (const line of userAccount.balances) {
+      if (
+        line.asset_type === 'native' ||
+        !('asset_code' in line) ||
+        !line.asset_code ||
+        !line.asset_issuer
+      ) {
+        // The native balance leaves with the AccountMerge; it needs no sweep and
+        // has no trustline to remove.
+        continue;
+      }
 
-      // No trustline means nothing to sweep and nothing to remove.
-      if (!line) continue;
+      const asset = new Asset(line.asset_code, line.asset_issuer);
 
       // An open DEX offer buying this asset keeps the trustline alive: the network
       // answers op_cannot_delete and the whole closure fails. The product exposes no
@@ -409,6 +693,11 @@ export class StellarService {
       xdr: tx.toEnvelope().toXDR('base64'),
       sweptAmount: swept.amount,
       sweptAssetSymbol: swept.assetSymbol,
+      sweptAssets: sweeps.map((sweep) => ({
+        assetSymbol: sweep.asset.getCode(),
+        assetId: this.assetId(sweep.asset),
+        amount: sweep.amount,
+      })),
     };
   }
 

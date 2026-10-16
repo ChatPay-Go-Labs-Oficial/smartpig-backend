@@ -1,16 +1,20 @@
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Query,
-} from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiProperty, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+  ApiOperation,
+  ApiParam,
+  ApiProperty,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { DepositsService } from './deposits.service';
 import { CreateDepositDto } from './dto/create-deposit.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
+import { CreateDepositFromConversionDto } from './dto/from-conversion.dto';
 
 class ListDepositsQuery {
   @ApiProperty({ description: 'The ID of the user whose deposits to list' })
@@ -22,7 +26,11 @@ class ListDepositsQuery {
 @ApiTags('Deposits')
 @Controller('deposits')
 export class DepositsController {
-  constructor(private readonly depositsService: DepositsService) {}
+  constructor(
+    private readonly depositsService: DepositsService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * POST /deposits
@@ -36,7 +44,8 @@ export class DepositsController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Deposit intent created. The unsignedXdr must be signed by the user and submitted back.',
+    description:
+      'Deposit intent created. The unsignedXdr must be signed by the user and submitted back.',
     schema: {
       example: {
         id: 'cmp7deposit001',
@@ -53,9 +62,17 @@ export class DepositsController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid request body (e.g. missing amount, vaultId, or walletAccountId).' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Invalid request body (e.g. missing amount, vaultId, or walletAccountId).',
+  })
   @ApiResponse({ status: 404, description: 'Vault or wallet not found.' })
-  @ApiResponse({ status: 409, description: 'Duplicate idempotency key — a deposit with this key already exists.' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Duplicate idempotency key — a deposit with this key already exists.',
+  })
   createDeposit(@Body() dto: CreateDepositDto) {
     return this.depositsService.createDeposit(dto);
   }
@@ -64,13 +81,48 @@ export class DepositsController {
    * POST /deposits/:id/signed-xdr
    * Submit the signed XDR back to the backend for broadcast to Stellar.
    */
+  @Post('from-conversion')
+  @ApiOperation({
+    summary: 'Create the deposit a confirmed conversion was for',
+    description:
+      'Sized by what the conversion actually yielded, floored to the asset ' +
+      'precision — a market operation rarely returns its quote. Only callable ' +
+      'once the conversion confirms, because DeFindex simulates the account ' +
+      'state when it builds the deposit XDR.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Deposit intent with the XDR to sign.',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'The conversion is not confirmed, was already deposited, or its received ' +
+      'amount is unknown.',
+  })
+  async createFromConversion(
+    @Body() dto: CreateDepositFromConversionDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(user.id);
+    const userId = await this.accountOwner.resolveUserId(
+      verifiedStellarAddresses,
+    );
+    return this.depositsService.createDepositFromConversion(userId, dto);
+  }
+
   @Post(':id/signed-xdr')
   @ApiOperation({
     summary: 'Submit signed transaction',
     description:
       'Submits a signed Stellar transaction (XDR) for a specific deposit intent to be broadcasted to the network.',
   })
-  @ApiParam({ name: 'id', description: 'Deposit intent ID (cuid)', example: 'cmp7deposit001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Deposit intent ID (cuid)',
+    example: 'cmp7deposit001',
+  })
   @ApiResponse({
     status: 201,
     description: 'Signed XDR accepted and submitted to the Stellar network.',
@@ -82,9 +134,15 @@ export class DepositsController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Invalid or missing signedXdr in request body.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid or missing signedXdr in request body.',
+  })
   @ApiResponse({ status: 404, description: 'Deposit intent not found.' })
-  @ApiResponse({ status: 409, description: 'Deposit intent is not in the expected XDR_GENERATED state.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Deposit intent is not in the expected XDR_GENERATED state.',
+  })
   submitSignedXdr(@Param('id') id: string, @Body() dto: SubmitSignedXdrDto) {
     return this.depositsService.submitSignedXdr(id, dto);
   }
@@ -95,7 +153,11 @@ export class DepositsController {
    */
   @Get(':id')
   @ApiOperation({ summary: 'Get deposit details' })
-  @ApiParam({ name: 'id', description: 'Deposit intent ID (cuid)', example: 'cmp7deposit001' })
+  @ApiParam({
+    name: 'id',
+    description: 'Deposit intent ID (cuid)',
+    example: 'cmp7deposit001',
+  })
   @ApiResponse({
     status: 200,
     description: 'Deposit intent details returned successfully.',
@@ -126,7 +188,11 @@ export class DepositsController {
    */
   @Get()
   @ApiOperation({ summary: 'List user deposits' })
-  @ApiQuery({ name: 'userId', description: 'ID of the user whose deposits to list', example: 'nuw8uz50x4swu6b476uf4lla' })
+  @ApiQuery({
+    name: 'userId',
+    description: 'ID of the user whose deposits to list',
+    example: 'nuw8uz50x4swu6b476uf4lla',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of deposit intents for the user.',
@@ -148,7 +214,10 @@ export class DepositsController {
       ],
     },
   })
-  @ApiResponse({ status: 400, description: 'Missing or invalid userId query parameter.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing or invalid userId query parameter.',
+  })
   listDeposits(@Query() query: ListDepositsQuery) {
     return this.depositsService.listDeposits(query.userId);
   }

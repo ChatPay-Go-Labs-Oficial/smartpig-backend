@@ -30,6 +30,14 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  // Liga os sinais do processo (SIGTERM, SIGINT) ao ciclo de vida do Nest.
+  // Sem isso o `onModuleDestroy` do PrismaService nunca roda: no redeploy o
+  // processo morre de uma vez, o pool cai sem encerramento limpo (o Postgres
+  // registra `unexpected eof while reading`) e as requisições em voo são
+  // cortadas no meio — o que num fluxo de ramp pode deixar registro criado na
+  // BlindPay sem a linha local correspondente.
+  app.enableShutdownHooks();
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

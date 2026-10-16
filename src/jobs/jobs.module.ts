@@ -10,6 +10,8 @@ import { VaultSyncJob } from './vault-sync.job';
 import { GiftReconciliationJob } from './gift-reconciliation.job';
 import { GiftExpiryJob } from './gift-expiry.job';
 import { AccountDeletionCleanupJob } from './account-deletion-cleanup.job';
+import { ConversionRecoveryJob } from './conversion-recovery.job';
+import { PricingModule } from '../pricing/pricing.module';
 import { AccountDeletionModule } from '../account-deletion/account-deletion.module';
 
 @Module({
@@ -18,6 +20,7 @@ import { AccountDeletionModule } from '../account-deletion/account-deletion.modu
     AccountDeletionModule,
     DefindexModule,
     GiftsModule,
+    PricingModule,
   ],
   providers: [
     ReconciliationJob,
@@ -28,6 +31,7 @@ import { AccountDeletionModule } from '../account-deletion/account-deletion.modu
     GiftReconciliationJob,
     GiftExpiryJob,
     AccountDeletionCleanupJob,
+    ConversionRecoveryJob,
   ],
 })
 export class JobsModule {}

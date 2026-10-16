@@ -1,5 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsDecimal, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsDecimal,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateWithdrawalDto {
   @ApiProperty({
@@ -50,4 +56,13 @@ export class CreateWithdrawalDto {
   })
   @IsDecimal({ decimal_digits: '0,7', force_decimal: false })
   shareAmount: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Underlying asset amount requested by the user. Stored for receipts and history; shareAmount remains the value executed by the vault.',
+    example: '50.0000000',
+  })
+  @IsOptional()
+  @IsDecimal({ decimal_digits: '0,7', force_decimal: false })
+  requestedAmount?: string;
 }

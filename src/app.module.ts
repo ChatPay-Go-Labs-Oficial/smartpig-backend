@@ -17,6 +17,10 @@ import { VaultManagerModule } from './vault-manager/vault-manager.module';
 import { RampModule } from './ramp/ramp.module';
 import { EtherfuseRampModule } from './etherfuse-ramp/etherfuse-ramp.module';
 import { AppConfigModule } from './app-config/app-config.module';
+import { VaultRegistryModule } from './vault-registry/vault-registry.module';
+import { ConversionsModule } from './conversions/conversions.module';
+import { PricingModule } from './pricing/pricing.module';
+import { PortfolioModule } from './portfolio/portfolio.module';
 
 @Module({
   imports: [
@@ -26,8 +30,12 @@ import { AppConfigModule } from './app-config/app-config.module';
     UsersModule,
     WalletsModule,
     DefindexModule,
+    VaultRegistryModule,
     VaultsModule,
     DepositsModule,
+    ConversionsModule,
+    PricingModule,
+    PortfolioModule,
     WithdrawalsModule,
     GiftsModule,
     JobsModule,

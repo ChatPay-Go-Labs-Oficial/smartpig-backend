@@ -21,7 +21,8 @@ Ver detalhes em [api.md](../api.md#withdrawals) e o fluxo em [flows.md](../flows
 
 | Aspecto | Deposit | Withdrawal |
 |---------|---------|------------|
-| Campo de valor | `amount` (valor do ativo) | `shareAmount` (dfTokens) |
+| Campo de execução | `amount` (valor do ativo) | `shareAmount` (dfTokens) |
+| Campo para histórico | `amount` | `requestedAmount` (valor do ativo) |
 | SDK method | `depositToVault` | `withdrawShares` |
 | `assetSymbol` | Obrigatório no body | Não necessário |
 

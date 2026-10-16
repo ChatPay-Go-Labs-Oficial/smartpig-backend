@@ -5,7 +5,7 @@ import { StellarService } from '../wallets/stellar.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { RampStatus } from '@prisma/client';
+import { Prisma, RampStatus } from '@prisma/client';
 
 const mockBlindPayService = {
   createReceiver: jest.fn(),
@@ -38,12 +38,14 @@ const mockPrisma = {
   },
   onrampTransaction: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     findUnique: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
   },
   offrampTransaction: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     findUnique: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -303,6 +305,62 @@ describe('RampService', () => {
       expect(mockBlindPayService.createPayinStellar).toHaveBeenCalledWith({
         payin_quote_id: 'pq_1',
       });
+    });
+  });
+
+  describe('listTransactions', () => {
+    it('returns sanitized on/off-ramp records in newest-first order', async () => {
+      mockPrisma.onrampTransaction.findMany.mockResolvedValue([
+        {
+          id: 'or1',
+          amountBrl: new Prisma.Decimal(10000),
+          amountUsdc: new Prisma.Decimal(1950),
+          status: RampStatus.COMPLETED,
+          completedAt: new Date('2026-10-15T12:01:00.000Z'),
+          createdAt: new Date('2026-10-15T12:00:00.000Z'),
+        },
+      ]);
+      mockPrisma.offrampTransaction.findMany.mockResolvedValue([
+        {
+          id: 'of1',
+          amountBrl: new Prisma.Decimal(5000),
+          amountUsdc: new Prisma.Decimal(10000000),
+          status: RampStatus.PROCESSING,
+          completedAt: null,
+          createdAt: new Date('2026-10-15T13:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.listTransactions('u1');
+
+      expect(result.map(({ id, direction }) => ({ id, direction }))).toEqual([
+        { id: 'of1', direction: 'OFFRAMP' },
+        { id: 'or1', direction: 'ONRAMP' },
+      ]);
+      expect(result).toEqual([
+        expect.objectContaining({
+          amountBrl: '50.00',
+          amountUsdc: '10.000000',
+        }),
+        expect.objectContaining({ amountBrl: '100.00', amountUsdc: '19.50' }),
+      ]);
+      expect(mockPrisma.onrampTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1' },
+        }),
+      );
+      expect(mockPrisma.offrampTransaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1' },
+        }),
+      );
+      expect(
+        result.every(
+          (transaction) =>
+            !('pixCode' in transaction) &&
+            !('unsignedDelegationXdr' in transaction),
+        ),
+      ).toBe(true);
     });
   });
 
