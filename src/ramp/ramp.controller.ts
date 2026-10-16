@@ -21,6 +21,9 @@ import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
 import { Public } from '../auth/privy/public.decorator';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { RampService } from './ramp.service';
 import { RampKycService } from './kyc.service';
 import {
@@ -50,6 +53,8 @@ export class RampController {
     private readonly rampService: RampService,
     private readonly kycService: RampKycService,
     private readonly config: ConfigService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
   ) {}
 
   // ─── Terms of Service ───────────────────────────────────────────────────────
@@ -217,6 +222,21 @@ export class RampController {
   @ApiOperation({ summary: 'Create an on-ramp transaction' })
   createOnramp(@Body() dto: CreateOnrampDto) {
     return this.rampService.createOnramp(dto);
+  }
+
+  @Get('ramp/transactions')
+  @ApiOperation({
+    summary: 'List Pix ramp transactions for a user',
+    description:
+      'Returns a sanitized, newest-first history of Pix deposits and withdrawals. Sensitive ramp payloads are not exposed.',
+  })
+  async listTransactions(@CurrentUser() user: { id: string }) {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(user.id);
+    const userId = await this.accountOwner.resolveUserId(
+      verifiedStellarAddresses,
+    );
+    return this.rampService.listTransactions(userId);
   }
 
   @Get('ramp/onramp/:id')

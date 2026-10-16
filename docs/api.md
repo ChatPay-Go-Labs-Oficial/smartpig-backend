@@ -905,6 +905,31 @@ Status de uma transação de on-ramp.
 
 ---
 
+#### `GET /ramp/transactions` 🔒
+Lista o histórico Pix da conta autenticada, reunindo on-ramps e off-ramps em
+ordem decrescente de criação. O usuário é derivado das carteiras verificadas no
+Privy; a rota não aceita outro usuário informado pelo cliente.
+
+Os valores são retornados como strings decimais em BRL e USDC. Código Pix,
+XDRs, conta bancária e identificadores internos do provedor não são expostos.
+
+**Resposta 200:**
+```json
+[
+  {
+    "id": "clx...",
+    "direction": "ONRAMP",
+    "amountBrl": "100.00",
+    "amountUsdc": "19.50",
+    "status": "COMPLETED",
+    "completedAt": "2026-10-15T12:01:00.000Z",
+    "createdAt": "2026-10-15T12:00:00.000Z"
+  }
+]
+```
+
+---
+
 ### Off-ramp (USDC → BRL)
 
 **Fluxo:**

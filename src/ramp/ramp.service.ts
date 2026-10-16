@@ -426,6 +426,61 @@ export class RampService {
     });
   }
 
+  /**
+   * Client-facing Pix history. Keep the projection explicit: QR codes, XDRs,
+   * bank-account references and provider identifiers must never reach the
+   * general transaction history endpoint.
+   */
+  async listTransactions(userId: string) {
+    const [onramps, offramps] = await Promise.all([
+      this.prisma.onrampTransaction.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          amountBrl: true,
+          amountUsdc: true,
+          status: true,
+          completedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.offrampTransaction.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          amountBrl: true,
+          amountUsdc: true,
+          status: true,
+          completedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    return [
+      ...onramps.map((transaction) => ({
+        id: transaction.id,
+        direction: 'ONRAMP' as const,
+        amountBrl: transaction.amountBrl.div(100).toFixed(2),
+        amountUsdc: transaction.amountUsdc?.div(100).toFixed(2) ?? null,
+        status: transaction.status,
+        completedAt: transaction.completedAt,
+        createdAt: transaction.createdAt,
+      })),
+      ...offramps.map((transaction) => ({
+        id: transaction.id,
+        direction: 'OFFRAMP' as const,
+        amountBrl: transaction.amountBrl?.div(100).toFixed(2) ?? null,
+        amountUsdc: transaction.amountUsdc.div(1_000_000).toFixed(6),
+        status: transaction.status,
+        completedAt: transaction.completedAt,
+        createdAt: transaction.createdAt,
+      })),
+    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   async getOnramp(id: string, userId: string) {
     const txn = await this.prisma.onrampTransaction.findFirst({
       where: { id, userId },
