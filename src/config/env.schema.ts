@@ -71,6 +71,15 @@ export const envSchema = Joi.object({
   // Admin API Key for administrative routes
   ADMIN_API_KEY: Joi.string().optional(),
 
+  // Learning: 15 unique questions, 10 points each. USDC always requires 0.
+  EDUCATION_EURC_POINTS: Joi.number().integer().min(1).max(149).default(90),
+  EDUCATION_XLM_POINTS: Joi.number()
+    .integer()
+    .greater(Joi.ref('EDUCATION_EURC_POINTS'))
+    .max(150)
+    .default(150),
+  DISABLED_DEPOSIT_VAULT_IDS: Joi.string().allow('').default(''),
+
   // Vaults
   ALLOWED_VAULT_IDS: Joi.string().default(''),
 

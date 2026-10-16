@@ -1,0 +1,43 @@
+{
+  "observedAt": "2026-09-25T14:31:26.225Z",
+  "network": "mainnet",
+  "strategyUrl": "https://www.defindex.io/api/strategies",
+  "rpcUrl": "https://soroban-rpc.mainnet.stellar.gateway.fm",
+  "pool": "CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD",
+  "basis": "DeFindex strategy API plus read-only SAC.balance(pool) simulations. Pool cash balance is not a guaranteed vault withdrawal limit; no withdrawal or swap was executed.",
+  "rows": [
+    {
+      "symbol": "USDC",
+      "strategy": "CDB2WMKQQNVZMEBY7Q7GZ5C7E7IAFSNMZ7GGVD6WKTCEWK7XOIAVZSAP",
+      "asset": "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      "decimals": 7,
+      "strategyTvlAssetUnits": "20174092.4512792",
+      "apy7dPercent": 8.448847935906478,
+      "poolBalanceAtomic": "103490771406918",
+      "poolBalanceAssetUnits": "10349077.1406918",
+      "ledger": 64612207
+    },
+    {
+      "symbol": "EURC",
+      "strategy": "CC5CE6MWISDXT3MLNQ7R3FVILFVFEIH3COWGH45GJKL6BD2ZHF7F7JVI",
+      "asset": "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+      "decimals": 7,
+      "strategyTvlAssetUnits": "61475.3213706",
+      "apy7dPercent": 0.15029967618744866,
+      "poolBalanceAtomic": "1475316427274",
+      "poolBalanceAssetUnits": "147531.6427274",
+      "ledger": 64612207
+    },
+    {
+      "symbol": "XLM",
+      "strategy": "CDPWNUW7UMCSVO36VAJSQHQECISPJLCVPDASKHRC5SEROAAZDUQ5DG2Z",
+      "asset": "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+      "decimals": 7,
+      "strategyTvlAssetUnits": "48495.1160956",
+      "apy7dPercent": 0.00006815437241236566,
+      "poolBalanceAtomic": "6985951372449912",
+      "poolBalanceAssetUnits": "698595137.2449912",
+      "ledger": 64612207
+    }
+  ]
+}

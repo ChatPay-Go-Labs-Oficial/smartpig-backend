@@ -1,3 +1,5 @@
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { LearningService } from '../learning/learning.service';
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   ApiOperation,
@@ -22,7 +24,10 @@ class ListWithdrawalsQuery {
 @ApiTags('Withdrawals')
 @Controller('withdrawals')
 export class WithdrawalsController {
-  constructor(private readonly withdrawalsService: WithdrawalsService) {}
+  constructor(
+    private readonly withdrawalsService: WithdrawalsService,
+    private readonly learning: LearningService,
+  ) {}
 
   /**
    * POST /withdrawals
@@ -64,8 +69,14 @@ export class WithdrawalsController {
     description:
       'Duplicate idempotency key — a withdrawal with this key already exists.',
   })
-  createWithdrawal(@Body() dto: CreateWithdrawalDto) {
-    return this.withdrawalsService.createWithdrawal(dto);
+  async createWithdrawal(
+    @Body() dto: CreateWithdrawalDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.withdrawalsService.createWithdrawal({
+      ...dto,
+      userId: await this.learning.resolveUserId(user.id),
+    });
   }
 
   /**
@@ -104,8 +115,16 @@ export class WithdrawalsController {
     description:
       'Withdrawal intent is not in the expected XDR_GENERATED state.',
   })
-  submitSignedXdr(@Param('id') id: string, @Body() dto: SubmitSignedXdrDto) {
-    return this.withdrawalsService.submitSignedXdr(id, dto);
+  async submitSignedXdr(
+    @Param('id') id: string,
+    @Body() dto: SubmitSignedXdrDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.withdrawalsService.submitSignedXdr(
+      id,
+      dto,
+      await this.learning.resolveUserId(user.id),
+    );
   }
 
   /**
@@ -138,8 +157,14 @@ export class WithdrawalsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Withdrawal intent not found.' })
-  getWithdrawal(@Param('id') id: string) {
-    return this.withdrawalsService.getWithdrawal(id);
+  async getWithdrawal(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.withdrawalsService.getWithdrawal(
+      id,
+      await this.learning.resolveUserId(user.id),
+    );
   }
 
   /**
@@ -177,7 +202,12 @@ export class WithdrawalsController {
     status: 400,
     description: 'Missing or invalid userId query parameter.',
   })
-  listWithdrawals(@Query() query: ListWithdrawalsQuery) {
-    return this.withdrawalsService.listWithdrawals(query.userId);
+  async listWithdrawals(
+    @Query() _query: ListWithdrawalsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.withdrawalsService.listWithdrawals(
+      await this.learning.resolveUserId(user.id),
+    );
   }
 }

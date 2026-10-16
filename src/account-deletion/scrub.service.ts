@@ -200,6 +200,7 @@ export class ScrubService {
 
   /** Derived analytics and credentials. Neither has AML value. */
   private async deleteDerived(tx: Prisma.TransactionClient, userId: string) {
+    await tx.learningReward.deleteMany({ where: { userId } });
     await tx.portfolioSnapshot.deleteMany({ where: { userId } });
     await tx.refreshToken.deleteMany({ where: { userId } });
   }
