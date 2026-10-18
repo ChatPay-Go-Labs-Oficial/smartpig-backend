@@ -43,12 +43,17 @@ export class ReconciliationJob {
         const signedXdr = await this.getSignedXdr(tx);
         if (!signedXdr) continue;
 
-        const result = await this.defindex.submitSignedTransaction({ xdr: signedXdr });
+        const result = await this.defindex.submitSignedTransaction({
+          xdr: signedXdr,
+        });
         if (result.success) {
           await this.prisma.$transaction([
             this.prisma.transactionRecord.update({
               where: { id: tx.id },
-              data: { status: TransactionStatus.CONFIRMED, confirmedAt: new Date() },
+              data: {
+                status: TransactionStatus.CONFIRMED,
+                confirmedAt: new Date(),
+              },
             }),
             tx.intentType === IntentType.DEPOSIT && tx.depositIntentId
               ? this.prisma.depositIntent.update({
@@ -65,7 +70,9 @@ export class ReconciliationJob {
           this.logger.log(`Tx ${tx.txHash} confirmed`);
         }
       } catch (err) {
-        this.logger.warn(`Reconciliation failed for tx ${tx.id}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Reconciliation failed for tx ${tx.id}: ${(err as Error).message}`,
+        );
       }
     }
   }

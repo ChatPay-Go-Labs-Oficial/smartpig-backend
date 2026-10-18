@@ -25,7 +25,9 @@ export class ActivateWalletDto {
   @IsString()
   @IsNotEmpty()
   @Length(56, 56)
-  @Matches(/^G[A-Z2-7]{55}$/, { message: 'stellarAddress must be a valid Stellar public key' })
+  @Matches(/^G[A-Z2-7]{55}$/, {
+    message: 'stellarAddress must be a valid Stellar public key',
+  })
   stellarAddress: string;
 }
 

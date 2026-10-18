@@ -63,7 +63,12 @@ export interface UploadKycDocumentParams {
 export interface KycStatusResponse {
   customerId: string;
   walletPublicKey: string;
-  status: 'not_started' | 'proposed' | 'approved' | 'approved_chain_deploying' | 'rejected';
+  status:
+    | 'not_started'
+    | 'proposed'
+    | 'approved'
+    | 'approved_chain_deploying'
+    | 'rejected';
   onChainMarked: boolean;
   currentRejectionReason: string | null;
   approvedAt: string | null;
@@ -274,6 +279,11 @@ export interface EtherfuseAssetsResponse {
 
 export interface EtherfuseWebhookPayload {
   id: string;
-  eventType: 'bank_account_updated' | 'customer_updated' | 'order_updated' | 'swap_updated' | 'kyc_updated';
+  eventType:
+    | 'bank_account_updated'
+    | 'customer_updated'
+    | 'order_updated'
+    | 'swap_updated'
+    | 'kyc_updated';
   [key: string]: unknown;
 }
