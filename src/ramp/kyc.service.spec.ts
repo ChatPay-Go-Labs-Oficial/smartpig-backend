@@ -23,8 +23,12 @@ const mockPrisma = {
   user: { update: jest.fn() },
   // A transação só encadeia chamadas do mesmo mock — o callback recebe o
   // próprio objeto, então as asserções valem para dentro e fora dela.
-  $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(mockPrisma)),
+  $transaction: jest.fn(),
 };
+
+mockPrisma.$transaction.mockImplementation(
+  (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma),
+);
 
 const REJECTED_RECEIVER = {
   id: 'loc_1',

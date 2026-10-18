@@ -43,7 +43,11 @@ export class VaultManagerService {
         symbol: dto.symbol,
         description: dto.description,
         vaultFeeBps: dto.vaultFeeBps,
+        // Prisma accepts these DTOs as JSON at runtime, while its generated
+        // input type requires the explicit object boundary for class instances.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         roles: dto.roles as object,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
         assets: dto.assets as object,
         unsignedXdr: result.xdr,
         predictedVaultAddress: result.predictedVaultAddress,
@@ -51,7 +55,9 @@ export class VaultManagerService {
       },
     });
 
-    this.logger.log(`ManagedVault created: id=${managed.id} name=${managed.name}`);
+    this.logger.log(
+      `ManagedVault created: id=${managed.id} name=${managed.name}`,
+    );
 
     return {
       id: managed.id,
@@ -64,7 +70,9 @@ export class VaultManagerService {
   }
 
   async submitVault(id: string, dto: SubmitManagedVaultDto) {
-    const managed = await this.prisma.managedVault.findUnique({ where: { id } });
+    const managed = await this.prisma.managedVault.findUnique({
+      where: { id },
+    });
 
     if (!managed) {
       throw new NotFoundException(`ManagedVault ${id} not found`);
@@ -81,9 +89,13 @@ export class VaultManagerService {
       data: { signedXdr: dto.signedXdr, status: ManagedVaultStatus.SUBMITTED },
     });
 
-    let txResult: Awaited<ReturnType<DefindexService['submitSignedTransaction']>>;
+    let txResult: Awaited<
+      ReturnType<DefindexService['submitSignedTransaction']>
+    >;
     try {
-      txResult = await this.defindex.submitSignedTransaction({ xdr: dto.signedXdr });
+      txResult = await this.defindex.submitSignedTransaction({
+        xdr: dto.signedXdr,
+      });
     } catch (err) {
       await this.prisma.managedVault.update({
         where: { id },
@@ -93,7 +105,10 @@ export class VaultManagerService {
     }
 
     // Prefer actual vault address from tx result (VaultCreateResult has vaultAddress field)
-    const txResultRaw = txResult.result as { type?: string; vaultAddress?: string } | null | undefined;
+    const txResultRaw = txResult.result as
+      | { type?: string; vaultAddress?: string }
+      | null
+      | undefined;
     const vaultAddress =
       txResultRaw?.type === 'vault_create' && txResultRaw.vaultAddress
         ? txResultRaw.vaultAddress
@@ -109,6 +124,9 @@ export class VaultManagerService {
 
     let vaultCatalogId: string | undefined;
     if (vaultAddress) {
+      // The `as never` input workaround widens Prisma's inferred return type.
+      // Keep the selected result explicit until that legacy call is typed.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
       const catalog = (await this.prisma.vaultCatalog.upsert({
         where: { defindexVaultId: vaultAddress },
         create: {
@@ -175,7 +193,9 @@ export class VaultManagerService {
     return this.prisma.managedVault.findMany({
       where: { creatorUserId: userId },
       orderBy: { createdAt: 'desc' },
-      include: { vaultCatalog: { select: { apy: true, tvl: true, assetSymbol: true } } },
+      include: {
+        vaultCatalog: { select: { apy: true, tvl: true, assetSymbol: true } },
+      },
     });
   }
 }
