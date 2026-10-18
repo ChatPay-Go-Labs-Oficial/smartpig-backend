@@ -202,6 +202,16 @@ describe('PortfolioSnapshotJob', () => {
   });
 
   describe('scoping the vault loop', () => {
+    // The weekly full sweep keys off the weekday, so the clock is pinned here.
+    // Left on the real one, these expectations read every vault on a Sunday.
+    const monday = new Date('2026-10-19T00:05:00.000Z');
+
+    beforeAll(() =>
+      jest.useFakeTimers({ now: monday, doNotFake: ['nextTick'] }),
+    );
+    beforeEach(() => jest.setSystemTime(monday));
+    afterAll(() => jest.useRealTimers());
+
     it('reads only vaults the wallet has touched', async () => {
       // The full product grows with the catalog against a DeFindex rate limit
       // that already forced the sync jobs down to six hours.
@@ -218,6 +228,25 @@ describe('PortfolioSnapshotJob', () => {
       await job.takeSnapshots();
 
       expect(getPosition).toHaveBeenCalledTimes(1);
+    });
+
+    it('sweeps every vault once a week, whatever the history says', async () => {
+      // The backstop for anything the touched-vault reasoning misses.
+      jest.setSystemTime(new Date('2026-10-18T00:05:00.000Z')); // a Sunday
+
+      const { job, getPosition } = createJob({
+        vaults: [vault('v-eurc', 'EURC'), vault('v-never', 'XLM')],
+        positions: { 'v-eurc': { underlying: ['2'], shares: '2' } },
+        prices: new Map([
+          ['EURC', price('1.12')],
+          ['XLM', price('0.195')],
+        ]),
+        touched: [],
+      });
+
+      await job.takeSnapshots();
+
+      expect(getPosition).toHaveBeenCalledTimes(2);
     });
 
     it('does nothing when there are no wallets or no vaults', async () => {
