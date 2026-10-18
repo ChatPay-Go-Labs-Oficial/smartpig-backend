@@ -294,6 +294,11 @@ describe('EtherfuseRampService', () => {
           burnTransaction: 'XDR_BASE64...',
         },
       });
+      mockEtherfuse.getOrder.mockResolvedValue({
+        id: 'ef-ord-2',
+        status: 'pending_signature',
+        burn_transaction: 'XDR_BASE64...',
+      });
       mockPrisma.etherfuseOrder.create.mockResolvedValue({
         id: 'ord-2',
         status: EtherfuseOrderStatus.PENDING_SIGNATURE,
@@ -315,6 +320,14 @@ describe('EtherfuseRampService', () => {
 
       expect(result.unsignedBurnXdr).toBe('XDR_BASE64...');
       expect(result.status).toBe(EtherfuseOrderStatus.PENDING_SIGNATURE);
+      expect(mockPrisma.etherfuseOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            etherfuseOrderId: 'ef-ord-2',
+            unsignedBurnXdr: 'XDR_BASE64...',
+          }),
+        }),
+      );
     });
   });
 

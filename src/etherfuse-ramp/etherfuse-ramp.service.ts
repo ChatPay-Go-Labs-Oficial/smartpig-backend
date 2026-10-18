@@ -29,6 +29,48 @@ import {
   EtherfuseOrderStatus,
 } from '@prisma/client';
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readRecord(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined {
+  return value ? asRecord(value[key]) : undefined;
+}
+
+function readString(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const candidate = value?.[key];
+  return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function readErrorStatus(error: unknown): number | undefined {
+  const plain = asRecord(error);
+  const directStatus = plain?.['status'];
+  if (typeof directStatus === 'number') return directStatus;
+
+  const response = readRecord(plain, 'response');
+  const responseStatus = response?.['status'];
+  return typeof responseStatus === 'number' ? responseStatus : undefined;
+}
+
+function readBurnTransaction(value: unknown): string | undefined {
+  const details = asRecord(value);
+  const offramp = readRecord(details, 'offramp');
+  return (
+    readString(details, 'burnTransaction') ??
+    readString(details, 'burn_transaction') ??
+    readString(offramp, 'burnTransaction') ??
+    readString(offramp, 'burn_transaction')
+  );
+}
+
 @Injectable()
 export class EtherfuseRampService {
   private readonly logger = new Logger(EtherfuseRampService.name);
@@ -112,8 +154,8 @@ export class EtherfuseRampService {
         publicKey: dto.pubkey,
         blockchain: 'stellar',
       });
-    } catch (err: any) {
-      const status: number | undefined = err?.response?.status ?? err?.status;
+    } catch (err: unknown) {
+      const status = readErrorStatus(err);
       if (status !== 409) throw err;
       this.logger.debug(
         `Wallet ${dto.pubkey} already registered for customer ${customer.etherfuseOrgId}`,
@@ -384,15 +426,16 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const raw = result as any;
-    const onramp = raw.onramp ?? raw;
+    const raw = asRecord(result);
+    const onramp = readRecord(raw, 'onramp') ?? raw;
 
     return this.prisma.etherfuseOrder.create({
       data: {
         idempotencyKey: orderId,
         customerId: customer.id,
         bankAccountId: bankAccount.id,
-        etherfuseOrderId: onramp?.id ?? raw.id ?? orderId,
+        etherfuseOrderId:
+          readString(onramp, 'id') ?? readString(raw, 'id') ?? orderId,
         etherfuseQuoteId: dto.quoteId,
         direction: EtherfuseOrderDirection.ONRAMP,
         status: EtherfuseOrderStatus.PROCESSING,
@@ -428,22 +471,20 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const raw = result as any;
-    const etherfuseOrderId: string =
-      raw.offramp?.orderId ?? raw.offramp?.id ?? raw.id ?? orderId;
+    const raw = asRecord(result);
+    const offramp = readRecord(raw, 'offramp');
+    const etherfuseOrderId =
+      readString(offramp, 'orderId') ??
+      readString(offramp, 'id') ??
+      readString(raw, 'id') ??
+      orderId;
 
     // The POST /ramp/order response only contains the orderId.
     // Fetch the full order to get the burnTransaction XDR.
     let unsignedBurnXdr: string | undefined;
     try {
-      const orderDetails = (await this.etherfuse.getOrder(
-        etherfuseOrderId,
-      )) as any;
-      unsignedBurnXdr =
-        orderDetails?.burnTransaction ??
-        orderDetails?.burn_transaction ??
-        orderDetails?.offramp?.burnTransaction ??
-        orderDetails?.offramp?.burn_transaction;
+      const orderDetails = await this.etherfuse.getOrder(etherfuseOrderId);
+      unsignedBurnXdr = readBurnTransaction(orderDetails);
       this.logger.log(
         `createOfframp order details: ${JSON.stringify(orderDetails)} | unsignedBurnXdr found: ${!!unsignedBurnXdr}`,
       );
@@ -501,14 +542,8 @@ export class EtherfuseRampService {
       throw new BadRequestException('Order has no Etherfuse order ID');
     }
 
-    const details = (await this.etherfuse.getOrder(
-      order.etherfuseOrderId,
-    )) as any;
-    const unsignedBurnXdr: string | undefined =
-      details?.burnTransaction ??
-      details?.burn_transaction ??
-      details?.offramp?.burnTransaction ??
-      details?.offramp?.burn_transaction;
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId);
+    const unsignedBurnXdr = readBurnTransaction(details);
 
     this.logger.log(
       `refreshOfframpXdr for order ${order.id}: details=${JSON.stringify(details)} xdr=${!!unsignedBurnXdr}`,
@@ -589,10 +624,8 @@ export class EtherfuseRampService {
     if (!order.etherfuseOrderId)
       throw new BadRequestException('Order has no Etherfuse order ID');
 
-    const details = (await this.etherfuse.getOrder(
-      order.etherfuseOrderId,
-    )) as any;
-    const efStatus: string = details?.status ?? '';
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId);
+    const efStatus = readString(asRecord(details), 'status') ?? '';
     const mapped = this.mapEtherfuseStatus(efStatus);
 
     if (mapped && order.status !== mapped) {

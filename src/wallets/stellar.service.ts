@@ -410,22 +410,20 @@ export class StellarService {
       );
       this.logger.log(`Transaction submitted: ${data.hash}`);
       return { hash: data.hash };
-    } catch (err: any) {
-      const resp = err?.response?.data as Record<string, unknown> | undefined;
+    } catch (err: unknown) {
+      const resp = getHorizonResponse(err);
       this.logger.error(`Horizon error response: ${JSON.stringify(resp)}`);
-      const extras = resp?.extras as Record<string, unknown> | undefined;
-      const resultCodes = extras?.result_codes as
-        | Record<string, unknown>
-        | undefined;
-      const txCode = (resultCodes?.tx as string) ?? '';
-      const opCodes = (resultCodes?.operations as unknown[]) ?? [];
+      const extras = getRecordProperty(resp, 'extras');
+      const resultCodes = getRecordProperty(extras, 'result_codes');
+      const txCode = getStringProperty(resultCodes, 'tx') ?? '';
+      const opCodes = getStringArrayProperty(resultCodes, 'operations');
       const rawDetail =
         txCode ||
         opCodes.join(', ') ||
-        resp?.title ||
-        err?.message ||
+        getStringProperty(resp, 'title') ||
+        getErrorMessage(err) ||
         'Unknown error';
-      const humanMessage = translateStellarError(rawDetail as string);
+      const humanMessage = translateStellarError(rawDetail);
       this.logger.error(
         `Failed to submit transaction: ${humanMessage} (raw: ${rawDetail})`,
       );
@@ -759,7 +757,7 @@ export class StellarService {
           `FeeBump transaction submitted: ${hash} (baseFee=${baseFee}, attempt=${attempt})`,
         );
         return { hash };
-      } catch (err: any) {
+      } catch (err: unknown) {
         const error = parseStellarSubmissionError(err);
         this.logger.error(
           `FeeBump error response: ${JSON.stringify(error.response)}`,
@@ -798,9 +796,9 @@ export class StellarService {
         configuredFee,
         Math.ceil(networkP90 * this.feeBumpMultiplier),
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.logger.warn(
-        `Unable to load Horizon fee stats; using configured fee ${configuredFee}: ${error?.message ?? error}`,
+        `Unable to load Horizon fee stats; using configured fee ${configuredFee}: ${getErrorMessage(error) ?? stringifyUnknown(error)}`,
       );
       return configuredFee;
     }
@@ -903,24 +901,29 @@ export class StellarService {
     try {
       const account = await this.server.loadAccount(stellarAddress);
       const balances = account.balances
-        .filter((b: any) => {
+        .filter((b) => {
           const bal = parseFloat(b.balance);
           return bal > 0;
         })
-        .map((b: any) => ({
-          asset:
-            b.asset_type === 'native'
-              ? 'XLM'
-              : `${b.asset_code}:${b.asset_issuer}`,
-          balance: b.balance,
-        }));
+        .map((b) => {
+          const isCreditAsset = 'asset_code' in b && 'asset_issuer' in b;
+          return {
+            asset:
+              b.asset_type === 'native'
+                ? 'XLM'
+                : isCreditAsset
+                  ? `${b.asset_code}:${b.asset_issuer}`
+                  : 'undefined:undefined',
+            balance: b.balance,
+          };
+        });
       this.logger.log(
         `Wallet balances fetched for ${stellarAddress}: ${balances.length} assets`,
       );
       return balances;
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.logger.warn(
-        `Failed to fetch balances for ${stellarAddress}: ${err.message}`,
+        `Failed to fetch balances for ${stellarAddress}: ${getErrorMessage(err) ?? 'undefined'}`,
       );
       return [];
     }
@@ -972,29 +975,93 @@ function translateStellarError(code: string): string {
   return code;
 }
 
-function parseStellarSubmissionError(err: any): {
+function parseStellarSubmissionError(err: unknown): {
   response?: Record<string, unknown>;
   transactionCode: string;
   operationCodes: string[];
   rawDetail: string;
 } {
-  const response = err?.response?.data as Record<string, unknown> | undefined;
-  const extras = response?.extras as Record<string, unknown> | undefined;
-  const resultCodes = extras?.result_codes as
-    | Record<string, unknown>
-    | undefined;
-  const transactionCode = String(
-    resultCodes?.transaction ?? resultCodes?.tx ?? '',
-  );
-  const operationCodes = Array.isArray(resultCodes?.operations)
-    ? resultCodes.operations.map(String)
-    : [];
+  const response = getHorizonResponse(err);
+  const extras = getRecordProperty(response, 'extras');
+  const resultCodes = getRecordProperty(extras, 'result_codes');
+  const transactionCode =
+    getStringProperty(resultCodes, 'transaction') ??
+    getStringProperty(resultCodes, 'tx') ??
+    '';
+  const operationCodes = getStringArrayProperty(resultCodes, 'operations');
   const rawDetail =
     transactionCode ||
     operationCodes.join(', ') ||
-    String(
-      response?.detail ?? response?.title ?? err?.message ?? 'Unknown error',
-    );
+    getStringProperty(response, 'detail') ||
+    getStringProperty(response, 'title') ||
+    getErrorMessage(err) ||
+    'Unknown error';
 
   return { response, transactionCode, operationCodes, rawDetail };
+}
+
+function getHorizonResponse(
+  error: unknown,
+): Record<string, unknown> | undefined {
+  if (axios.isAxiosError<unknown>(error)) {
+    return isRecord(error.response?.data) ? error.response.data : undefined;
+  }
+  const response = getRecordProperty(
+    isRecord(error) ? error : undefined,
+    'response',
+  );
+  const data = response?.['data'];
+  return isRecord(data) ? data : undefined;
+}
+
+function getRecordProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): Record<string, unknown> | undefined {
+  const value = record?.[property];
+  return isRecord(value) ? value : undefined;
+}
+
+function getStringProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): string | undefined {
+  const value = record?.[property];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getStringArrayProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): string[] {
+  const value = record?.[property];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) return error.message;
+  if (!isRecord(error)) return undefined;
+  return getStringProperty(error, 'message');
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'string') return value;
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint' ||
+    typeof value === 'symbol'
+  ) {
+    return String(value);
+  }
+  if (typeof value === 'function') return '[object Function]';
+  return '[object Object]';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

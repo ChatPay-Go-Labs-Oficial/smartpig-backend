@@ -3,7 +3,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Decimal } from '@prisma/client/runtime/library';
 import { GiftStatus } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { GiftStellarService } from '../gifts/gift-stellar.service';
+import {
+  type AgentClaimableBalance,
+  GiftStellarService,
+} from '../gifts/gift-stellar.service';
 
 /**
  * Reconciles gift funding and refunds against the Stellar ledger:
@@ -37,12 +40,12 @@ export class GiftReconciliationJob {
     });
     if (pending.length === 0) return;
 
-    let balances;
+    let balances: AgentClaimableBalance[];
     try {
       balances = await this.stellar.listAgentClaimableBalances();
     } catch (err) {
       this.logger.warn(
-        `Unable to list agent claimable balances: ${(err as Error).message}`,
+        `Unable to list agent claimable balances: ${getErrorMessage(err)}`,
       );
       return;
     }
@@ -88,7 +91,7 @@ export class GiftReconciliationJob {
         }
       } catch (err) {
         this.logger.warn(
-          `Gift reconciliation failed for balance ${balance.balanceId}: ${(err as Error).message}`,
+          `Gift reconciliation failed for balance ${balance.balanceId}: ${getErrorMessage(err)}`,
         );
       }
     }
@@ -102,10 +105,9 @@ export class GiftReconciliationJob {
     });
 
     for (const gift of expired) {
+      if (gift.balanceId === null) continue;
       try {
-        const exists = await this.stellar.balanceExists(
-          gift.balanceId as string,
-        );
+        const exists = await this.stellar.balanceExists(gift.balanceId);
         if (!exists) {
           await this.prisma.gift.update({
             where: { id: gift.id },
@@ -115,9 +117,22 @@ export class GiftReconciliationJob {
         }
       } catch (err) {
         this.logger.warn(
-          `Refund detection failed for gift ${gift.id}: ${(err as Error).message}`,
+          `Refund detection failed for gift ${gift.id}: ${getErrorMessage(err)}`,
         );
       }
     }
   }
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+  return undefined;
 }
