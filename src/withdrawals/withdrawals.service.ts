@@ -15,6 +15,11 @@ import {
   DEFINDEX_SHARE_DECIMALS,
   toAssetUnits,
 } from '../defindex/asset-amount';
+import { classifyFailure } from '../defindex/failure-classifier';
+import {
+  normalizeTransactionState,
+  type FailureCode,
+} from '../defindex/transaction-state';
 
 const INTENT_TTL_HOURS = 24;
 
@@ -25,7 +30,10 @@ const intentSelect = {
   walletAccountId: true,
   vaultId: true,
   shareAmount: true,
+  requestedAmount: true,
   status: true,
+  failureCode: true,
+  errorMessage: true,
   expiresAt: true,
   createdAt: true,
   updatedAt: true,
@@ -84,6 +92,9 @@ export class WithdrawalsService {
         walletAccountId: dto.walletAccountId,
         vaultId: dto.vaultId,
         shareAmount: new Decimal(dto.shareAmount),
+        requestedAmount: dto.requestedAmount
+          ? new Decimal(dto.requestedAmount)
+          : undefined,
         expiresAt,
       },
     });
@@ -97,6 +108,9 @@ export class WithdrawalsService {
         data: {
           status: IntentStatus.FAILED,
           errorMessage: (err as Error).message,
+          // Where it failed is the context the message lacks: a throw here is
+          // always about building the XDR, whatever the upstream text says.
+          failureCode: classifyFailure(err, 'XDR_GENERATION_FAILED'),
         },
       });
       throw err;
@@ -127,16 +141,48 @@ export class WithdrawalsService {
       throw new BadRequestException(`Withdrawal intent ${id} has expired`);
     }
 
-    const { txHash } = await this.orchestrator.submitWithdrawal(
+    // The orchestrator reports what it actually wrote. This used to return a
+    // hardcoded SUBMITTED even when the row had already reached CONFIRMED, which
+    // left the client unable to distinguish "on chain" from "done".
+    const { txHash, status } = await this.orchestrator.submitWithdrawal(
       id,
       dto.signedXdr,
     );
     this.logger.log(`Withdrawal ${id} submitted to chain → txHash=${txHash}`);
-    return { id, txHash, status: IntentStatus.SUBMITTED };
+    return { id, txHash, status };
   }
 
+  /**
+   * The intent plus the client-facing state.
+   *
+   * `state` is the projection the app renders; the raw `status` stays for
+   * backwards compatibility with the published build, which reads it. `txHash`
+   * comes from the transaction record — without it a failed withdrawal gives
+   * support nothing to look up.
+   */
   async getWithdrawal(id: string) {
-    return this.findIntentOrThrow(id);
+    const intent = await this.prisma.withdrawalIntent.findUnique({
+      where: { id },
+      select: {
+        ...intentSelect,
+        transaction: { select: { status: true, txHash: true } },
+      },
+    });
+    if (!intent)
+      throw new NotFoundException(`Withdrawal intent ${id} not found`);
+
+    const { transaction, ...rest } = intent;
+    return {
+      ...rest,
+      txHash: transaction?.txHash ?? null,
+      state: normalizeTransactionState({
+        status: rest.status,
+        expiresAt: rest.expiresAt,
+        failureCode: rest.failureCode,
+        txConfirmed: transaction?.status === 'CONFIRMED',
+      }),
+      failureCode: (rest.failureCode ?? null) as FailureCode | null,
+    };
   }
 
   async listWithdrawals(userId: string) {
@@ -144,18 +190,32 @@ export class WithdrawalsService {
       where: { userId },
       select: {
         ...intentSelect,
-        transaction: { select: { status: true } },
+        transaction: { select: { status: true, txHash: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return withdrawals.map(({ transaction, ...withdrawal }) => ({
-      ...withdrawal,
-      status:
+    return withdrawals.map(({ transaction, ...withdrawal }) => {
+      const status =
         transaction?.status === 'CONFIRMED'
           ? IntentStatus.CONFIRMED
-          : withdrawal.status,
-    }));
+          : withdrawal.status;
+
+      return {
+        ...withdrawal,
+        status,
+        txHash: transaction?.txHash ?? null,
+        // Same projection as the detail route, so history and detail can never
+        // disagree about what the user is looking at.
+        state: normalizeTransactionState({
+          status,
+          expiresAt: withdrawal.expiresAt,
+          failureCode: withdrawal.failureCode,
+          txConfirmed: transaction?.status === 'CONFIRMED',
+        }),
+        failureCode: (withdrawal.failureCode ?? null) as FailureCode | null,
+      };
+    });
   }
 
   private async findIntentOrThrow(id: string) {

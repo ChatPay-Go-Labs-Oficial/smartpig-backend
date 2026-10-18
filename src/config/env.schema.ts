@@ -71,8 +71,39 @@ export const envSchema = Joi.object({
   // Admin API Key for administrative routes
   ADMIN_API_KEY: Joi.string().optional(),
 
+  /// Replaces the built-in asset registry entirely. Lets an asset be added on
+  /// Railway without a deploy. Validated at boot; malformed config stops startup.
+  STELLAR_ASSETS_JSON: Joi.string().allow('').optional(),
+
+  /// Soroban RPC, required to read the Reflector oracle. Without it pricing falls
+  /// back to STATIC, so the mode always describes what will actually happen.
+  STELLAR_SOROBAN_RPC_URL: Joi.string().uri().optional(),
+  /// `REFLECTOR` reads the oracle. `STATIC` uses PRICING_STATIC_USD, which is an
+  /// explicit escape hatch rather than a silent fallback: a configured constant
+  /// presented as a market price is worse than no price.
+  PRICING_MODE: Joi.string().valid('REFLECTOR', 'STATIC').default('REFLECTOR'),
+  /// `USDC=1,EURC=1.12,XLM=0.19`
+  PRICING_STATIC_USD: Joi.string().allow('').default(''),
+  /// Any funded account; a simulation never charges or signs it.
+  REFLECTOR_SIMULATION_SOURCE: Joi.string().optional(),
+
+  /// `DEX` uses a classic path payment against the Stellar order book. `DISABLED`
+  /// leaves a vault listed and withdrawable with deposits paused, which is the
+  /// honest degradation when a pair has no usable market.
+  CONVERSION_MODE: Joi.string().valid('DEX', 'DISABLED').default('DEX'),
+  STELLAR_HORIZON_TIMEOUT_MS: Joi.number().integer().min(1000).default(15000),
+
   // Vaults
-  ALLOWED_VAULT_IDS: Joi.string().default(''),
+  // Keep disabled during the staged rollout: the new app collects acknowledgments,
+  // while installed legacy builds can still deposit. Enable only after every active
+  // non-USDC vault has a published disclosure and the compatible app is mandatory.
+  ENFORCE_VAULT_DISCLOSURE: Joi.boolean().default(false),
+  // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
+  // `.default('')` only applies when the key is absent. Without it, the documented
+  // "empty means no allowlist" could only be expressed by deleting the variable —
+  // setting it empty refused to boot. That is the migration path once the registry
+  // is authoritative, so it has to be expressible.
+  ALLOWED_VAULT_IDS: Joi.string().allow('').default(''),
 
   // Account deletion
   ACCOUNT_DELETION_DUST_USD: Joi.number().min(0).default(0.01),

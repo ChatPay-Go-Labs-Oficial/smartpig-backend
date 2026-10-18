@@ -110,6 +110,21 @@ For every schema change going forward:
    npm run migrate:deploy
    ```
 
+## Rollout do disclosure dos vaults
+
+O enforcement nasce desligado (`ENFORCE_VAULT_DISCLOSURE=false`) para manter
+compatibilidade com versões já instaladas do app. O app novo ainda exibe o
+disclosure e registra o aceite; a flag controla apenas o bloqueio server-side.
+
+Ative `ENFORCE_VAULT_DISCLOSURE=true` somente depois de confirmar que:
+
+1. Todo vault ativo que não seja USDC possui uma versão publicada do disclosure.
+2. A versão do app que permite revisar e aceitar o disclosure tornou-se obrigatória.
+3. Um depósito de smoke test concluiu o ciclo de leitura, aceite e criação do intent.
+
+Enquanto a flag estiver desligada, clientes antigos continuam depositando e o
+rollout pode ser revertido sem alteração de banco.
+
 ---
 
 ## Environment variables

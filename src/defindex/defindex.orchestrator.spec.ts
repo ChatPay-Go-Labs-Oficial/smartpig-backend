@@ -106,7 +106,7 @@ describe('DefindexOrchestrator', () => {
 
     await expect(
       orchestrator.submitDeposit('deposit-1', 'user-signed-xdr'),
-    ).resolves.toEqual({ txHash: 'tx-hash' });
+    ).resolves.toEqual({ txHash: 'tx-hash', status: 'CONFIRMED' });
     expect(buildSponsoredFeeBumpXdr).toHaveBeenCalledWith(
       'user-signed-xdr',
       'unsigned-xdr',
@@ -160,7 +160,7 @@ describe('DefindexOrchestrator', () => {
 
     await expect(
       orchestrator.submitWithdrawal('withdrawal-1', 'user-signed-withdraw-xdr'),
-    ).resolves.toEqual({ txHash: 'withdraw-tx-hash' });
+    ).resolves.toEqual({ txHash: 'withdraw-tx-hash', status: 'CONFIRMED' });
     expect(buildSponsoredFeeBumpXdr).toHaveBeenCalledWith(
       'user-signed-withdraw-xdr',
       'unsigned-withdraw-xdr',

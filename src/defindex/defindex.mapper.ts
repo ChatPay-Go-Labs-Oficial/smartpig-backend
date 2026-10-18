@@ -1,4 +1,8 @@
-import { VaultInfoResponse, VaultBalanceResponse, VaultApyResponse } from '@defindex/sdk';
+import {
+  VaultInfoResponse,
+  VaultBalanceResponse,
+  VaultApyResponse,
+} from '@defindex/sdk';
 import { VaultInfoDto, VaultBalanceDto, VaultApyDto } from './dto/defindex.dto';
 
 export class DefindexMapper {
@@ -16,16 +20,35 @@ export class DefindexMapper {
       assetSymbol: primaryAsset?.symbol ?? null,
       tvl: primaryFunds?.total_amount ?? null,
       apy: raw.apy,
-      assets: raw.assets?.map((a) => ({
-        address: a.address,
-        name: a.name,
-        symbol: a.symbol,
-        strategies: a.strategies?.map((s) => ({
-          address: s.address,
-          name: s.name,
-          paused: s.paused,
+      // Both of these used to be dropped here. The configuration record the
+      // deliverable requires cannot be filled from chain without them, and the
+      // fee is one of the risks the disclosure has to state.
+      roles: raw.roles
+        ? {
+            manager: raw.roles.manager,
+            emergencyManager: raw.roles.emergencyManager,
+            rebalanceManager: raw.roles.rebalanceManager,
+            feeReceiver: raw.roles.feeReceiver,
+          }
+        : null,
+      fees: raw.feesBps
+        ? {
+            vaultFeeBps: raw.feesBps.vaultFee,
+            defindexFeeBps: raw.feesBps.defindexFee,
+          }
+        : null,
+      assets:
+        raw.assets?.map((a) => ({
+          address: a.address,
+          name: a.name,
+          symbol: a.symbol,
+          strategies:
+            a.strategies?.map((s) => ({
+              address: s.address,
+              name: s.name,
+              paused: s.paused,
+            })) ?? [],
         })) ?? [],
-      })) ?? [],
     };
   }
 

@@ -556,7 +556,8 @@ Cria uma intenção de saque e gera um XDR não assinado.
   "userId": "clx...",
   "walletAccountId": "clx...",
   "vaultId": "clx...",
-  "shareAmount": "50.00000000"
+  "shareAmount": "49.0200000",
+  "requestedAmount": "50.0000000"
 }
 ```
 
@@ -565,11 +566,17 @@ Cria uma intenção de saque e gera um XDR não assinado.
 {
   "id": "clx...",
   "status": "XDR_GENERATED",
-  "shareAmount": "50.00000000",
+  "shareAmount": "49.0200000",
+  "requestedAmount": "50.0000000",
   "unsignedXdr": "AAAAAgAAAA...",
   "expiresAt": "2026-05-09T14:00:00.000Z"
 }
 ```
+
+`shareAmount` é a quantidade de dfTokens executada pelo contrato.
+`requestedAmount` é o valor do ativo solicitado pelo usuário e deve ser usado
+em recibos e no histórico. O campo é opcional apenas para manter clientes
+publicados compatíveis; novos clientes devem sempre enviá-lo.
 
 ---
 
@@ -895,6 +902,31 @@ Status de uma transação de on-ramp.
 **Body:** `{ "userId": "clx..." }`
 
 **Status possíveis:** `PENDING` | `AWAITING_PAYMENT` | `PROCESSING` | `COMPLETED` | `FAILED` | `REFUNDED`
+
+---
+
+#### `GET /ramp/transactions` 🔒
+Lista o histórico Pix da conta autenticada, reunindo on-ramps e off-ramps em
+ordem decrescente de criação. O usuário é derivado das carteiras verificadas no
+Privy; a rota não aceita outro usuário informado pelo cliente.
+
+Os valores são retornados como strings decimais em BRL e USDC. Código Pix,
+XDRs, conta bancária e identificadores internos do provedor não são expostos.
+
+**Resposta 200:**
+```json
+[
+  {
+    "id": "clx...",
+    "direction": "ONRAMP",
+    "amountBrl": "100.00",
+    "amountUsdc": "19.50",
+    "status": "COMPLETED",
+    "completedAt": "2026-10-15T12:01:00.000Z",
+    "createdAt": "2026-10-15T12:00:00.000Z"
+  }
+]
+```
 
 ---
 

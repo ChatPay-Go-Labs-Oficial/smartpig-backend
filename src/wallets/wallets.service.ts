@@ -262,7 +262,7 @@ export class WalletsService {
             `Wallet ${dto.walletAccountId} activated, tx: ${hash}`,
           );
           return { success: true, txHash: hash };
-        } catch (error: any) {
+        } catch (error: unknown) {
           const activatedOnChain = await this.stellarService.isAccountActivated(
             wallet.stellarAddress,
           );
@@ -288,8 +288,10 @@ export class WalletsService {
             where: { id: dto.walletAccountId },
             data: {
               activationStatus: 'FAILED',
-              activationErrorMessage:
-                error?.message ?? 'Activation transaction failed',
+              activationErrorMessage: getErrorMessage(
+                error,
+                'Activation transaction failed',
+              ),
             },
           });
           return { success: false, error };
@@ -301,4 +303,17 @@ export class WalletsService {
     if (!result.success) throw result.error;
     return result;
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+  return fallback;
 }

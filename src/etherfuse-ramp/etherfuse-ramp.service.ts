@@ -29,6 +29,48 @@ import {
   EtherfuseOrderStatus,
 } from '@prisma/client';
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readRecord(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | undefined {
+  return value ? asRecord(value[key]) : undefined;
+}
+
+function readString(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const candidate = value?.[key];
+  return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function readErrorStatus(error: unknown): number | undefined {
+  const plain = asRecord(error);
+  const directStatus = plain?.['status'];
+  if (typeof directStatus === 'number') return directStatus;
+
+  const response = readRecord(plain, 'response');
+  const responseStatus = response?.['status'];
+  return typeof responseStatus === 'number' ? responseStatus : undefined;
+}
+
+function readBurnTransaction(value: unknown): string | undefined {
+  const details = asRecord(value);
+  const offramp = readRecord(details, 'offramp');
+  return (
+    readString(details, 'burnTransaction') ??
+    readString(details, 'burn_transaction') ??
+    readString(offramp, 'burnTransaction') ??
+    readString(offramp, 'burn_transaction')
+  );
+}
+
 @Injectable()
 export class EtherfuseRampService {
   private readonly logger = new Logger(EtherfuseRampService.name);
@@ -37,7 +79,7 @@ export class EtherfuseRampService {
     private readonly prisma: PrismaService,
     private readonly etherfuse: EtherfuseService,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   // ─── Onboarding: Create Customer Org ───────────────────────────────────────
 
@@ -46,12 +88,15 @@ export class EtherfuseRampService {
       where: { userId: dto.userId },
     });
     if (existing) {
-      throw new BadRequestException('User already has an Etherfuse customer record');
+      throw new BadRequestException(
+        'User already has an Etherfuse customer record',
+      );
     }
 
     const orgId = randomUUID();
     const nameParts = [dto.firstName, dto.lastName].filter(Boolean).join(' ');
-    const displayName: string = dto.displayName || nameParts || dto.email || orgId;
+    const displayName: string =
+      dto.displayName || nameParts || dto.email || orgId;
 
     const org = await this.etherfuse.createChildOrg({
       id: orgId,
@@ -92,7 +137,8 @@ export class EtherfuseRampService {
       where: { userId },
       include: { bankAccounts: true, orders: true },
     });
-    if (!customer) throw new NotFoundException('Etherfuse customer not found for this user');
+    if (!customer)
+      throw new NotFoundException('Etherfuse customer not found for this user');
     return customer;
   }
 
@@ -108,10 +154,12 @@ export class EtherfuseRampService {
         publicKey: dto.pubkey,
         blockchain: 'stellar',
       });
-    } catch (err: any) {
-      const status: number | undefined = err?.response?.status ?? err?.status;
+    } catch (err: unknown) {
+      const status = readErrorStatus(err);
       if (status !== 409) throw err;
-      this.logger.debug(`Wallet ${dto.pubkey} already registered for customer ${customer.etherfuseOrgId}`);
+      this.logger.debug(
+        `Wallet ${dto.pubkey} already registered for customer ${customer.etherfuseOrgId}`,
+      );
     }
 
     await this.etherfuse.submitKyc(customer.etherfuseOrgId, {
@@ -124,7 +172,11 @@ export class EtherfuseRampService {
         name: dto.name,
         dateOfBirth: dto.dateOfBirth,
         address: dto.address,
-        idNumbers: dto.idNumbers?.map(n => ({ value: n.value, id: n.value, type: n.type })),
+        idNumbers: dto.idNumbers?.map((n) => ({
+          value: n.value,
+          id: n.value,
+          type: n.type,
+        })),
       },
     });
 
@@ -142,7 +194,8 @@ export class EtherfuseRampService {
     const customer = await this.requireCustomer(dto.userId);
 
     const dataUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
-    const efDocumentType = dto.documentType === 'selfie' ? 'selfie' : 'document';
+    const efDocumentType =
+      dto.documentType === 'selfie' ? 'selfie' : 'document';
 
     await this.etherfuse.uploadKycDocument(customer.etherfuseOrgId, {
       pubkey: dto.pubkey,
@@ -198,17 +251,23 @@ export class EtherfuseRampService {
   // ─── Agreements ─────────────────────────────────────────────────────────────
 
   async acceptElectronicSignature(dto: AcceptAgreementDto) {
-    await this.etherfuse.acceptElectronicSignature({ presignedUrl: dto.presignedUrl });
+    await this.etherfuse.acceptElectronicSignature({
+      presignedUrl: dto.presignedUrl,
+    });
     return { accepted: true };
   }
 
   async acceptTermsAndConditions(dto: AcceptAgreementDto) {
-    await this.etherfuse.acceptTermsAndConditions({ presignedUrl: dto.presignedUrl });
+    await this.etherfuse.acceptTermsAndConditions({
+      presignedUrl: dto.presignedUrl,
+    });
     return { accepted: true };
   }
 
   async acceptCustomerAgreement(dto: AcceptAgreementDto) {
-    await this.etherfuse.acceptCustomerAgreement({ presignedUrl: dto.presignedUrl });
+    await this.etherfuse.acceptCustomerAgreement({
+      presignedUrl: dto.presignedUrl,
+    });
     return { accepted: true };
   }
 
@@ -245,15 +304,16 @@ export class EtherfuseRampService {
     });
   }
 
-  async createPixBankAccount(_dto: CreatePixBankAccountDto) {
+  createPixBankAccount(dto: CreatePixBankAccountDto) {
+    void dto;
     // NOTE: Etherfuse's POST /ramp/bank-account currently only accepts CLABE (Mexico).
     // The PIX variant (Brazil/BRL) is not yet implemented in their API.
     // This endpoint is reserved for when Etherfuse adds PIX support.
     // Reference: https://docs.etherfuse.com/api-reference/bank-accounts/create-bank-account-presigned-url.md
     throw new BadRequestException(
       'PIX bank account registration is not yet supported by Etherfuse. ' +
-      'For BRL on-ramp, Etherfuse provides their own PIX deposit key at order creation. ' +
-      'Check back when Etherfuse adds PIX off-ramp bank account support.',
+        'For BRL on-ramp, Etherfuse provides their own PIX deposit key at order creation. ' +
+        'Check back when Etherfuse adds PIX off-ramp bank account support.',
     );
   }
 
@@ -267,27 +327,34 @@ export class EtherfuseRampService {
   async syncBankAccounts(userId: string) {
     const customer = await this.requireCustomer(userId);
 
-    let remoteAccounts: Awaited<ReturnType<typeof this.etherfuse.listBankAccounts>>;
+    let remoteAccounts: Awaited<
+      ReturnType<typeof this.etherfuse.listBankAccounts>
+    >;
     try {
-      remoteAccounts = await this.etherfuse.listBankAccounts(customer.etherfuseOrgId);
+      remoteAccounts = await this.etherfuse.listBankAccounts(
+        customer.etherfuseOrgId,
+      );
     } catch (err) {
       this.logger.error(`Failed to fetch bank accounts from Etherfuse: ${err}`);
       throw err;
     }
 
-    this.logger.debug(`Etherfuse returned ${remoteAccounts.length} bank account(s) for org ${customer.etherfuseOrgId}`);
+    this.logger.debug(
+      `Etherfuse returned ${remoteAccounts.length} bank account(s) for org ${customer.etherfuseOrgId}`,
+    );
 
     const upserted = await Promise.all(
-      remoteAccounts.map((account) => {
+      remoteAccounts.map(async (account) => {
         const etherfuseBankId = account.bankAccountId ?? account.id ?? '';
         if (!etherfuseBankId) {
           this.logger.warn('Skipping bank account with no ID from Etherfuse');
           return null;
         }
 
-        const rail = (account.currency === 'brl' || account.pixKey) ? 'pix' : 'spei';
+        const rail =
+          account.currency === 'brl' || account.pixKey ? 'pix' : 'spei';
 
-        return this.prisma.etherfuseBankAccount.upsert({
+        return await this.prisma.etherfuseBankAccount.upsert({
           where: { etherfuseBankId },
           create: {
             customerId: customer.id,
@@ -311,7 +378,9 @@ export class EtherfuseRampService {
     );
 
     const synced = upserted.filter(Boolean);
-    this.logger.log(`Synced ${synced.length} bank accounts for customer ${customer.id}`);
+    this.logger.log(
+      `Synced ${synced.length} bank accounts for customer ${customer.id}`,
+    );
     return synced;
   }
 
@@ -344,7 +413,9 @@ export class EtherfuseRampService {
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
     if (!bankAccount.isCompliant) {
-      throw new BadRequestException('Bank account is not yet compliant — KYC must be approved first');
+      throw new BadRequestException(
+        'Bank account is not yet compliant — KYC must be approved first',
+      );
     }
 
     const orderId = randomUUID();
@@ -355,15 +426,16 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const raw = result as any;
-    const onramp = raw.onramp ?? raw;
+    const raw = asRecord(result);
+    const onramp = readRecord(raw, 'onramp') ?? raw;
 
     return this.prisma.etherfuseOrder.create({
       data: {
         idempotencyKey: orderId,
         customerId: customer.id,
         bankAccountId: bankAccount.id,
-        etherfuseOrderId: onramp?.id ?? raw.id ?? orderId,
+        etherfuseOrderId:
+          readString(onramp, 'id') ?? readString(raw, 'id') ?? orderId,
         etherfuseQuoteId: dto.quoteId,
         direction: EtherfuseOrderDirection.ONRAMP,
         status: EtherfuseOrderStatus.PROCESSING,
@@ -386,7 +458,9 @@ export class EtherfuseRampService {
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
     if (!bankAccount.isCompliant) {
-      throw new BadRequestException('Bank account is not yet compliant — KYC must be approved first');
+      throw new BadRequestException(
+        'Bank account is not yet compliant — KYC must be approved first',
+      );
     }
 
     const orderId = randomUUID();
@@ -397,24 +471,27 @@ export class EtherfuseRampService {
       publicKey: dto.walletAddress,
     });
 
-    const raw = result as any;
-    const etherfuseOrderId: string = raw.offramp?.orderId ?? raw.offramp?.id ?? raw.id ?? orderId;
+    const raw = asRecord(result);
+    const offramp = readRecord(raw, 'offramp');
+    const etherfuseOrderId =
+      readString(offramp, 'orderId') ??
+      readString(offramp, 'id') ??
+      readString(raw, 'id') ??
+      orderId;
 
     // The POST /ramp/order response only contains the orderId.
     // Fetch the full order to get the burnTransaction XDR.
     let unsignedBurnXdr: string | undefined;
     try {
-      const orderDetails = await this.etherfuse.getOrder(etherfuseOrderId) as any;
-      unsignedBurnXdr =
-        orderDetails?.burnTransaction ??
-        orderDetails?.burn_transaction ??
-        orderDetails?.offramp?.burnTransaction ??
-        orderDetails?.offramp?.burn_transaction;
+      const orderDetails = await this.etherfuse.getOrder(etherfuseOrderId);
+      unsignedBurnXdr = readBurnTransaction(orderDetails);
       this.logger.log(
         `createOfframp order details: ${JSON.stringify(orderDetails)} | unsignedBurnXdr found: ${!!unsignedBurnXdr}`,
       );
     } catch (err) {
-      this.logger.warn(`Could not fetch order details for ${etherfuseOrderId}: ${err}`);
+      this.logger.warn(
+        `Could not fetch order details for ${etherfuseOrderId}: ${err}`,
+      );
     }
 
     const order = await this.prisma.etherfuseOrder.create({
@@ -457,23 +534,25 @@ export class EtherfuseRampService {
     });
     if (!order) throw new NotFoundException('Order not found');
     if (order.direction !== EtherfuseOrderDirection.OFFRAMP) {
-      throw new BadRequestException('This endpoint only applies to off-ramp orders');
+      throw new BadRequestException(
+        'This endpoint only applies to off-ramp orders',
+      );
     }
     if (!order.etherfuseOrderId) {
       throw new BadRequestException('Order has no Etherfuse order ID');
     }
 
-    const details = await this.etherfuse.getOrder(order.etherfuseOrderId) as any;
-    const unsignedBurnXdr: string | undefined =
-      details?.burnTransaction ??
-      details?.burn_transaction ??
-      details?.offramp?.burnTransaction ??
-      details?.offramp?.burn_transaction;
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId);
+    const unsignedBurnXdr = readBurnTransaction(details);
 
-    this.logger.log(`refreshOfframpXdr for order ${order.id}: details=${JSON.stringify(details)} xdr=${!!unsignedBurnXdr}`);
+    this.logger.log(
+      `refreshOfframpXdr for order ${order.id}: details=${JSON.stringify(details)} xdr=${!!unsignedBurnXdr}`,
+    );
 
     if (!unsignedBurnXdr) {
-      throw new NotFoundException('burnTransaction not available yet for this order — try again in a few seconds');
+      throw new NotFoundException(
+        'burnTransaction not available yet for this order — try again in a few seconds',
+      );
     }
 
     const updated = await this.prisma.etherfuseOrder.update({
@@ -493,7 +572,11 @@ export class EtherfuseRampService {
     };
   }
 
-  async submitOfframp(id: string, userId: string, dto: SubmitEtherfuseOfframpDto) {
+  async submitOfframp(
+    id: string,
+    userId: string,
+    dto: SubmitEtherfuseOfframpDto,
+  ) {
     const customer = await this.requireCustomer(userId);
 
     const order = await this.prisma.etherfuseOrder.findFirst({
@@ -522,10 +605,7 @@ export class EtherfuseRampService {
     const order = await this.prisma.etherfuseOrder.findFirst({
       where: {
         customerId: customer.id,
-        OR: [
-          { id },
-          { etherfuseOrderId: id },
-        ],
+        OR: [{ id }, { etherfuseOrderId: id }],
       },
     });
     if (!order) throw new NotFoundException('Order not found');
@@ -541,10 +621,11 @@ export class EtherfuseRampService {
       },
     });
     if (!order) throw new NotFoundException('Order not found');
-    if (!order.etherfuseOrderId) throw new BadRequestException('Order has no Etherfuse order ID');
+    if (!order.etherfuseOrderId)
+      throw new BadRequestException('Order has no Etherfuse order ID');
 
-    const details = await this.etherfuse.getOrder(order.etherfuseOrderId) as any;
-    const efStatus: string = details?.status ?? '';
+    const details = await this.etherfuse.getOrder(order.etherfuseOrderId);
+    const efStatus = readString(asRecord(details), 'status') ?? '';
     const mapped = this.mapEtherfuseStatus(efStatus);
 
     if (mapped && order.status !== mapped) {
@@ -552,7 +633,9 @@ export class EtherfuseRampService {
         where: { id: order.id },
         data: {
           status: mapped,
-          completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(mapped) ? new Date() : undefined,
+          completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(mapped)
+            ? new Date()
+            : undefined,
         },
       });
       this.logger.log(`Order ${order.id} synced: ${order.status} → ${mapped}`);
@@ -568,7 +651,9 @@ export class EtherfuseRampService {
       where: { etherfuseOrderId },
     });
     if (!order) {
-      this.logger.warn(`Webhook: order not found for Etherfuse ID ${etherfuseOrderId}`);
+      this.logger.warn(
+        `Webhook: order not found for Etherfuse ID ${etherfuseOrderId}`,
+      );
       return;
     }
 
@@ -577,7 +662,9 @@ export class EtherfuseRampService {
       where: { id: order.id },
       data: {
         status: mapped,
-        completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(mapped) ? new Date() : undefined,
+        completedAt: ['COMPLETED', 'FAILED', 'REFUNDED'].includes(mapped)
+          ? new Date()
+          : undefined,
       },
     });
     this.logger.log(`EtherfuseOrder ${order.id} updated to ${mapped}`);
@@ -588,7 +675,9 @@ export class EtherfuseRampService {
       where: { etherfuseOrgId: customerId },
     });
     if (!customer) {
-      this.logger.warn(`Webhook: customer not found for Etherfuse org ${customerId}`);
+      this.logger.warn(
+        `Webhook: customer not found for Etherfuse org ${customerId}`,
+      );
       return;
     }
 
@@ -608,7 +697,9 @@ export class EtherfuseRampService {
       where: { etherfuseBankId: bankAccountId },
     });
     if (!account) {
-      this.logger.warn(`Webhook: bank account not found for Etherfuse ID ${bankAccountId}`);
+      this.logger.warn(
+        `Webhook: bank account not found for Etherfuse ID ${bankAccountId}`,
+      );
       return;
     }
 
@@ -616,7 +707,9 @@ export class EtherfuseRampService {
       where: { id: account.id },
       data: { isCompliant: compliant },
     });
-    this.logger.log(`EtherfuseBankAccount ${account.id} compliant → ${compliant}`);
+    this.logger.log(
+      `EtherfuseBankAccount ${account.id} compliant → ${compliant}`,
+    );
   }
 
   // ─── Sandbox helpers ────────────────────────────────────────────────────────
@@ -625,7 +718,9 @@ export class EtherfuseRampService {
     const baseUrl = this.config.get<string>('ETHERFUSE_BASE_URL', '');
     const isTestEnv = baseUrl.includes('sand') || baseUrl.includes('dev');
     if (!isTestEnv) {
-      throw new ForbiddenException('This endpoint is only available in test environments (sandbox/devnet)');
+      throw new ForbiddenException(
+        'This endpoint is only available in test environments (sandbox/devnet)',
+      );
     }
 
     const customer = await this.requireCustomer(userId);
@@ -633,24 +728,29 @@ export class EtherfuseRampService {
     const order = await this.prisma.etherfuseOrder.findFirst({
       where: {
         customerId: customer.id,
-        OR: [
-          { id: orderId },
-          { etherfuseOrderId: orderId },
-        ],
+        OR: [{ id: orderId }, { etherfuseOrderId: orderId }],
       },
     });
     if (!order) throw new NotFoundException('Order not found');
     if (order.direction !== EtherfuseOrderDirection.ONRAMP) {
-      throw new BadRequestException('Simulate payment is only applicable to on-ramp orders');
+      throw new BadRequestException(
+        'Simulate payment is only applicable to on-ramp orders',
+      );
     }
     if (!order.etherfuseOrderId) {
       throw new BadRequestException('Order has no Etherfuse order ID yet');
     }
 
     await this.etherfuse.sandboxSimulateFiatReceived(order.etherfuseOrderId);
-    this.logger.log(`Sandbox: simulated fiat received for order ${order.id} (Etherfuse: ${order.etherfuseOrderId})`);
+    this.logger.log(
+      `Sandbox: simulated fiat received for order ${order.id} (Etherfuse: ${order.etherfuseOrderId})`,
+    );
 
-    return { simulated: true, orderId: order.id, etherfuseOrderId: order.etherfuseOrderId };
+    return {
+      simulated: true,
+      orderId: order.id,
+      etherfuseOrderId: order.etherfuseOrderId,
+    };
   }
 
   // ─── Assets ─────────────────────────────────────────────────────────────────
@@ -675,22 +775,33 @@ export class EtherfuseRampService {
 
   private mapKycStatus(status: string): EtherfuseKycStatus {
     switch (status) {
-      case 'not_started': return EtherfuseKycStatus.NOT_STARTED;
-      case 'proposed': return EtherfuseKycStatus.PROPOSED;
-      case 'approved': return EtherfuseKycStatus.APPROVED;
-      case 'approved_chain_deploying': return EtherfuseKycStatus.APPROVED_CHAIN_DEPLOYING;
-      case 'rejected': return EtherfuseKycStatus.REJECTED;
-      default: return EtherfuseKycStatus.NOT_STARTED;
+      case 'not_started':
+        return EtherfuseKycStatus.NOT_STARTED;
+      case 'proposed':
+        return EtherfuseKycStatus.PROPOSED;
+      case 'approved':
+        return EtherfuseKycStatus.APPROVED;
+      case 'approved_chain_deploying':
+        return EtherfuseKycStatus.APPROVED_CHAIN_DEPLOYING;
+      case 'rejected':
+        return EtherfuseKycStatus.REJECTED;
+      default:
+        return EtherfuseKycStatus.NOT_STARTED;
     }
   }
 
   private mapOrderStatus(status: string): EtherfuseOrderStatus {
     switch (status) {
-      case 'completed': return EtherfuseOrderStatus.COMPLETED;
-      case 'failed': return EtherfuseOrderStatus.FAILED;
-      case 'refunded': return EtherfuseOrderStatus.REFUNDED;
-      case 'processing': return EtherfuseOrderStatus.PROCESSING;
-      default: return EtherfuseOrderStatus.PROCESSING;
+      case 'completed':
+        return EtherfuseOrderStatus.COMPLETED;
+      case 'failed':
+        return EtherfuseOrderStatus.FAILED;
+      case 'refunded':
+        return EtherfuseOrderStatus.REFUNDED;
+      case 'processing':
+        return EtherfuseOrderStatus.PROCESSING;
+      default:
+        return EtherfuseOrderStatus.PROCESSING;
     }
   }
 
