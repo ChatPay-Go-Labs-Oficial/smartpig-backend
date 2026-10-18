@@ -452,7 +452,9 @@ describe('RampService', () => {
           signedDelegationHash: 'abc123',
         }),
       ).rejects.toThrow(BadRequestException);
-      expect(mockStellarService.buildSponsoredFeeBumpXdr).not.toHaveBeenCalled();
+      expect(
+        mockStellarService.buildSponsoredFeeBumpXdr,
+      ).not.toHaveBeenCalled();
     });
 
     it('wraps the signed delegation in a Treasury fee-bump before submitting to BlindPay', async () => {

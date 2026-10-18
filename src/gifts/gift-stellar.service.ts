@@ -25,6 +25,21 @@ export interface BalanceFundingTx {
   memo: string | null;
 }
 
+interface HorizonTransactionRecord {
+  hash: string;
+  memo?: string | null;
+}
+
+interface HorizonTransactionsResponse {
+  _embedded?: {
+    records?: HorizonTransactionRecord[];
+  };
+}
+
+interface HorizonSubmissionResponse {
+  hash?: string;
+}
+
 /**
  * Stellar operations for the gifting flow.
  *
@@ -99,7 +114,7 @@ export class GiftStellarService {
   async getBalanceFundingTx(
     balanceId: string,
   ): Promise<BalanceFundingTx | null> {
-    const { data } = await axios.get(
+    const { data } = await axios.get<HorizonTransactionsResponse>(
       `${this.horizonUrl}/claimable_balances/${balanceId}/transactions`,
       { params: { limit: 1, order: 'asc' }, timeout: 10_000 },
     );
@@ -116,8 +131,7 @@ export class GiftStellarService {
       });
       return true;
     } catch (err) {
-      const status = (err as { response?: { status?: number } }).response
-        ?.status;
+      const status = getHttpStatus(err);
       if (status === 404) return false;
       throw err;
     }
@@ -157,7 +171,7 @@ export class GiftStellarService {
    */
   private async submitXdr(signedXdr: string): Promise<{ hash: string }> {
     try {
-      const response = await axios.post(
+      const response = await axios.post<HorizonSubmissionResponse>(
         `${this.horizonUrl}/transactions`,
         new URLSearchParams({ tx: signedXdr }).toString(),
         {
@@ -170,23 +184,99 @@ export class GiftStellarService {
       }
       return { hash: response.data.hash };
     } catch (err) {
-      const resp = (err as { response?: { data?: unknown } }).response?.data;
+      const resp = getHorizonErrorResponse(err);
       if (resp) {
         this.logger.error(`Horizon error response: ${JSON.stringify(resp)}`);
       }
-      const codes = (
-        resp as {
-          extras?: {
-            result_codes?: { transaction?: string; operations?: string[] };
-          };
-        }
-      )?.extras?.result_codes;
+      const extras = getRecordProperty(resp, 'extras');
+      const codes = getRecordProperty(extras, 'result_codes');
+      const transactionCode = getStringProperty(codes, 'transaction') ?? '';
+      const operationCodes = getStringArrayProperty(codes, 'operations');
       const detail = codes
-        ? `${codes.transaction ?? ''} ${codes.operations?.join(',') ?? ''}`.trim()
-        : (err as Error).message;
+        ? `${transactionCode} ${operationCodes.join(',')}`.trim()
+        : getErrorMessage(err);
       throw new ServiceUnavailableException(
         `Failed to submit gift transaction to Stellar (${detail})`,
       );
     }
   }
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) return error.message;
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
+  return undefined;
+}
+
+function getHttpStatus(error: unknown): number | undefined {
+  if (axios.isAxiosError(error)) return error.response?.status;
+  if (typeof error !== 'object' || error === null || !('response' in error)) {
+    return undefined;
+  }
+  const response = error.response;
+  if (
+    typeof response !== 'object' ||
+    response === null ||
+    !('status' in response)
+  ) {
+    return undefined;
+  }
+  return typeof response.status === 'number' ? response.status : undefined;
+}
+
+function getHorizonErrorResponse(
+  error: unknown,
+): Record<string, unknown> | undefined {
+  if (axios.isAxiosError<unknown>(error)) {
+    return isRecord(error.response?.data) ? error.response.data : undefined;
+  }
+  if (typeof error !== 'object' || error === null || !('response' in error)) {
+    return undefined;
+  }
+  const response = error.response;
+  if (
+    typeof response !== 'object' ||
+    response === null ||
+    !('data' in response)
+  ) {
+    return undefined;
+  }
+  return isRecord(response.data) ? response.data : undefined;
+}
+
+function getRecordProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): Record<string, unknown> | undefined {
+  const value = record?.[property];
+  return isRecord(value) ? value : undefined;
+}
+
+function getStringProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): string | undefined {
+  const value = record?.[property];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getStringArrayProperty(
+  record: Record<string, unknown> | undefined,
+  property: string,
+): string[] {
+  const value = record?.[property];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }

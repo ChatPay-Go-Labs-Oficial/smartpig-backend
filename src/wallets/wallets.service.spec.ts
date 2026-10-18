@@ -1,4 +1,6 @@
 import { WalletsService } from './wallets.service';
+import { PrismaService } from '../infra/prisma/prisma.service';
+import { StellarService } from './stellar.service';
 
 describe('WalletsService activation idempotency', () => {
   const walletId = 'wallet-1';
@@ -21,16 +23,20 @@ describe('WalletsService activation idempotency', () => {
         findUnique: jest
           .fn()
           .mockImplementation(() => Promise.resolve({ ...wallet })),
-        update: jest.fn().mockImplementation(({ data }) => {
-          Object.assign(wallet, data);
-          return Promise.resolve({ ...wallet });
-        }),
+        update: jest
+          .fn()
+          .mockImplementation(({ data }: { data: Partial<typeof wallet> }) => {
+            Object.assign(wallet, data);
+            return Promise.resolve({ ...wallet });
+          }),
       },
     };
     const prisma = {
       $transaction: jest
         .fn()
-        .mockImplementation(async (callback) => callback(tx)),
+        .mockImplementation((callback: (client: typeof tx) => unknown) =>
+          Promise.resolve(callback(tx)),
+        ),
     };
     const stellar = {
       buildActivationXdr: jest.fn().mockResolvedValue('unsigned-xdr'),
@@ -41,7 +47,10 @@ describe('WalletsService activation idempotency', () => {
     };
 
     return {
-      service: new WalletsService(prisma as any, stellar as any),
+      service: new WalletsService(
+        prisma as unknown as PrismaService,
+        stellar as unknown as StellarService,
+      ),
       wallet,
       stellar,
     };

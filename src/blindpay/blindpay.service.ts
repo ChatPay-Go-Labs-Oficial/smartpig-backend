@@ -36,6 +36,15 @@ import {
  */
 const SELF_CUSTODY_DEFAULT = true;
 
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) return error.message;
+  if (typeof error !== 'object' || error === null || !('message' in error)) {
+    return undefined;
+  }
+
+  return typeof error.message === 'string' ? error.message : undefined;
+}
+
 @Injectable()
 export class BlindPayService implements OnModuleInit {
   private readonly logger = new Logger(BlindPayService.name);
@@ -309,7 +318,7 @@ export class BlindPayService implements OnModuleInit {
     } catch (err) {
       // Non-fatal: trustline may already exist or not be needed
       this.logger.warn(
-        `create-asset-trustline failed for ${walletAddress}: ${err?.message}`,
+        `create-asset-trustline failed for ${walletAddress}: ${getErrorMessage(err)}`,
       );
       return null;
     }
@@ -332,7 +341,9 @@ export class BlindPayService implements OnModuleInit {
       });
       this.logger.debug(`[TESTNET] Minted ${amount} USDB to ${address}`);
     } catch (err) {
-      this.logger.warn(`[TESTNET] mint-usdb-stellar failed: ${err?.message}`);
+      this.logger.warn(
+        `[TESTNET] mint-usdb-stellar failed: ${getErrorMessage(err)}`,
+      );
     }
   }
 

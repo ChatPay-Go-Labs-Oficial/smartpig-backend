@@ -23,7 +23,10 @@ export class ExpiredIntentsJob {
     const purgeThreshold = new Date();
     purgeThreshold.setDate(purgeThreshold.getDate() - this.PURGE_AFTER_DAYS);
 
-    const expirableStatuses = [IntentStatus.CREATED, IntentStatus.XDR_GENERATED];
+    const expirableStatuses = [
+      IntentStatus.CREATED,
+      IntentStatus.XDR_GENERATED,
+    ];
 
     // Mark expired-but-not-yet-failed intents
     const [expiredDeposits, expiredWithdrawals] = await Promise.all([
@@ -39,7 +42,9 @@ export class ExpiredIntentsJob {
 
     const totalExpired = expiredDeposits.count + expiredWithdrawals.count;
     if (totalExpired > 0) {
-      this.logger.log(`Expired ${totalExpired} intent(s) (deposits: ${expiredDeposits.count}, withdrawals: ${expiredWithdrawals.count})`);
+      this.logger.log(
+        `Expired ${totalExpired} intent(s) (deposits: ${expiredDeposits.count}, withdrawals: ${expiredWithdrawals.count})`,
+      );
     }
 
     // Purge old failed intents that have no linked transaction

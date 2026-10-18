@@ -21,6 +21,11 @@ import {
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 100;
 
+interface CreateVaultApiResponse {
+  xdr?: string | null;
+  predictedVaultAddress?: string | null;
+}
+
 function getHttpStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
 
@@ -104,10 +109,10 @@ export class DefindexService {
     try {
       const data = await withRetry(() =>
         this.httpClient
-          .get(`/vault/discover?network=${net}`)
+          .get<DiscoverVaultsResponseDto>(`/vault/discover?network=${net}`)
           .then((res) => res.data),
       );
-      return data as DiscoverVaultsResponseDto;
+      return data;
     } catch (err) {
       this.logger.warn(`discoverVaults failed for network=${net}`);
       mapDefindexError(err);
@@ -119,10 +124,10 @@ export class DefindexService {
     try {
       const data = await withRetry(() =>
         this.httpClient
-          .get(`/strategies?network=${net}`)
+          .get<StrategyDto[]>(`/strategies?network=${net}`)
           .then((res) => res.data),
       );
-      return data as StrategyDto[];
+      return data;
     } catch (err) {
       this.logger.warn(`getStrategies failed for network=${net}`);
       mapDefindexError(err);
@@ -280,7 +285,10 @@ export class DefindexService {
     try {
       const data = await withRetry(() =>
         this.httpClient
-          .post(`/factory/create-vault-auto-invest?network=${net}`, params)
+          .post<CreateVaultApiResponse>(
+            `/factory/create-vault-auto-invest?network=${net}`,
+            params,
+          )
           .then((res) => res.data),
       );
       return {

@@ -58,7 +58,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onboarding/organization')
   @ApiOperation({
     summary: 'Create Etherfuse child organization for the user',
-    description: 'Creates a personal child org under the SmartPig Etherfuse account. Must be called before any KYC or order operations.',
+    description:
+      'Creates a personal child org under the SmartPig Etherfuse account. Must be called before any KYC or order operations.',
   })
   @ApiResponse({
     status: 201,
@@ -74,14 +75,21 @@ export class EtherfuseRampController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'User already has an Etherfuse customer record' })
+  @ApiResponse({
+    status: 400,
+    description: 'User already has an Etherfuse customer record',
+  })
   createCustomer(@Body() dto: CreateEtherfuseCustomerDto) {
     return this.service.createCustomer(dto);
   }
 
   @Get('etherfuse/onboarding/organization')
   @ApiOperation({ summary: 'Get Etherfuse customer record for the user' })
-  @ApiQuery({ name: 'userId', required: true, description: 'Internal SmartPig user ID' })
+  @ApiQuery({
+    name: 'userId',
+    required: true,
+    description: 'Internal SmartPig user ID',
+  })
   @ApiResponse({
     status: 200,
     description: 'Customer record with bank accounts and orders',
@@ -98,7 +106,10 @@ export class EtherfuseRampController {
       },
     },
   })
-  @ApiResponse({ status: 404, description: 'Etherfuse customer not found for this user' })
+  @ApiResponse({
+    status: 404,
+    description: 'Etherfuse customer not found for this user',
+  })
   getCustomer(@Query('userId') userId: string) {
     return this.service.getCustomer(userId);
   }
@@ -108,7 +119,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onboarding/kyc')
   @ApiOperation({
     summary: 'Submit KYC identity data (programmatic)',
-    description: 'Submit name, address, occupation, and Mexican tax IDs (CURP/RFC) for KYC review.',
+    description:
+      'Submit name, address, occupation, and Mexican tax IDs (CURP/RFC) for KYC review.',
   })
   @ApiResponse({
     status: 201,
@@ -137,12 +149,19 @@ export class EtherfuseRampController {
         file: { type: 'string', format: 'binary' },
         userId: { type: 'string' },
         pubkey: { type: 'string' },
-        documentType: { type: 'string', enum: ['selfie', 'id_front', 'id_back'] },
+        documentType: {
+          type: 'string',
+          enum: ['selfie', 'id_front', 'id_back'],
+        },
       },
       required: ['file', 'userId', 'pubkey', 'documentType'],
     },
   })
-  @ApiResponse({ status: 201, description: 'Document uploaded successfully', schema: { example: { success: true } } })
+  @ApiResponse({
+    status: 201,
+    description: 'Document uploaded successfully',
+    schema: { example: { success: true } },
+  })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
   uploadKycDocument(
     @UploadedFile() file: Express.Multer.File,
@@ -152,14 +171,17 @@ export class EtherfuseRampController {
   }
 
   @Post('etherfuse/onboarding/kyc/status')
-  @ApiOperation({ summary: 'Get current KYC status from Etherfuse and sync to DB' })
+  @ApiOperation({
+    summary: 'Get current KYC status from Etherfuse and sync to DB',
+  })
   @ApiResponse({
     status: 201,
     description: 'Current KYC status',
     schema: {
       example: {
         customerId: '24a382a9-2490-404b-9db3-4a6fb9793719',
-        walletPublicKey: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        walletPublicKey:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         status: 'approved',
         onChainMarked: true,
         currentRejectionReason: null,
@@ -178,7 +200,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onboarding/presigned-url')
   @ApiOperation({
     summary: 'Generate presigned URL for bank account onboarding',
-    description: 'Generates a short-lived presigned URL (15 min). Open this URL in a browser/WebView to complete the bank account registration flow on Etherfuse.',
+    description:
+      'Generates a short-lived presigned URL (15 min). Open this URL in a browser/WebView to complete the bank account registration flow on Etherfuse.',
   })
   @ApiResponse({
     status: 201,
@@ -197,21 +220,33 @@ export class EtherfuseRampController {
 
   @Post('etherfuse/onboarding/agreements/esign')
   @ApiOperation({ summary: 'Accept electronic signature consent' })
-  @ApiResponse({ status: 201, description: 'Agreement accepted', schema: { example: { accepted: true } } })
+  @ApiResponse({
+    status: 201,
+    description: 'Agreement accepted',
+    schema: { example: { accepted: true } },
+  })
   acceptEsign(@Body() dto: AcceptAgreementDto) {
     return this.service.acceptElectronicSignature(dto);
   }
 
   @Post('etherfuse/onboarding/agreements/terms')
   @ApiOperation({ summary: 'Accept terms and conditions' })
-  @ApiResponse({ status: 201, description: 'Agreement accepted', schema: { example: { accepted: true } } })
+  @ApiResponse({
+    status: 201,
+    description: 'Agreement accepted',
+    schema: { example: { accepted: true } },
+  })
   acceptTerms(@Body() dto: AcceptAgreementDto) {
     return this.service.acceptTermsAndConditions(dto);
   }
 
   @Post('etherfuse/onboarding/agreements/customer')
   @ApiOperation({ summary: 'Accept customer agreement' })
-  @ApiResponse({ status: 201, description: 'Agreement accepted', schema: { example: { accepted: true } } })
+  @ApiResponse({
+    status: 201,
+    description: 'Agreement accepted',
+    schema: { example: { accepted: true } },
+  })
   acceptCustomerAgreement(@Body() dto: AcceptAgreementDto) {
     return this.service.acceptCustomerAgreement(dto);
   }
@@ -221,7 +256,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onboarding/bank-account')
   @ApiOperation({
     summary: 'Register a Mexican bank account (CLABE)',
-    description: 'Registers a personal bank account for on/off-ramp. Requires KYC to be in proposed or approved state.',
+    description:
+      'Registers a personal bank account for on/off-ramp. Requires KYC to be in proposed or approved state.',
   })
   @ApiResponse({
     status: 201,
@@ -250,14 +286,21 @@ export class EtherfuseRampController {
     summary: 'Register a Brazilian PIX bank account',
     description: 'Not yet supported by Etherfuse — reserved for future use.',
   })
-  @ApiResponse({ status: 400, description: 'PIX bank account registration not yet supported' })
+  @ApiResponse({
+    status: 400,
+    description: 'PIX bank account registration not yet supported',
+  })
   createPixBankAccount(@Body() dto: CreatePixBankAccountDto) {
     return this.service.createPixBankAccount(dto);
   }
 
   @Get('etherfuse/onboarding/bank-accounts')
   @ApiOperation({ summary: 'List registered bank accounts (from local DB)' })
-  @ApiQuery({ name: 'userId', required: true, description: 'Internal SmartPig user ID' })
+  @ApiQuery({
+    name: 'userId',
+    required: true,
+    description: 'Internal SmartPig user ID',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of bank accounts',
@@ -287,7 +330,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onboarding/bank-accounts/sync')
   @ApiOperation({
     summary: 'Sync bank accounts from Etherfuse into local DB',
-    description: 'Fetches all bank accounts from Etherfuse and upserts them locally. Use this after completing the presigned URL flow.',
+    description:
+      'Fetches all bank accounts from Etherfuse and upserts them locally. Use this after completing the presigned URL flow.',
   })
   @ApiResponse({
     status: 201,
@@ -314,9 +358,14 @@ export class EtherfuseRampController {
   @Get('etherfuse/assets')
   @ApiOperation({
     summary: 'List available assets for on/off-ramp',
-    description: 'Returns available crypto and fiat assets for the given blockchain and currency.',
+    description:
+      'Returns available crypto and fiat assets for the given blockchain and currency.',
   })
-  @ApiQuery({ name: 'currency', required: true, description: 'Fiat currency code (e.g. brl, mxn)' })
+  @ApiQuery({
+    name: 'currency',
+    required: true,
+    description: 'Fiat currency code (e.g. brl, mxn)',
+  })
   @ApiResponse({ status: 200, description: 'List of available assets' })
   listAssets(
     @Query('currency') currency: string,
@@ -330,7 +379,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/quote')
   @ApiOperation({
     summary: 'Get a conversion quote (onramp or offramp)',
-    description: 'Quotes expire after 2 minutes. Use the quoteId immediately when creating an order.',
+    description:
+      'Quotes expire after 2 minutes. Use the quoteId immediately when creating an order.',
   })
   @ApiResponse({
     status: 201,
@@ -339,7 +389,11 @@ export class EtherfuseRampController {
       example: {
         quoteId: '86119884-fa4f-4e03-924b-3602edc9a216',
         blockchain: 'stellar',
-        quoteAssets: { type: 'offramp', sourceAsset: 'USDC:GBBD47IF...', targetAsset: 'BRL' },
+        quoteAssets: {
+          type: 'offramp',
+          sourceAsset: 'USDC:GBBD47IF...',
+          targetAsset: 'BRL',
+        },
         sourceAmount: '20',
         destinationAmount: '101.17943',
         exchangeRate: '5.05897',
@@ -359,7 +413,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/onramp')
   @ApiOperation({
     summary: 'Create an on-ramp order (fiat → crypto on Stellar)',
-    description: 'Creates an order from a previously obtained quote. The user must send fiat to the returned deposit instructions.',
+    description:
+      'Creates an order from a previously obtained quote. The user must send fiat to the returned deposit instructions.',
   })
   @ApiResponse({
     status: 201,
@@ -375,7 +430,8 @@ export class EtherfuseRampController {
         targetAsset: 'USDC:GBBD47IF...',
         sourceAmount: '50',
         destinationAmount: '9.88',
-        walletAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        walletAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         createdAt: '2026-05-15T12:00:00.000Z',
       },
     },
@@ -389,7 +445,8 @@ export class EtherfuseRampController {
   @Post('etherfuse/offramp')
   @ApiOperation({
     summary: 'Create an off-ramp order (crypto on Stellar → fiat)',
-    description: 'Creates an off-ramp order. Returns an unsigned Stellar burn XDR (`unsignedBurnXdr`) that the mobile client must sign and submit via `POST /etherfuse/offramp/:id/submit`. If `unsignedBurnXdr` is null, call `POST /etherfuse/offramp/:id/refresh-xdr`.',
+    description:
+      'Creates an off-ramp order. Returns an unsigned Stellar burn XDR (`unsignedBurnXdr`) that the mobile client must sign and submit via `POST /etherfuse/offramp/:id/submit`. If `unsignedBurnXdr` is null, call `POST /etherfuse/offramp/:id/refresh-xdr`.',
   })
   @ApiResponse({
     status: 201,
@@ -413,9 +470,13 @@ export class EtherfuseRampController {
   @Post('etherfuse/offramp/:id/refresh-xdr')
   @ApiOperation({
     summary: 'Refresh unsigned burn XDR for an off-ramp order',
-    description: 'Fetches the latest order details from Etherfuse and updates `unsignedBurnXdr` in the DB. Use when the XDR was null at order creation time.',
+    description:
+      'Fetches the latest order details from Etherfuse and updates `unsignedBurnXdr` in the DB. Use when the XDR was null at order creation time.',
   })
-  @ApiParam({ name: 'id', description: 'Internal order ID or Etherfuse order ID' })
+  @ApiParam({
+    name: 'id',
+    description: 'Internal order ID or Etherfuse order ID',
+  })
   @ApiResponse({
     status: 201,
     description: 'XDR fetched and saved',
@@ -429,18 +490,19 @@ export class EtherfuseRampController {
       },
     },
   })
-  @ApiResponse({ status: 404, description: 'Order not found or XDR not yet available' })
-  refreshOfframpXdr(
-    @Param('id') id: string,
-    @Body() dto: UserIdDto,
-  ) {
+  @ApiResponse({
+    status: 404,
+    description: 'Order not found or XDR not yet available',
+  })
+  refreshOfframpXdr(@Param('id') id: string, @Body() dto: UserIdDto) {
     return this.service.refreshOfframpXdr(id, dto.userId);
   }
 
   @Post('etherfuse/offramp/:id/submit')
   @ApiOperation({
     summary: 'Submit signed burn XDR for off-ramp',
-    description: 'After signing the `unsignedBurnXdr` with the user\'s Stellar wallet, submit the signed XDR here to complete the off-ramp.',
+    description:
+      "After signing the `unsignedBurnXdr` with the user's Stellar wallet, submit the signed XDR here to complete the off-ramp.",
   })
   @ApiParam({ name: 'id', description: 'Internal order ID' })
   @ApiResponse({
@@ -454,7 +516,10 @@ export class EtherfuseRampController {
       },
     },
   })
-  @ApiResponse({ status: 400, description: 'Order is not in PENDING_SIGNATURE status' })
+  @ApiResponse({
+    status: 400,
+    description: 'Order is not in PENDING_SIGNATURE status',
+  })
   @ApiResponse({ status: 404, description: 'Order not found' })
   submitOfframp(
     @Param('id') id: string,
@@ -465,8 +530,15 @@ export class EtherfuseRampController {
 
   @Get('etherfuse/orders/:id')
   @ApiOperation({ summary: 'Get order details' })
-  @ApiParam({ name: 'id', description: 'Internal order ID or Etherfuse order ID' })
-  @ApiQuery({ name: 'userId', required: true, description: 'Internal SmartPig user ID' })
+  @ApiParam({
+    name: 'id',
+    description: 'Internal order ID or Etherfuse order ID',
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: true,
+    description: 'Internal SmartPig user ID',
+  })
   @ApiResponse({
     status: 200,
     description: 'Order details',
@@ -480,7 +552,8 @@ export class EtherfuseRampController {
         targetAsset: 'BRL',
         sourceAmount: '20',
         destinationAmount: '101.17943',
-        walletAddress: 'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
+        walletAddress:
+          'GBBIVZN5N7EMYMQHZL4ME64GWDM5REJDLFBDET7KLIIA6GQRQVJ2IQWE',
         unsignedBurnXdr: 'AAAAAgAAAABCiuW9...',
         signedBurnXdr: null,
         createdAt: '2026-05-15T12:00:00.000Z',
@@ -496,14 +569,12 @@ export class EtherfuseRampController {
   @Post('etherfuse/orders/:id/sync')
   @ApiOperation({
     summary: 'Sync order status from Etherfuse',
-    description: 'Fetches the latest order status from the Etherfuse API and updates the local database. Useful when webhooks are not configured or in development.',
+    description:
+      'Fetches the latest order status from the Etherfuse API and updates the local database. Useful when webhooks are not configured or in development.',
   })
   @ApiResponse({ status: 200, description: 'Order synced' })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  syncOrder(
-    @Param('id') id: string,
-    @Body() dto: UserIdDto,
-  ) {
+  syncOrder(@Param('id') id: string, @Body() dto: UserIdDto) {
     return this.service.syncOrderFromEtherfuse(id, dto.userId);
   }
 
@@ -511,10 +582,15 @@ export class EtherfuseRampController {
 
   @Post('etherfuse/sandbox/onramp/:id/simulate-payment')
   @ApiOperation({
-    summary: '[SANDBOX/DEVNET ONLY] Simulate fiat payment received for an on-ramp order',
-    description: 'Triggers `POST /ramp/order/fiat_received` on the Etherfuse sandbox/devnet to advance the order to COMPLETED. Only available in test environments.',
+    summary:
+      '[SANDBOX/DEVNET ONLY] Simulate fiat payment received for an on-ramp order',
+    description:
+      'Triggers `POST /ramp/order/fiat_received` on the Etherfuse sandbox/devnet to advance the order to COMPLETED. Only available in test environments.',
   })
-  @ApiParam({ name: 'id', description: 'Internal order ID or Etherfuse order ID' })
+  @ApiParam({
+    name: 'id',
+    description: 'Internal order ID or Etherfuse order ID',
+  })
   @ApiResponse({
     status: 201,
     description: 'Payment simulated',
@@ -527,12 +603,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 400, description: 'Order is not an on-ramp' })
-  @ApiResponse({ status: 403, description: 'Only available in test environments' })
+  @ApiResponse({
+    status: 403,
+    description: 'Only available in test environments',
+  })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  sandboxSimulatePayment(
-    @Param('id') id: string,
-    @Body() dto: UserIdDto,
-  ) {
+  sandboxSimulatePayment(@Param('id') id: string, @Body() dto: UserIdDto) {
     return this.service.sandboxSimulatePayment(id, dto.userId);
   }
 
@@ -542,10 +618,18 @@ export class EtherfuseRampController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Etherfuse webhook handler',
-    description: 'Internal endpoint for Etherfuse event notifications (order_updated, kyc_updated, bank_account_updated). Signature verified via X-Signature header (RFC 8785 JCS + HMAC-SHA256).',
+    description:
+      'Internal endpoint for Etherfuse event notifications (order_updated, kyc_updated, bank_account_updated). Signature verified via X-Signature header (RFC 8785 JCS + HMAC-SHA256).',
   })
-  @ApiResponse({ status: 200, description: 'Event received', schema: { example: { received: true } } })
-  @ApiResponse({ status: 401, description: 'Invalid or missing webhook signature' })
+  @ApiResponse({
+    status: 200,
+    description: 'Event received',
+    schema: { example: { received: true } },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing webhook signature',
+  })
   async handleEtherfuseWebhook(
     @Req() req: Request,
     @Headers('x-signature') signature: string,
@@ -564,7 +648,9 @@ export class EtherfuseRampController {
         );
       }
     } else if (eventType === 'kyc_updated') {
-      const kycData = body['kyc_updated'] as Record<string, unknown> | undefined;
+      const kycData = body['kyc_updated'] as
+        | Record<string, unknown>
+        | undefined;
       if (kycData?.['customerId'] !== undefined) {
         await this.service.handleKycUpdated(
           kycData['customerId'] as string,
@@ -572,7 +658,9 @@ export class EtherfuseRampController {
         );
       }
     } else if (eventType === 'bank_account_updated') {
-      const account = body['bankAccount'] as Record<string, unknown> | undefined;
+      const account = body['bankAccount'] as
+        | Record<string, unknown>
+        | undefined;
       if (account?.['id'] !== undefined) {
         await this.service.handleBankAccountUpdated(
           account['id'] as string,
@@ -584,7 +672,10 @@ export class EtherfuseRampController {
     return { received: true };
   }
 
-  private verifyWebhookSignature(body: Record<string, unknown>, signature: string) {
+  private verifyWebhookSignature(
+    body: Record<string, unknown>,
+    signature: string,
+  ) {
     const secret = this.config.get<string>('ETHERFUSE_WEBHOOK_SECRET');
     if (!secret) return; // Skip in development if not configured
 

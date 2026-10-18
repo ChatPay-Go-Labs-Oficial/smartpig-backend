@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { EtherfuseRampService } from './etherfuse-ramp.service';
 import { EtherfuseService } from '../etherfuse/etherfuse.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { EtherfuseKycStatus, EtherfuseOrderDirection, EtherfuseOrderStatus } from '@prisma/client';
+import { EtherfuseKycStatus, EtherfuseOrderStatus } from '@prisma/client';
 
 const mockEtherfuse = {
   createChildOrg: jest.fn(),
@@ -79,7 +79,10 @@ describe('EtherfuseRampService', () => {
         EtherfuseRampService,
         { provide: EtherfuseService, useValue: mockEtherfuse },
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: ConfigService, useValue: { get: jest.fn(), getOrThrow: jest.fn() } },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn(), getOrThrow: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -91,7 +94,9 @@ describe('EtherfuseRampService', () => {
   describe('createCustomer', () => {
     it('should create a new customer', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(null);
-      mockEtherfuse.createChildOrg.mockResolvedValue({ organizationId: 'ef-org-1' });
+      mockEtherfuse.createChildOrg.mockResolvedValue({
+        organizationId: 'ef-org-1',
+      });
       mockPrisma.etherfuseCustomer.create.mockResolvedValue(baseCustomer);
 
       const result = await service.createCustomer({
@@ -167,7 +172,13 @@ describe('EtherfuseRampService', () => {
           email: 'x@x.com',
           phoneNumber: '+521234567890',
           name: { givenName: 'A', familyName: 'B' },
-          address: { street: 'X', city: 'Y', region: 'Z', postalCode: '00000', country: 'MX' },
+          address: {
+            street: 'X',
+            city: 'Y',
+            region: 'Z',
+            postalCode: '00000',
+            country: 'MX',
+          },
           occupation: 'Dev',
         }),
       ).rejects.toThrow(NotFoundException);
@@ -179,7 +190,11 @@ describe('EtherfuseRampService', () => {
   describe('getQuote', () => {
     it('should call etherfuse.getQuote with correct params', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      const mockQuote = { quoteId: 'q-1', destinationAmount: '1000', sourceAmount: '100' };
+      const mockQuote = {
+        quoteId: 'q-1',
+        destinationAmount: '1000',
+        sourceAmount: '100',
+      };
       mockEtherfuse.getQuote.mockResolvedValue(mockQuote);
 
       const result = await service.getQuote({
@@ -195,7 +210,10 @@ describe('EtherfuseRampService', () => {
         expect.objectContaining({
           customerId: 'ef-org-1',
           blockchain: 'stellar',
-          quoteAssets: expect.objectContaining({ type: 'onramp', sourceAsset: 'MXN' }),
+          quoteAssets: expect.objectContaining({
+            type: 'onramp',
+            sourceAsset: 'MXN',
+          }),
         }),
       );
       expect(result).toEqual(mockQuote);
@@ -207,7 +225,9 @@ describe('EtherfuseRampService', () => {
   describe('createOnramp', () => {
     it('should create onramp order', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(baseBankAccount);
+      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(
+        baseBankAccount,
+      );
       mockEtherfuse.createOrder.mockResolvedValue({
         onramp: { id: 'ef-ord-1', status: 'processing' },
       });
@@ -264,9 +284,20 @@ describe('EtherfuseRampService', () => {
   describe('createOfframp', () => {
     it('should create offramp and return unsigned XDR when present', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(baseBankAccount);
+      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(
+        baseBankAccount,
+      );
       mockEtherfuse.createOrder.mockResolvedValue({
-        offramp: { id: 'ef-ord-2', status: 'pending_signature', burnTransaction: 'XDR_BASE64...' },
+        offramp: {
+          id: 'ef-ord-2',
+          status: 'pending_signature',
+          burnTransaction: 'XDR_BASE64...',
+        },
+      });
+      mockEtherfuse.getOrder.mockResolvedValue({
+        id: 'ef-ord-2',
+        status: 'pending_signature',
+        burn_transaction: 'XDR_BASE64...',
       });
       mockPrisma.etherfuseOrder.create.mockResolvedValue({
         id: 'ord-2',
@@ -289,6 +320,14 @@ describe('EtherfuseRampService', () => {
 
       expect(result.unsignedBurnXdr).toBe('XDR_BASE64...');
       expect(result.status).toBe(EtherfuseOrderStatus.PENDING_SIGNATURE);
+      expect(mockPrisma.etherfuseOrder.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            etherfuseOrderId: 'ef-ord-2',
+            unsignedBurnXdr: 'XDR_BASE64...',
+          }),
+        }),
+      );
     });
   });
 
@@ -344,14 +383,18 @@ describe('EtherfuseRampService', () => {
 
       expect(mockPrisma.etherfuseOrder.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: EtherfuseOrderStatus.COMPLETED }),
+          data: expect.objectContaining({
+            status: EtherfuseOrderStatus.COMPLETED,
+          }),
         }),
       );
     });
 
     it('should not throw if order not found', async () => {
       mockPrisma.etherfuseOrder.findUnique.mockResolvedValue(null);
-      await expect(service.handleOrderUpdated('unknown', 'completed')).resolves.toBeUndefined();
+      await expect(
+        service.handleOrderUpdated('unknown', 'completed'),
+      ).resolves.toBeUndefined();
     });
   });
 
@@ -372,7 +415,9 @@ describe('EtherfuseRampService', () => {
 
   describe('handleBankAccountUpdated', () => {
     it('should update bank account compliance', async () => {
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(baseBankAccount);
+      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(
+        baseBankAccount,
+      );
       mockPrisma.etherfuseBankAccount.update.mockResolvedValue({});
 
       await service.handleBankAccountUpdated('ef-ba-1', true);
