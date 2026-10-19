@@ -73,8 +73,12 @@ export class DepositsController {
     description:
       'Duplicate idempotency key — a deposit with this key already exists.',
   })
-  createDeposit(@Body() dto: CreateDepositDto) {
-    return this.depositsService.createDeposit(dto);
+  async createDeposit(
+    @Body() dto: CreateDepositDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.depositsService.createDeposit({ ...dto, userId });
   }
 
   /**
@@ -104,11 +108,7 @@ export class DepositsController {
     @Body() dto: CreateDepositFromConversionDto,
     @CurrentUser() user: { id: string },
   ) {
-    const verifiedStellarAddresses =
-      await this.privyAuthService.getStellarWalletAddresses(user.id);
-    const userId = await this.accountOwner.resolveUserId(
-      verifiedStellarAddresses,
-    );
+    const userId = await this.assertOwner(user.id);
     return this.depositsService.createDepositFromConversion(userId, dto);
   }
 
@@ -143,8 +143,13 @@ export class DepositsController {
     status: 409,
     description: 'Deposit intent is not in the expected XDR_GENERATED state.',
   })
-  submitSignedXdr(@Param('id') id: string, @Body() dto: SubmitSignedXdrDto) {
-    return this.depositsService.submitSignedXdr(id, dto);
+  async submitSignedXdr(
+    @Param('id') id: string,
+    @Body() dto: SubmitSignedXdrDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.depositsService.submitSignedXdr(id, dto, userId);
   }
 
   /**
@@ -178,8 +183,12 @@ export class DepositsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Deposit intent not found.' })
-  getDeposit(@Param('id') id: string) {
-    return this.depositsService.getDeposit(id);
+  async getDeposit(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.depositsService.getDeposit(id, userId);
   }
 
   /**
@@ -218,7 +227,27 @@ export class DepositsController {
     status: 400,
     description: 'Missing or invalid userId query parameter.',
   })
-  listDeposits(@Query() query: ListDepositsQuery) {
-    return this.depositsService.listDeposits(query.userId);
+  async listDeposits(
+    @Query() query: ListDepositsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, query.userId);
+    return this.depositsService.listDeposits(userId);
+  }
+
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
   }
 }

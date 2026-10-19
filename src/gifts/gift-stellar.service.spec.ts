@@ -279,7 +279,12 @@ describe('GiftStellarService', () => {
 
       const tx = submittedTransaction();
       expect(tx.signatures).toHaveLength(1);
-      expect(AGENT.verify(tx.hash(), tx.signatures[0].signature())).toBe(true);
+      expect(
+        AGENT.verify(
+          Buffer.from(tx.hash()),
+          Buffer.from(tx.signatures[0].signature()),
+        ),
+      ).toBe(true);
     });
 
     it('carries fee headroom over the base fee for its two operations', async () => {
