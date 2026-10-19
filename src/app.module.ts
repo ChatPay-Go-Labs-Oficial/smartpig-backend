@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
@@ -24,6 +26,12 @@ import { PortfolioModule } from './portfolio/portfolio.module';
 
 @Module({
   imports: [
+    // Dois baldes: `short` corta rajada, `long` corta acesso sustentado em
+    // volume. Rotas que precisam de limite proprio usam @Throttle no handler.
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1_000, limit: 10 },
+      { name: 'long', ttl: 60_000, limit: 120 },
+    ]),
     ConfigModule,
     PrismaModule,
     AuthModule,
@@ -46,6 +54,11 @@ import { PortfolioModule } from './portfolio/portfolio.module';
     AccountDeletionModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // Roda antes do PrivyAuthGuard, registrado no AuthModule, para que o limite
+    // seja aplicado antes de gastar uma verificacao de token na Privy.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

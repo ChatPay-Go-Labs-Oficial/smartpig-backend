@@ -7,6 +7,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { WalletLoginDto } from './dto/wallet-login.dto';
 import type { AuthenticatedRequest } from './privy/authenticated-request.interface';
@@ -28,6 +29,9 @@ export class AuthController {
    * isNewUser=true when the account was just created.
    */
   @Public()
+  // Rota publica no caminho de criacao de conta, com limite proprio: consulta
+  // por endereco Stellar em volume nao e uso legitimo.
+  @Throttle({ short: { ttl: 60_000, limit: 10 } })
   @Post('wallet')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
