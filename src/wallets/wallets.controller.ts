@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -16,6 +17,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { WalletsService } from './wallets.service';
 import { StellarService } from './stellar.service';
 import { CreateWalletDto } from './dto/create-wallet.dto';
@@ -35,12 +39,21 @@ class ListWalletsQuery {
   userId: string;
 }
 
+/**
+ * A conta vem do token, nunca da requisição.
+ *
+ * O api client do app injeta `userId` em toda chamada, então os DTOs seguem
+ * aceitando o campo — ele é comparado com o dono resolvido e descartado, nunca
+ * usado como resposta.
+ */
 @ApiTags('Wallets')
 @Controller('wallets')
 export class WalletsController {
   constructor(
     private readonly walletsService: WalletsService,
     private readonly stellarService: StellarService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
   ) {}
 
   /**
@@ -75,8 +88,12 @@ export class WalletsController {
     status: 400,
     description: 'Missing or invalid userId query parameter.',
   })
-  listWallets(@Query() query: ListWalletsQuery) {
-    return this.walletsService.listWallets(query.userId);
+  async listWallets(
+    @Query() query: ListWalletsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, query.userId);
+    return this.walletsService.listWallets(userId);
   }
 
   /**
@@ -110,8 +127,12 @@ export class WalletsController {
     description:
       'Wallet with this Stellar address already exists for the user.',
   })
-  createWallet(@Body() dto: CreateWalletDto) {
-    return this.walletsService.createWallet(dto);
+  async createWallet(
+    @Body() dto: CreateWalletDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.walletsService.createWallet({ ...dto, userId });
   }
 
   /**
@@ -141,8 +162,12 @@ export class WalletsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Wallet not found.' })
-  getWallet(@Param('id') id: string) {
-    return this.walletsService.getWallet(id);
+  async getWallet(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.walletsService.getWallet(id, userId);
   }
 
   /**
@@ -172,7 +197,11 @@ export class WalletsController {
     status: 400,
     description: 'Invalid Stellar address or account not found on network.',
   })
-  async buildUsdcTrustlineXdr(@Body() dto: TrustlineXdrDto) {
+  async buildUsdcTrustlineXdr(
+    @Body() dto: TrustlineXdrDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    await this.assertVerifiedAddress(user.id, dto.stellarAddress);
     const unsignedXdr = await this.stellarService.buildUsdcTrustlineXdr(
       dto.stellarAddress,
     );
@@ -255,7 +284,12 @@ export class WalletsController {
   })
   @ApiResponse({ status: 404, description: 'Wallet not found.' })
   @ApiResponse({ status: 409, description: 'Wallet already activated.' })
-  async activateWallet(@Body() dto: ActivateWalletDto) {
+  async activateWallet(
+    @Body() dto: ActivateWalletDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    dto = { ...dto, userId };
     return this.walletsService.activateWallet(dto);
   }
 
@@ -279,8 +313,12 @@ export class WalletsController {
   @ApiResponse({ status: 400, description: 'Transaction submission failed.' })
   @ApiResponse({ status: 404, description: 'Wallet not found.' })
   @ApiResponse({ status: 409, description: 'Wallet already activated.' })
-  async submitActivation(@Body() dto: SubmitActivationDto) {
-    return this.walletsService.submitActivation(dto);
+  async submitActivation(
+    @Body() dto: SubmitActivationDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.walletsService.submitActivation(dto, userId);
   }
 
   /**
@@ -310,7 +348,45 @@ export class WalletsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Wallet not found.' })
-  removeWallet(@Param('id') id: string) {
-    return this.walletsService.removeWallet(id);
+  async removeWallet(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.walletsService.removeWallet(id, userId);
+  }
+
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
+  }
+
+  /**
+   * Para rotas que recebem um endereco Stellar em vez de um userId: o endereco
+   * tem que ser um dos que a Privy verificou para este bearer.
+   */
+  private async assertVerifiedAddress(
+    privyUserId: string,
+    stellarAddress: string,
+  ): Promise<void> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+
+    if (!verifiedStellarAddresses.includes(stellarAddress)) {
+      throw new ForbiddenException(
+        'This Stellar address is not linked to the authenticated user',
+      );
+    }
   }
 }

@@ -96,18 +96,23 @@ export class WalletsService {
     return wallet;
   }
 
-  async getWallet(id: string) {
-    const wallet = await this.prisma.walletAccount.findUnique({
-      where: { id },
+  /**
+   * `userId` é o dono resolvido a partir do token, não um id vindo da requisição.
+   * A query é escopada por ele em vez de checar depois, para que a resposta não
+   * diferencie "não existe" de "não é sua".
+   */
+  async getWallet(id: string, userId: string) {
+    const wallet = await this.prisma.walletAccount.findFirst({
+      where: { id, userId },
       select: walletSelect,
     });
     if (!wallet) throw new NotFoundException(`Wallet ${id} not found`);
     return wallet;
   }
 
-  async removeWallet(id: string) {
-    const wallet = await this.prisma.walletAccount.findUnique({
-      where: { id },
+  async removeWallet(id: string, userId: string) {
+    const wallet = await this.prisma.walletAccount.findFirst({
+      where: { id, userId },
       select: { id: true },
     });
     if (!wallet) throw new NotFoundException(`Wallet ${id} not found`);
@@ -196,13 +201,17 @@ export class WalletsService {
     );
   }
 
-  async submitActivation(dto: SubmitActivationDto) {
+  /**
+   * `userId` e o dono resolvido a partir do token. O DTO nao carrega userId, so
+   * `walletAccountId`, entao a posse e aplicada escopando a busca da wallet.
+   */
+  async submitActivation(dto: SubmitActivationDto, userId: string) {
     const result = await this.prisma.$transaction<ActivationSubmissionResult>(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'wallet-activation:' + dto.walletAccountId}))`;
 
-        const wallet = await tx.walletAccount.findUnique({
-          where: { id: dto.walletAccountId },
+        const wallet = await tx.walletAccount.findFirst({
+          where: { id: dto.walletAccountId, userId },
           select: {
             id: true,
             stellarAddress: true,
