@@ -36,6 +36,7 @@ const mockPrisma = {
   },
   etherfuseBankAccount: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
@@ -225,7 +226,7 @@ describe('EtherfuseRampService', () => {
   describe('createOnramp', () => {
     it('should create onramp order', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(
+      mockPrisma.etherfuseBankAccount.findFirst.mockResolvedValue(
         baseBankAccount,
       );
       mockEtherfuse.createOrder.mockResolvedValue({
@@ -259,7 +260,7 @@ describe('EtherfuseRampService', () => {
 
     it('should throw BadRequestException if bank account is not compliant', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue({
+      mockPrisma.etherfuseBankAccount.findFirst.mockResolvedValue({
         ...baseBankAccount,
         isCompliant: false,
       });
@@ -284,7 +285,7 @@ describe('EtherfuseRampService', () => {
   describe('createOfframp', () => {
     it('should create offramp and return unsigned XDR when present', async () => {
       mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
-      mockPrisma.etherfuseBankAccount.findUnique.mockResolvedValue(
+      mockPrisma.etherfuseBankAccount.findFirst.mockResolvedValue(
         baseBankAccount,
       );
       mockEtherfuse.createOrder.mockResolvedValue({

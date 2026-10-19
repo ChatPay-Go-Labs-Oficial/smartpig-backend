@@ -408,8 +408,10 @@ export class EtherfuseRampService {
   async createOnramp(dto: CreateEtherfuseOnrampDto) {
     const customer = await this.requireCustomer(dto.userId);
 
-    const bankAccount = await this.prisma.etherfuseBankAccount.findUnique({
-      where: { id: dto.bankAccountId },
+    // Escopado pelo customer: atribuicao de KYC e destino do fiat tem que sair
+    // da mesma conta, que e tambem o que mantem o limite de compliance valido.
+    const bankAccount = await this.prisma.etherfuseBankAccount.findFirst({
+      where: { id: dto.bankAccountId, customerId: customer.id },
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
     if (!bankAccount.isCompliant) {
@@ -453,8 +455,8 @@ export class EtherfuseRampService {
   async createOfframp(dto: CreateEtherfuseOfframpDto) {
     const customer = await this.requireCustomer(dto.userId);
 
-    const bankAccount = await this.prisma.etherfuseBankAccount.findUnique({
-      where: { id: dto.bankAccountId },
+    const bankAccount = await this.prisma.etherfuseBankAccount.findFirst({
+      where: { id: dto.bankAccountId, customerId: customer.id },
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
     if (!bankAccount.isCompliant) {
