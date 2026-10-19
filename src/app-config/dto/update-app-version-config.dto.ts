@@ -3,6 +3,14 @@ import { IsOptional, IsString, IsUrl, Matches } from 'class-validator';
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/;
 
+/**
+ * `storeUrl` é o destino da tela de update obrigatório, que o app abre para
+ * todos os usuários quando `minVersion` sobe. `@IsUrl()` sozinho aceita qualquer
+ * domínio, então o destino é restrito às lojas oficiais.
+ */
+const STORE_URL_PATTERN =
+  /^https:\/\/(apps\.apple\.com|itunes\.apple\.com|play\.google\.com)\//;
+
 export class UpdateAppVersionConfigDto {
   @ApiProperty({
     description:
@@ -34,7 +42,10 @@ export class UpdateAppVersionConfigDto {
     description: 'URL da loja (App Store / Play Store) para essa plataforma',
     required: false,
   })
-  @IsUrl()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
   @IsOptional()
+  @Matches(STORE_URL_PATTERN, {
+    message: 'storeUrl deve apontar para a App Store ou a Play Store via https',
+  })
   storeUrl?: string;
 }

@@ -10,7 +10,7 @@ import {
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AppPlatform } from '@prisma/client';
 import { Public } from '../auth/privy/public.decorator';
-import { Admin } from '../auth/privy/admin.decorator';
+import { AdminOnly } from '../auth/privy/admin-only.decorator';
 import { AppConfigService } from './app-config.service';
 import { UpdateAppVersionConfigDto } from './dto/update-app-version-config.dto';
 
@@ -66,7 +66,7 @@ export class AppConfigController {
   }
 
   @Patch('version/:platform')
-  @Admin()
+  @AdminOnly()
   @ApiOperation({
     summary:
       'Update min/recommended version and store URL for a platform (admin only)',

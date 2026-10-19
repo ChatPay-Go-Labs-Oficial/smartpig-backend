@@ -57,7 +57,7 @@ Fonte de verdade: `src/config/env.schema.ts`.
 
 ### Legado
 
-`JWT_ACCESS_SECRET` (padrão `change-me`), `JWT_ACCESS_EXPIRATION`, `JWT_REFRESH_EXPIRATION`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` e `APPLE_*` continuam no schema, mas a autenticação em uso é a do Privy — nenhum código atual consome esses valores.
+`JWT_ACCESS_EXPIRATION`, `JWT_REFRESH_EXPIRATION`, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` e `APPLE_*` continuam no schema, mas a autenticação em uso é a do Privy — nenhum código atual consome esses valores.
 
 ## Como injetar configuração
 

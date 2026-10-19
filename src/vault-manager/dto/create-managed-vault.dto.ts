@@ -12,33 +12,32 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  IsStellarContractId,
+  IsStellarPublicKey,
+} from '../../common/validators/stellar-address.validator';
 
 export class VaultRolesDto {
   @ApiProperty({ description: 'Stellar address of the vault manager' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarPublicKey()
   manager: string;
 
   @ApiProperty({ description: 'Stellar address for emergency management' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarPublicKey()
   emergencyManager: string;
 
   @ApiProperty({ description: 'Stellar address to receive fees' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarPublicKey()
   feeReceiver: string;
 
   @ApiProperty({ description: 'Stellar address for rebalancing management' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarPublicKey()
   rebalanceManager: string;
 }
 
 export class VaultStrategyDto {
   @ApiProperty({ description: 'Stellar contract address of the strategy' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarContractId()
   address: string;
 
   @ApiProperty({ description: 'Friendly name for the strategy' })
@@ -55,8 +54,7 @@ export class VaultStrategyDto {
 export class VaultAssetDto {
   /** Asset contract address on Stellar */
   @ApiProperty({ description: 'Stellar contract address of the asset' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarContractId()
   address: string;
 
   @ApiProperty({ description: 'Asset symbol', example: 'USDC' })
@@ -102,8 +100,7 @@ export class CreateManagedVaultDto {
 
   /** Stellar address of the wallet that will sign the vault creation XDR */
   @ApiProperty({ description: 'Stellar address of the creator/caller' })
-  @IsString()
-  @IsNotEmpty()
+  @IsStellarPublicKey()
   callerAddress: string;
 
   @ApiProperty({

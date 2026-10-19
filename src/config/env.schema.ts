@@ -4,8 +4,9 @@ export const envSchema = Joi.object({
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().required(),
 
-  // JWT — required from Phase 3 onwards; warn early if missing
-  JWT_ACCESS_SECRET: Joi.string().default('change-me'),
+  // JWT legado. `JWT_ACCESS_SECRET` foi removido: nao era lido em lugar nenhum
+  // (a autenticacao e 100% Privy) e carregava o default 'change-me', que vira um
+  // segredo fraco conhecido no dia em que alguem religar a chave sem notar.
   JWT_ACCESS_EXPIRATION: Joi.number().default(900),
   JWT_REFRESH_EXPIRATION: Joi.number().default(2592000),
 

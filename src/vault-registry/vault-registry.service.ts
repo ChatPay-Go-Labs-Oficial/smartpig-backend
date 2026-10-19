@@ -136,6 +136,14 @@ export class VaultRegistryService {
    * deposits paused stays visible and withdrawable. Pausing must never trap funds.
    */
   async assertDepositable(id: string) {
+    // `ALLOWED_VAULT_IDS` tambem vale aqui, nao so em `listForUser`: entrar no
+    // catalogo por qualquer caminho nao basta para receber deposito, a lista
+    // curada decide. Lista vazia continua significando "sem allowlist".
+    const allowedIds = readAllowedVaultIds(this.config);
+    if (allowedIds.length > 0 && !allowedIds.includes(id)) {
+      throw new VaultNotFoundError(id);
+    }
+
     const vault = await this.prisma.vaultCatalog.findUnique({
       where: { id },
       select: {
