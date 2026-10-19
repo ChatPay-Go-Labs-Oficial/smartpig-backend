@@ -114,7 +114,7 @@ App Mobile                  Backend (NestJS)              Privy / Stellar
 ### Regras da autenticação
 
 - O `PrivyAuthGuard` é um `APP_GUARD` global: **toda rota exige `Authorization: Bearer {privyAccessToken}`**, exceto as marcadas com `@Public()` (`GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`)
-- `POST /auth/wallet` é público, mas se receber um Bearer válido usa as carteiras Stellar vinculadas no Privy em vez da `stellarAddress` do body; um Bearer inválido retorna 401 mesmo assim
+- `POST /auth/wallet` é público, mas se receber um Bearer válido usa as carteiras Stellar vinculadas no Privy em vez da `stellarAddress` do body; um Bearer inválido retorna 401 mesmo assim. Sem Bearer a rota só cria conta nova: se a `stellarAddress` já estiver registrada, retorna 401
 - A mesma `stellarAddress` sempre retorna o mesmo `userId` — `stellarAddress` é `@unique` em `WalletAccount`
 - `isNewUser: true` apenas na primeira chamada com aquela carteira
 - `needsActivation: true` quando a conta Stellar ainda não existe on-chain ou não tem as trustlines. A ativação é **patrocinada pela tesouraria** (`TREASURY_STELLAR_SECRET`), então o usuário não precisa ter XLM para começar
