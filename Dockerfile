@@ -32,11 +32,17 @@ RUN apt-get update -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy pruned node_modules (includes Prisma binaries already generated)
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package*.json ./
+# `node:22-slim` já traz o usuário `node` (uid 1000); os arquivos são copiados
+# com ele como dono para que o processo não precise de root.
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --from=builder --chown=node:node /app/package*.json ./
 
 EXPOSE 3000
+
+# Sem isto o processo roda como root: qualquer execução remota de código dentro
+# do Node teria root no container.
+USER node
 
 CMD ["npm", "run", "start:migrate"]
