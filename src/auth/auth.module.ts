@@ -3,13 +3,12 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AccountOwnerService } from './privy/account-owner.service';
-import { AuthExampleController } from './privy/example.controller';
 import { PrivyAuthGuard } from './privy/privy-auth.guard';
 import { PrivyAuthService } from './privy/privy-auth.service';
 import { IDENTITY_DELETER } from './privy/identity-deleter.port';
 
 @Module({
-  controllers: [AuthController, AuthExampleController],
+  controllers: [AuthController],
   providers: [
     AuthService,
     PrivyAuthService,

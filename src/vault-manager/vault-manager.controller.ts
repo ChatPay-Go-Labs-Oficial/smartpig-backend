@@ -6,7 +6,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Admin } from '../auth/privy/admin.decorator';
+import { AdminOnly } from '../auth/privy/admin-only.decorator';
 import { VaultManagerService } from './vault-manager.service';
 import { CreateManagedVaultDto } from './dto/create-managed-vault.dto';
 import { SubmitManagedVaultDto } from './dto/submit-managed-vault.dto';
@@ -22,7 +22,7 @@ export class VaultManagerController {
    * Returns an unsigned XDR to be signed by the caller's Stellar wallet.
    */
   @Post()
-  @Admin()
+  @AdminOnly()
   @ApiOperation({
     summary: 'Initiate vault creation',
     description:
@@ -63,7 +63,7 @@ export class VaultManagerController {
    * Automatically registers the vault in VaultCatalog on success.
    */
   @Post(':id/submit')
-  @Admin()
+  @AdminOnly()
   @ApiOperation({
     summary: 'Submit signed vault creation',
     description:
@@ -107,7 +107,7 @@ export class VaultManagerController {
    * List all vaults created by a user.
    */
   @Get()
-  @Admin()
+  @AdminOnly()
   @ApiOperation({ summary: 'List managed vaults for a user' })
   @ApiQuery({
     name: 'userId',
@@ -141,7 +141,7 @@ export class VaultManagerController {
    * Get details of a specific managed vault.
    */
   @Get(':id')
-  @Admin()
+  @AdminOnly()
   @ApiOperation({ summary: 'Get managed vault details' })
   @ApiParam({
     name: 'id',

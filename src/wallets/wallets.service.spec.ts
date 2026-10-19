@@ -23,6 +23,18 @@ describe('WalletsService activation idempotency', () => {
         findUnique: jest
           .fn()
           .mockImplementation(() => Promise.resolve({ ...wallet })),
+        // submitActivation/getWallet scope by owner, so the stub honours
+        // `where.userId`; otherwise the scoping would not be exercised.
+        findFirst: jest
+          .fn()
+          .mockImplementation(
+            ({ where }: { where: { id: string; userId?: string } }) =>
+              Promise.resolve(
+                where.userId && where.userId !== wallet.userId
+                  ? null
+                  : { ...wallet },
+              ),
+          ),
         update: jest
           .fn()
           .mockImplementation(({ data }: { data: Partial<typeof wallet> }) => {
@@ -76,10 +88,13 @@ describe('WalletsService activation idempotency', () => {
     wallet.activationTxHash = 'existing-hash';
 
     await expect(
-      service.submitActivation({
-        walletAccountId: walletId,
-        signedXdr: 'signed-xdr',
-      }),
+      service.submitActivation(
+        {
+          walletAccountId: walletId,
+          signedXdr: 'signed-xdr',
+        },
+        userId,
+      ),
     ).resolves.toEqual({ success: true, txHash: 'existing-hash' });
     expect(stellar.submitFeeBumpTransaction).not.toHaveBeenCalled();
   });
@@ -93,11 +108,29 @@ describe('WalletsService activation idempotency', () => {
     stellar.isAccountActivated.mockResolvedValueOnce(true);
 
     await expect(
-      service.submitActivation({
-        walletAccountId: walletId,
-        signedXdr: 'signed-xdr',
-      }),
+      service.submitActivation(
+        {
+          walletAccountId: walletId,
+          signedXdr: 'signed-xdr',
+        },
+        userId,
+      ),
     ).resolves.toEqual({ success: true, txHash: '' });
     expect(wallet.isActivated).toBe(true);
+  });
+
+  it('does not submit an activation for a wallet owned by someone else', async () => {
+    const { service, stellar } = createHarness();
+
+    await expect(
+      service.submitActivation(
+        {
+          walletAccountId: walletId,
+          signedXdr: 'signed-xdr',
+        },
+        'user-2',
+      ),
+    ).rejects.toThrow(`Wallet ${walletId} not found`);
+    expect(stellar.submitFeeBumpTransaction).not.toHaveBeenCalled();
   });
 });

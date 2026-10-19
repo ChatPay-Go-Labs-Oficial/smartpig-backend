@@ -7,7 +7,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { GiftsService } from './gifts.service';
 import { CreateGiftDto } from './dto/create-gift.dto';
 import { ClaimGiftDto } from './dto/claim-gift.dto';
@@ -19,10 +23,22 @@ class ListGiftsQuery {
   userId: string;
 }
 
+/**
+ * A conta vem do token, nunca da requisicao: quem envia e quem resgata sao
+ * sempre o portador.
+ *
+ * `GET /gifts/:code` e a excecao deliberada. O codigo tem 128 bits de CSPRNG e e
+ * a propria credencial, e quem consulta e o destinatario, nao o dono do gift,
+ * entao essa rota se apoia no codigo e no rate limit, nao em posse de conta.
+ */
 @ApiTags('Gifts')
 @Controller('gifts')
 export class GiftsController {
-  constructor(private readonly giftsService: GiftsService) {}
+  constructor(
+    private readonly giftsService: GiftsService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * POST /gifts
@@ -64,8 +80,12 @@ export class GiftsController {
     description: 'Too many pending gifts for this sender.',
   })
   @ApiResponse({ status: 503, description: 'Gift claim agent not configured.' })
-  createGift(@Body() dto: CreateGiftDto) {
-    return this.giftsService.createGift(dto);
+  async createGift(
+    @Body() dto: CreateGiftDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.giftsService.createGift({ ...dto, userId });
   }
 
   /**
@@ -83,8 +103,12 @@ export class GiftsController {
     status: 200,
     description: 'List of gifts with direction sent/received.',
   })
-  listGifts(@Query() query: ListGiftsQuery) {
-    return this.giftsService.listGifts(query.userId);
+  async listGifts(
+    @Query() query: ListGiftsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, query.userId);
+    return this.giftsService.listGifts(userId);
   }
 
   /**
@@ -104,14 +128,21 @@ export class GiftsController {
     description: 'Eligibility flag.',
     schema: { example: { canGift: true } },
   })
-  getEligibility(@Query() query: ListGiftsQuery) {
-    return this.giftsService.getEligibility(query.userId);
+  async getEligibility(
+    @Query() query: ListGiftsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, query.userId);
+    return this.giftsService.getEligibility(userId);
   }
 
   /**
    * GET /gifts/:code
    * Public gift preview (rate limiting should be enforced at the edge).
    */
+  // O codigo e a credencial desta rota. 128 bits ja tornam a busca inviavel; o
+  // limite evita que tentativas em volume virem carga.
+  @Throttle({ short: { ttl: 60_000, limit: 20 } })
   @Get(':code')
   @ApiOperation({
     summary: 'Preview a gift by code',
@@ -182,7 +213,28 @@ export class GiftsController {
     status: 503,
     description: 'On-chain payout failed; safe to retry.',
   })
-  claimGift(@Param('code') code: string, @Body() dto: ClaimGiftDto) {
-    return this.giftsService.claimGift(code, dto);
+  async claimGift(
+    @Param('code') code: string,
+    @Body() dto: ClaimGiftDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.giftsService.claimGift(code, { ...dto, userId });
+  }
+
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
   }
 }

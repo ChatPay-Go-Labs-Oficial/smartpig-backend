@@ -4,7 +4,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ManagedVaultStatus } from '@prisma/client';
+import { Transaction } from '@stellar/stellar-sdk';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { DefindexService } from '../defindex/defindex.service';
 import { CreateManagedVaultDto } from './dto/create-managed-vault.dto';
@@ -13,11 +15,17 @@ import { SubmitManagedVaultDto } from './dto/submit-managed-vault.dto';
 @Injectable()
 export class VaultManagerService {
   private readonly logger = new Logger(VaultManagerService.name);
+  private readonly networkPassphrase: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.networkPassphrase = config.getOrThrow<string>(
+      'STELLAR_NETWORK_PASSPHRASE',
+    );
+  }
 
   async createVault(dto: CreateManagedVaultDto) {
     const result = await this.defindex.createVault({
@@ -83,6 +91,13 @@ export class VaultManagerService {
         `Vault is already ${managed.status} — cannot submit again`,
       );
     }
+
+    // Fixa o XDR assinado contra o que o servidor gerou, como
+    // `StellarService.buildSponsoredFeeBumpXdr` faz nos outros fluxos de
+    // submissao: so a transacao desta criacao de vault pode ser submetida aqui.
+    // O hash cobre source account, operacoes, sequence e timebounds, logo
+    // qualquer alteracao quebra a comparacao.
+    this.assertSignedXdrMatches(dto.signedXdr, managed.unsignedXdr);
 
     await this.prisma.managedVault.update({
       where: { id },
@@ -197,5 +212,49 @@ export class VaultManagerService {
         vaultCatalog: { select: { apy: true, tvl: true, assetSymbol: true } },
       },
     });
+  }
+
+  /**
+   * Mesma comparacao de `StellarService.buildSponsoredFeeBumpXdr`: o hash da
+   * transacao cobre source account, operacoes, sequence e timebounds, entao
+   * basta compara-lo com o da transacao que o servidor gerou.
+   */
+  private assertSignedXdrMatches(
+    signedXdr: string,
+    expectedUnsignedXdr: string | null,
+  ) {
+    if (!expectedUnsignedXdr) {
+      throw new BadRequestException(
+        'Vault has no generated transaction to match against',
+      );
+    }
+
+    let signedTx: Transaction;
+    try {
+      signedTx = new Transaction(signedXdr, this.networkPassphrase);
+    } catch {
+      throw new BadRequestException('Invalid signed transaction XDR');
+    }
+
+    if (signedTx.signatures.length === 0) {
+      throw new BadRequestException('Transaction must be signed by the caller');
+    }
+
+    let expectedTx: Transaction;
+    try {
+      expectedTx = new Transaction(expectedUnsignedXdr, this.networkPassphrase);
+    } catch {
+      throw new BadRequestException(
+        'Stored unsigned transaction XDR is invalid',
+      );
+    }
+
+    // `Transaction.hash()` devolve Uint8Array no stellar-sdk 17, que nao tem
+    // `.equals`; Buffer mantem a comparacao byte a byte nas duas versoes.
+    if (!Buffer.from(signedTx.hash()).equals(Buffer.from(expectedTx.hash()))) {
+      throw new BadRequestException(
+        'Signed transaction does not match the generated transaction',
+      );
+    }
   }
 }

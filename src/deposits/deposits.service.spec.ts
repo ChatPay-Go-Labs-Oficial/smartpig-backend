@@ -44,6 +44,7 @@ function createService(options: Options = {}) {
   const prisma = {
     depositIntent: {
       findUnique: jest.fn().mockResolvedValue(existingIntent),
+      findFirst: jest.fn().mockResolvedValue(existingIntent),
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'intent-1', ...DTO }),
       update: jest.fn().mockResolvedValue({}),
@@ -292,9 +293,9 @@ describe('DepositsService.createDeposit', () => {
 
     it('projects a normalized state, not just the raw status', async () => {
       const { service, prisma } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue(intentRow());
+      prisma.depositIntent.findFirst.mockResolvedValue(intentRow());
 
-      const result = await service.getDeposit('intent-1');
+      const result = await service.getDeposit('intent-1', 'user-1');
 
       // The raw status stays for the published build; `state` is what new screens
       // render.
@@ -304,14 +305,14 @@ describe('DepositsService.createDeposit', () => {
 
     it('exposes the txHash, so a failure is traceable', async () => {
       const { service, prisma } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue(
+      prisma.depositIntent.findFirst.mockResolvedValue(
         intentRow({
           status: 'SUBMITTED',
           transaction: { status: 'PENDING', txHash: 'abc123' },
         }),
       );
 
-      const result = await service.getDeposit('intent-1');
+      const result = await service.getDeposit('intent-1', 'user-1');
 
       expect(result.txHash).toBe('abc123');
       expect(result.state).toBe('PENDING');
@@ -319,25 +320,29 @@ describe('DepositsService.createDeposit', () => {
 
     it('reports SUCCESS when the transaction confirmed before the intent caught up', async () => {
       const { service, prisma } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue(
+      prisma.depositIntent.findFirst.mockResolvedValue(
         intentRow({
           status: 'SUBMITTED',
           transaction: { status: 'CONFIRMED', txHash: 'abc123' },
         }),
       );
 
-      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+      await expect(
+        service.getDeposit('intent-1', 'user-1'),
+      ).resolves.toMatchObject({
         state: 'SUCCESS',
       });
     });
 
     it('reports EXPIRED for an intent never signed in time', async () => {
       const { service, prisma } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue(
+      prisma.depositIntent.findFirst.mockResolvedValue(
         intentRow({ expiresAt: PAST }),
       );
 
-      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+      await expect(
+        service.getDeposit('intent-1', 'user-1'),
+      ).resolves.toMatchObject({
         state: 'EXPIRED',
       });
     });
@@ -345,30 +350,51 @@ describe('DepositsService.createDeposit', () => {
     it('separates a user-fixable failure from one needing support', async () => {
       const { service, prisma } = createService();
 
-      prisma.depositIntent.findUnique.mockResolvedValue(
+      prisma.depositIntent.findFirst.mockResolvedValue(
         intentRow({ status: 'FAILED', failureCode: 'NO_TRUSTLINE' }),
       );
-      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+      await expect(
+        service.getDeposit('intent-1', 'user-1'),
+      ).resolves.toMatchObject({
         state: 'REJECTED',
         failureCode: 'NO_TRUSTLINE',
       });
 
-      prisma.depositIntent.findUnique.mockResolvedValue(
+      prisma.depositIntent.findFirst.mockResolvedValue(
         intentRow({
           status: 'FAILED',
           failureCode: 'UPSTREAM_UNAVAILABLE',
         }),
       );
-      await expect(service.getDeposit('intent-1')).resolves.toMatchObject({
+      await expect(
+        service.getDeposit('intent-1', 'user-1'),
+      ).resolves.toMatchObject({
         state: 'FAILED',
       });
     });
 
     it('404s an unknown intent', async () => {
       const { service, prisma } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue(null);
+      prisma.depositIntent.findFirst.mockResolvedValue(null);
 
-      await expect(service.getDeposit('nope')).rejects.toThrow(/not found/);
+      await expect(service.getDeposit('nope', 'user-1')).rejects.toThrow(
+        /not found/,
+      );
+    });
+
+    it('404s an intent that belongs to another account', async () => {
+      const { service, prisma } = createService();
+      // The lookup is scoped by owner, so an id from another account simply
+      // does not resolve — the answer does not distinguish "absent" from
+      // "not yours".
+      prisma.depositIntent.findFirst.mockImplementation(
+        ({ where }: { where: { id: string; userId: string } }) =>
+          Promise.resolve(where.userId === 'user-1' ? intentRow() : null),
+      );
+
+      await expect(service.getDeposit('intent-1', 'user-2')).rejects.toThrow(
+        /not found/,
+      );
     });
   });
 
@@ -377,7 +403,7 @@ describe('DepositsService.createDeposit', () => {
       // The old code always answered SUBMITTED, so the client could not tell
       // "on chain" from "done" and the modal guessed.
       const { service, prisma, orchestrator } = createService();
-      prisma.depositIntent.findUnique.mockResolvedValue({
+      prisma.depositIntent.findFirst.mockResolvedValue({
         id: 'intent-1',
         status: 'XDR_GENERATED',
         failureCode: null,
@@ -393,7 +419,7 @@ describe('DepositsService.createDeposit', () => {
         .mockResolvedValue({ txHash: 'tx-1', status: 'CONFIRMED' });
 
       await expect(
-        service.submitSignedXdr('intent-1', { signedXdr: 'signed' }),
+        service.submitSignedXdr('intent-1', { signedXdr: 'signed' }, 'user-1'),
       ).resolves.toEqual({
         id: 'intent-1',
         txHash: 'tx-1',

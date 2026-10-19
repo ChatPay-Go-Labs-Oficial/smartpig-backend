@@ -359,8 +359,16 @@ export class RampService {
   // ─── On-ramp: Quote ────────────────────────────────────────────────────────
 
   async getOnrampQuote(dto: OnrampQuoteDto) {
-    const wallet = await this.prisma.blindPayBlockchainWallet.findUnique({
-      where: { id: dto.blockchainWalletId },
+    const receiver = await this.prisma.blindPayReceiver.findUnique({
+      where: { userId: dto.userId },
+      select: { id: true },
+    });
+    if (!receiver) throw new NotFoundException('Receiver not found');
+
+    // Escopado pelo receiver: atribuicao de KYC e destino do cripto tem que
+    // sair da mesma conta.
+    const wallet = await this.prisma.blindPayBlockchainWallet.findFirst({
+      where: { id: dto.blockchainWalletId, receiverId: receiver.id },
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
@@ -380,8 +388,8 @@ export class RampService {
     });
     if (!receiver) throw new NotFoundException('Receiver not found');
 
-    const wallet = await this.prisma.blindPayBlockchainWallet.findUnique({
-      where: { id: dto.blockchainWalletId },
+    const wallet = await this.prisma.blindPayBlockchainWallet.findFirst({
+      where: { id: dto.blockchainWalletId, receiverId: receiver.id },
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
@@ -525,8 +533,16 @@ export class RampService {
   // ─── Off-ramp: Quote ───────────────────────────────────────────────────────
 
   async getOfframpQuote(dto: OfframpQuoteDto) {
-    const bankAccount = await this.prisma.blindPayBankAccount.findUnique({
-      where: { id: dto.bankAccountId },
+    const receiver = await this.prisma.blindPayReceiver.findUnique({
+      where: { userId: dto.userId },
+      select: { id: true },
+    });
+    if (!receiver) throw new NotFoundException('Receiver not found');
+
+    // Escopado pelo receiver: a conta de destino do saque tem que pertencer a
+    // quem esta pedindo a cotacao.
+    const bankAccount = await this.prisma.blindPayBankAccount.findFirst({
+      where: { id: dto.bankAccountId, receiverId: receiver.id },
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
 
@@ -549,8 +565,8 @@ export class RampService {
     });
     if (!receiver) throw new NotFoundException('Receiver not found');
 
-    const bankAccount = await this.prisma.blindPayBankAccount.findUnique({
-      where: { id: dto.bankAccountId },
+    const bankAccount = await this.prisma.blindPayBankAccount.findFirst({
+      where: { id: dto.bankAccountId, receiverId: receiver.id },
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
 

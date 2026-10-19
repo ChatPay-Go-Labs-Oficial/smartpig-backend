@@ -70,9 +70,12 @@ export class BlindPayService implements OnModuleInit {
       timeout: 15_000,
     });
 
+    // Método e rota apenas, como o cliente da Etherfuse já faz: o corpo destas
+    // chamadas carrega dados pessoais de KYC, e o log vai para o stdout do
+    // container, de onde é coletado e indexado.
     this.http.interceptors.request.use((config) => {
       this.logger.debug(
-        `BlindPay → ${config.method?.toUpperCase()} ${config.url} ${JSON.stringify(config.data)}`,
+        `BlindPay → ${config.method?.toUpperCase()} ${config.url}`,
       );
       return config;
     });

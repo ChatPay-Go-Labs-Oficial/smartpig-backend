@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { WalletLoginDto } from './dto/wallet-login.dto';
 
@@ -15,6 +20,7 @@ export class AuthService {
    */
   async walletLogin(dto: WalletLoginDto, verifiedStellarAddresses?: string[]) {
     const { stellarAddress, label } = dto;
+    const isAuthenticated = verifiedStellarAddresses !== undefined;
     const candidateAddresses = Array.from(
       new Set(verifiedStellarAddresses ?? [stellarAddress]),
     );
@@ -47,6 +53,17 @@ export class AuthService {
     });
 
     if (existingWallet) {
+      // Recuperar uma conta existente exige token; criar uma nova (abaixo) não.
+      // Sem token, `candidateAddresses` é apenas o endereço do próprio body, e a
+      // checagem acima compara o valor consigo mesmo — não estabelece posse. Uma
+      // chave pública Stellar fica on-chain e circula em gifts, então conhecê-la
+      // não é evidência de nada.
+      if (!isAuthenticated) {
+        throw new UnauthorizedException(
+          'This Stellar wallet is already registered — authenticate to continue',
+        );
+      }
+
       this.logger.log(`Wallet login: existing user ${existingWallet.userId}`);
       return {
         user: existingWallet.user,

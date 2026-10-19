@@ -35,7 +35,7 @@ Todos os erros seguem o formato abaixo (via `HttpExceptionFilter`):
 ### `POST /auth/wallet` 🌐
 Registra ou faz login de um usuário. Público, mas **aceita** um Bearer token do Privy:
 
-- **Sem token** — cria/recupera o `User` pela `stellarAddress` enviada no body.
+- **Sem token** — cria o `User` quando a `stellarAddress` enviada ainda não está registrada. Se já estiver, responde **401**: recuperar uma conta existente exige token, já que o endereço Stellar é público e não prova posse.
 - **Com token Privy** — o backend consulta as carteiras Stellar vinculadas àquele usuário no Privy e vincula essas ao `User`, ignorando divergências do body.
 
 Um Bearer inválido retorna 401 mesmo sendo rota pública.

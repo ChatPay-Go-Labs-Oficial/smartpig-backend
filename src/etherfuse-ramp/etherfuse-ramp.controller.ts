@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Param,
   Post,
   Query,
@@ -28,6 +29,9 @@ import { createHmac, timingSafeEqual } from 'crypto';
 // canonicalize implements RFC 8785 JCS (required by Etherfuse webhook verification)
 import canonicalize from 'canonicalize';
 import type { Request } from 'express';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { EtherfuseRampService } from './etherfuse-ramp.service';
 import {
   AcceptAgreementDto,
@@ -45,12 +49,24 @@ import {
   UserIdDto,
 } from './dto/etherfuse-ramp.dto';
 
+/**
+ * A conta vem do token, nunca da requisicao.
+ *
+ * O `userId` segue aceito nos DTOs porque o api client do app injeta o campo em
+ * toda chamada; ele e comparado com o dono resolvido e descartado. O lookup de
+ * conta bancaria no service e escopado pelo customer resolvido aqui, para que
+ * atribuicao de KYC e destino de liquidacao venham sempre da mesma conta.
+ */
 @ApiTags('Etherfuse Ramp')
 @Controller()
 export class EtherfuseRampController {
+  private readonly logger = new Logger(EtherfuseRampController.name);
+
   constructor(
     private readonly service: EtherfuseRampService,
     private readonly config: ConfigService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
   ) {}
 
   // ─── Onboarding: Organization ───────────────────────────────────────────────
@@ -79,8 +95,12 @@ export class EtherfuseRampController {
     status: 400,
     description: 'User already has an Etherfuse customer record',
   })
-  createCustomer(@Body() dto: CreateEtherfuseCustomerDto) {
-    return this.service.createCustomer(dto);
+  async createCustomer(
+    @Body() dto: CreateEtherfuseCustomerDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.createCustomer({ ...dto, userId });
   }
 
   @Get('etherfuse/onboarding/organization')
@@ -110,8 +130,12 @@ export class EtherfuseRampController {
     status: 404,
     description: 'Etherfuse customer not found for this user',
   })
-  getCustomer(@Query('userId') userId: string) {
-    return this.service.getCustomer(userId);
+  async getCustomer(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.service.getCustomer(ownerId);
   }
 
   // ─── Onboarding: KYC ────────────────────────────────────────────────────────
@@ -134,8 +158,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  submitKyc(@Body() dto: SubmitKycDto) {
-    return this.service.submitKyc(dto);
+  async submitKyc(
+    @Body() dto: SubmitKycDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.submitKyc({ ...dto, userId });
   }
 
   @Post('etherfuse/onboarding/kyc/documents')
@@ -163,11 +191,17 @@ export class EtherfuseRampController {
     schema: { example: { success: true } },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  uploadKycDocument(
+  async uploadKycDocument(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadKycDocumentDto,
+    @CurrentUser() user: { id: string },
   ) {
-    return this.service.uploadKycDocument(dto, file.buffer, file.mimetype);
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.uploadKycDocument(
+      { ...dto, userId },
+      file.buffer,
+      file.mimetype,
+    );
   }
 
   @Post('etherfuse/onboarding/kyc/status')
@@ -191,8 +225,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  getKycStatus(@Body() dto: GetKycStatusDto) {
-    return this.service.getKycStatus(dto);
+  async getKycStatus(
+    @Body() dto: GetKycStatusDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.getKycStatus({ ...dto, userId });
   }
 
   // ─── Onboarding: Agreements ─────────────────────────────────────────────────
@@ -214,8 +252,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  generatePresignedUrl(@Body() dto: GeneratePresignedUrlDto) {
-    return this.service.generatePresignedUrl(dto);
+  async generatePresignedUrl(
+    @Body() dto: GeneratePresignedUrlDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.generatePresignedUrl({ ...dto, userId });
   }
 
   @Post('etherfuse/onboarding/agreements/esign')
@@ -225,8 +267,12 @@ export class EtherfuseRampController {
     description: 'Agreement accepted',
     schema: { example: { accepted: true } },
   })
-  acceptEsign(@Body() dto: AcceptAgreementDto) {
-    return this.service.acceptElectronicSignature(dto);
+  async acceptEsign(
+    @Body() dto: AcceptAgreementDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.acceptElectronicSignature({ ...dto, userId });
   }
 
   @Post('etherfuse/onboarding/agreements/terms')
@@ -236,8 +282,12 @@ export class EtherfuseRampController {
     description: 'Agreement accepted',
     schema: { example: { accepted: true } },
   })
-  acceptTerms(@Body() dto: AcceptAgreementDto) {
-    return this.service.acceptTermsAndConditions(dto);
+  async acceptTerms(
+    @Body() dto: AcceptAgreementDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.acceptTermsAndConditions({ ...dto, userId });
   }
 
   @Post('etherfuse/onboarding/agreements/customer')
@@ -247,8 +297,12 @@ export class EtherfuseRampController {
     description: 'Agreement accepted',
     schema: { example: { accepted: true } },
   })
-  acceptCustomerAgreement(@Body() dto: AcceptAgreementDto) {
-    return this.service.acceptCustomerAgreement(dto);
+  async acceptCustomerAgreement(
+    @Body() dto: AcceptAgreementDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.acceptCustomerAgreement({ ...dto, userId });
   }
 
   // ─── Onboarding: Bank Accounts ──────────────────────────────────────────────
@@ -277,8 +331,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  createBankAccount(@Body() dto: CreatePersonalBankAccountDto) {
-    return this.service.createBankAccount(dto);
+  async createBankAccount(
+    @Body() dto: CreatePersonalBankAccountDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.createBankAccount({ ...dto, userId });
   }
 
   @Post('etherfuse/onboarding/bank-account/pix')
@@ -290,8 +348,12 @@ export class EtherfuseRampController {
     status: 400,
     description: 'PIX bank account registration not yet supported',
   })
-  createPixBankAccount(@Body() dto: CreatePixBankAccountDto) {
-    return this.service.createPixBankAccount(dto);
+  async createPixBankAccount(
+    @Body() dto: CreatePixBankAccountDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.createPixBankAccount({ ...dto, userId });
   }
 
   @Get('etherfuse/onboarding/bank-accounts')
@@ -323,8 +385,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  listBankAccounts(@Query('userId') userId: string) {
-    return this.service.listBankAccounts(userId);
+  async listBankAccounts(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.service.listBankAccounts(ownerId);
   }
 
   @Post('etherfuse/onboarding/bank-accounts/sync')
@@ -349,8 +415,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  syncBankAccounts(@Body() dto: UserIdDto) {
-    return this.service.syncBankAccounts(dto.userId);
+  async syncBankAccounts(
+    @Body() dto: UserIdDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.syncBankAccounts(userId);
   }
 
   // ─── Assets ─────────────────────────────────────────────────────────────────
@@ -404,8 +474,12 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Etherfuse customer not found' })
-  getQuote(@Body() dto: GetEtherfuseQuoteDto) {
-    return this.service.getQuote(dto);
+  async getQuote(
+    @Body() dto: GetEtherfuseQuoteDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.getQuote({ ...dto, userId });
   }
 
   // ─── Orders ─────────────────────────────────────────────────────────────────
@@ -438,8 +512,12 @@ export class EtherfuseRampController {
   })
   @ApiResponse({ status: 400, description: 'Bank account not compliant' })
   @ApiResponse({ status: 404, description: 'Bank account not found' })
-  createOnramp(@Body() dto: CreateEtherfuseOnrampDto) {
-    return this.service.createOnramp(dto);
+  async createOnramp(
+    @Body() dto: CreateEtherfuseOnrampDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.createOnramp({ ...dto, userId });
   }
 
   @Post('etherfuse/offramp')
@@ -463,8 +541,12 @@ export class EtherfuseRampController {
   })
   @ApiResponse({ status: 400, description: 'Bank account not compliant' })
   @ApiResponse({ status: 404, description: 'Bank account not found' })
-  createOfframp(@Body() dto: CreateEtherfuseOfframpDto) {
-    return this.service.createOfframp(dto);
+  async createOfframp(
+    @Body() dto: CreateEtherfuseOfframpDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.createOfframp({ ...dto, userId });
   }
 
   @Post('etherfuse/offramp/:id/refresh-xdr')
@@ -494,8 +576,13 @@ export class EtherfuseRampController {
     status: 404,
     description: 'Order not found or XDR not yet available',
   })
-  refreshOfframpXdr(@Param('id') id: string, @Body() dto: UserIdDto) {
-    return this.service.refreshOfframpXdr(id, dto.userId);
+  async refreshOfframpXdr(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.refreshOfframpXdr(id, userId);
   }
 
   @Post('etherfuse/offramp/:id/submit')
@@ -521,11 +608,13 @@ export class EtherfuseRampController {
     description: 'Order is not in PENDING_SIGNATURE status',
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  submitOfframp(
+  async submitOfframp(
     @Param('id') id: string,
     @Body() dto: SubmitEtherfuseOfframpDto & { userId: string },
+    @CurrentUser() user: { id: string },
   ) {
-    return this.service.submitOfframp(id, dto.userId, dto);
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.submitOfframp(id, userId, dto);
   }
 
   @Get('etherfuse/orders/:id')
@@ -562,8 +651,13 @@ export class EtherfuseRampController {
     },
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  getOrder(@Param('id') id: string, @Query('userId') userId: string) {
-    return this.service.getOrder(id, userId);
+  async getOrder(
+    @Param('id') id: string,
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.service.getOrder(id, ownerId);
   }
 
   @Post('etherfuse/orders/:id/sync')
@@ -574,8 +668,13 @@ export class EtherfuseRampController {
   })
   @ApiResponse({ status: 200, description: 'Order synced' })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  syncOrder(@Param('id') id: string, @Body() dto: UserIdDto) {
-    return this.service.syncOrderFromEtherfuse(id, dto.userId);
+  async syncOrder(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.syncOrderFromEtherfuse(id, userId);
   }
 
   // ─── Sandbox ────────────────────────────────────────────────────────────────
@@ -608,8 +707,13 @@ export class EtherfuseRampController {
     description: 'Only available in test environments',
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
-  sandboxSimulatePayment(@Param('id') id: string, @Body() dto: UserIdDto) {
-    return this.service.sandboxSimulatePayment(id, dto.userId);
+  async sandboxSimulatePayment(
+    @Param('id') id: string,
+    @Body() dto: UserIdDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.service.sandboxSimulatePayment(id, userId);
   }
 
   // ─── Webhook (public, signature-verified) ───────────────────────────────────
@@ -672,12 +776,40 @@ export class EtherfuseRampController {
     return { received: true };
   }
 
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
+  }
+
   private verifyWebhookSignature(
     body: Record<string, unknown>,
     signature: string,
   ) {
     const secret = this.config.get<string>('ETHERFUSE_WEBHOOK_SECRET');
-    if (!secret) return; // Skip in development if not configured
+    if (!secret) {
+      // Espelha o webhook da BlindPay (ramp.controller.ts). Estes eventos
+      // alteram status de ordem, KYC e conformidade de conta bancária, então
+      // sem secret não há remetente verificável. Em produção falha fechado;
+      // fora dela segue, mas ruidosamente.
+      if (this.config.get<string>('NODE_ENV') === 'production') {
+        throw new UnauthorizedException('Webhook secret not configured');
+      }
+      this.logger.warn(
+        'ETHERFUSE_WEBHOOK_SECRET ausente — assinatura do webhook NÃO verificada',
+      );
+      return;
+    }
 
     if (!signature) {
       throw new UnauthorizedException('Missing X-Signature header');

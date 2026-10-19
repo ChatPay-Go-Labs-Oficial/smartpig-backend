@@ -8,6 +8,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { WithdrawalsService } from './withdrawals.service';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { SubmitSignedXdrDto } from './dto/submit-signed-xdr.dto';
@@ -19,10 +22,18 @@ class ListWithdrawalsQuery {
   userId: string;
 }
 
+/**
+ * A conta vem do token, nunca da requisicao. O `userId` do DTO e comparado com
+ * o dono resolvido e descartado.
+ */
 @ApiTags('Withdrawals')
 @Controller('withdrawals')
 export class WithdrawalsController {
-  constructor(private readonly withdrawalsService: WithdrawalsService) {}
+  constructor(
+    private readonly withdrawalsService: WithdrawalsService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * POST /withdrawals
@@ -65,8 +76,12 @@ export class WithdrawalsController {
     description:
       'Duplicate idempotency key — a withdrawal with this key already exists.',
   })
-  createWithdrawal(@Body() dto: CreateWithdrawalDto) {
-    return this.withdrawalsService.createWithdrawal(dto);
+  async createWithdrawal(
+    @Body() dto: CreateWithdrawalDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.withdrawalsService.createWithdrawal({ ...dto, userId });
   }
 
   /**
@@ -105,8 +120,13 @@ export class WithdrawalsController {
     description:
       'Withdrawal intent is not in the expected XDR_GENERATED state.',
   })
-  submitSignedXdr(@Param('id') id: string, @Body() dto: SubmitSignedXdrDto) {
-    return this.withdrawalsService.submitSignedXdr(id, dto);
+  async submitSignedXdr(
+    @Param('id') id: string,
+    @Body() dto: SubmitSignedXdrDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.withdrawalsService.submitSignedXdr(id, dto, userId);
   }
 
   /**
@@ -140,8 +160,12 @@ export class WithdrawalsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Withdrawal intent not found.' })
-  getWithdrawal(@Param('id') id: string) {
-    return this.withdrawalsService.getWithdrawal(id);
+  async getWithdrawal(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.withdrawalsService.getWithdrawal(id, userId);
   }
 
   /**
@@ -180,7 +204,27 @@ export class WithdrawalsController {
     status: 400,
     description: 'Missing or invalid userId query parameter.',
   })
-  listWithdrawals(@Query() query: ListWithdrawalsQuery) {
-    return this.withdrawalsService.listWithdrawals(query.userId);
+  async listWithdrawals(
+    @Query() query: ListWithdrawalsQuery,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, query.userId);
+    return this.withdrawalsService.listWithdrawals(userId);
+  }
+
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
   }
 }

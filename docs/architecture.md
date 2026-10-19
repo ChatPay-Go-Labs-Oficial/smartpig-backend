@@ -237,7 +237,7 @@ A autenticação é delegada ao [Privy](https://privy.io). O app envia `Authoriz
 
 Rotas públicas hoje: `GET /health`, `GET /public` (exemplo), `POST /auth/wallet` e `POST /webhooks/blindpay`.
 
-`POST /auth/wallet` continua existindo, com dupla função: **sem** token, faz upsert de `User` + `WalletAccount` pela `stellarAddress` do body; **com** token Privy, o backend busca as carteiras Stellar vinculadas ao usuário no Privy (`PrivyAuthService.getStellarWalletAddresses`) e vincula essas. A resposta traz `needsActivation`, indicando se a conta Stellar ainda precisa ser criada on-chain (ver `POST /wallets/activate`).
+`POST /auth/wallet` continua existindo, com dupla função: **sem** token, cria `User` + `WalletAccount` para uma `stellarAddress` ainda não registrada — se o endereço já existe, responde 401 em vez de devolver o perfil, porque chaves públicas Stellar não são segredo e isso tornava a rota um oráculo de e-mail; **com** token Privy, o backend busca as carteiras Stellar vinculadas ao usuário no Privy (`PrivyAuthService.getStellarWalletAddresses`) e vincula essas. A resposta traz `needsActivation`, indicando se a conta Stellar ainda precisa ser criada on-chain (ver `POST /wallets/activate`).
 
 `PRIVY_APP_ID` e `PRIVY_APP_SECRET` são **obrigatórios** no `env.schema.ts` — sem eles o `PrivyAuthService` loga `fatal` e rejeita todos os tokens.
 

@@ -1,12 +1,26 @@
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 
+/**
+ * A conta vem do token, nunca da requisição.
+ *
+ * O `:id` da rota é comparado com o dono resolvido a partir do token e nunca
+ * usado como resposta: um token válido diz quem chamou, não de quem é o perfil
+ * pedido. A rota mantém o `:id` porque o app já envia o próprio.
+ */
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   /**
    * GET /users/:id
@@ -34,9 +48,11 @@ export class UsersController {
       },
     },
   })
+  @ApiResponse({ status: 403, description: 'Profile belongs to another user.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
-  getUser(@Param('id') id: string) {
-    return this.usersService.getUser(id);
+  async getUser(@Param('id') id: string, @CurrentUser() user: { id: string }) {
+    const userId = await this.assertOwner(user.id, id);
+    return this.usersService.getUser(userId);
   }
 
   /**
@@ -66,8 +82,26 @@ export class UsersController {
     },
   })
   @ApiResponse({ status: 400, description: 'Invalid request body.' })
+  @ApiResponse({ status: 403, description: 'Profile belongs to another user.' })
   @ApiResponse({ status: 404, description: 'User not found.' })
-  updateUser(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.updateUser(id, dto);
+  async updateUser(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, id);
+    return this.usersService.updateUser(userId, dto);
+  }
+
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId: string,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
   }
 }

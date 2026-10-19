@@ -120,8 +120,8 @@ export class WithdrawalsService {
     return { ...intent, unsignedXdr: xdr };
   }
 
-  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto) {
-    const intent = await this.findIntentOrThrow(id);
+  async submitSignedXdr(id: string, dto: SubmitSignedXdrDto, userId: string) {
+    const intent = await this.findIntentOrThrow(id, userId);
 
     if (intent.status === IntentStatus.CONFIRMED) {
       throw new ConflictException(`Withdrawal ${id} already confirmed`);
@@ -160,9 +160,9 @@ export class WithdrawalsService {
    * comes from the transaction record — without it a failed withdrawal gives
    * support nothing to look up.
    */
-  async getWithdrawal(id: string) {
-    const intent = await this.prisma.withdrawalIntent.findUnique({
-      where: { id },
+  async getWithdrawal(id: string, userId: string) {
+    const intent = await this.prisma.withdrawalIntent.findFirst({
+      where: { id, userId },
       select: {
         ...intentSelect,
         transaction: { select: { status: true, txHash: true } },
@@ -218,9 +218,14 @@ export class WithdrawalsService {
     });
   }
 
-  private async findIntentOrThrow(id: string) {
-    const intent = await this.prisma.withdrawalIntent.findUnique({
-      where: { id },
+  /**
+   * `userId` e o dono resolvido a partir do token. A busca e escopada por ele em
+   * vez de checar depois, para que a resposta nao diferencie "nao existe" de
+   * "nao e seu".
+   */
+  private async findIntentOrThrow(id: string, userId: string) {
+    const intent = await this.prisma.withdrawalIntent.findFirst({
+      where: { id, userId },
       select: { ...intentSelect, expiresAt: true },
     });
     if (!intent)
