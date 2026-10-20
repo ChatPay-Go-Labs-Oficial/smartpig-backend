@@ -29,11 +29,13 @@ const mockPrisma = {
   },
   blindPayBankAccount: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
   },
   blindPayBlockchainWallet: {
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     create: jest.fn(),
   },
   onrampTransaction: {
@@ -262,7 +264,7 @@ describe('RampService', () => {
 
     it('throws if wallet not found', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
-      mockPrisma.blindPayBlockchainWallet.findUnique.mockResolvedValue(null);
+      mockPrisma.blindPayBlockchainWallet.findFirst.mockResolvedValue(null);
       await expect(
         service.createOnramp({
           userId: 'u1',
@@ -274,7 +276,7 @@ describe('RampService', () => {
 
     it('creates on-ramp transaction with PIX code', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
-      mockPrisma.blindPayBlockchainWallet.findUnique.mockResolvedValue({
+      mockPrisma.blindPayBlockchainWallet.findFirst.mockResolvedValue({
         id: 'w1',
         blindpayWalletId: 'bw_1',
         address: 'GABC123',
@@ -381,7 +383,7 @@ describe('RampService', () => {
 
     it('returns unsigned delegation XDR', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
-      mockPrisma.blindPayBankAccount.findUnique.mockResolvedValue({
+      mockPrisma.blindPayBankAccount.findFirst.mockResolvedValue({
         id: 'ba1',
         blindpayBankAccountId: 'bp_ba1',
       });

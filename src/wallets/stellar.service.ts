@@ -840,7 +840,11 @@ export class StellarService {
         );
       }
 
-      if (!innerTx.hash().equals(expectedTx.hash())) {
+      // `Transaction.hash()` devolve Uint8Array no stellar-sdk 17, que nao tem
+      // `.equals`. Buffer mantem a comparacao byte a byte nas duas versoes.
+      // Mantenha uma comparacao de bytes aqui: `===` ou `toString()` nao
+      // comparam o conteudo e tornariam este pin inoperante.
+      if (!Buffer.from(innerTx.hash()).equals(Buffer.from(expectedTx.hash()))) {
         throw new BadRequestException(
           'Signed transaction does not match the generated transaction',
         );

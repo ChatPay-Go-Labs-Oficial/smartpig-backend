@@ -9,6 +9,7 @@ import {
 } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Admin } from '../auth/privy/admin.decorator';
+import { AdminOnly } from '../auth/privy/admin-only.decorator';
 import { VaultsService } from './vaults.service';
 
 /**
@@ -74,7 +75,11 @@ export class VaultsController {
     return this.vaultsService.listVaults(query.userId);
   }
 
+  // `@AdminOnly()` sobrepõe o `@Admin()` da classe. As leituras acima são para
+  // o app; esta rota é operação, porque o sync sob demanda consome o rate limit
+  // compartilhado da DeFindex (ver comentário em vault-sync.job.ts).
   @Post('sync')
+  @AdminOnly()
   @ApiOperation({
     summary: 'Trigger vault synchronization',
     description: 'Manually triggers a sync with the Defindex SDK.',

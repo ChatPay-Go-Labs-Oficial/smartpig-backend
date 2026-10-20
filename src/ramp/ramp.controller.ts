@@ -44,6 +44,16 @@ import {
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 const ALLOWED_UPLOAD_MIMES = ['image/jpeg', 'image/png', 'application/pdf'];
 
+/**
+ * A conta vem do token, nunca da requisicao.
+ *
+ * Vale para todo handler, inclusive os que registram destino de pagamento: uma
+ * chave PIX ou wallet so pode ser anexada ao receiver do dono resolvido.
+ *
+ * O `userId` segue aceito nos DTOs porque o api client do app injeta o campo em
+ * toda chamada e o ValidationPipe roda com `forbidNonWhitelisted`. Ele e
+ * comparado com o dono resolvido e descartado, nunca usado como resposta.
+ */
 @ApiTags('Ramp')
 @Controller()
 export class RampController {
@@ -71,8 +81,12 @@ export class RampController {
     description:
       'Starts a Terms of Service session. Returns a URL that must be opened in a browser/WebView.',
   })
-  initiateTos(@Body() dto: InitiateTosDto) {
-    return this.rampService.initiateTos(dto);
+  async initiateTos(
+    @Body() dto: InitiateTosDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.initiateTos({ ...dto, userId });
   }
 
   // ─── KYC File Upload ────────────────────────────────────────────────────────
@@ -137,14 +151,22 @@ export class RampController {
 
   @Post('ramp/receiver')
   @ApiOperation({ summary: 'Create a BlindPay receiver' })
-  createReceiver(@Body() dto: CreateReceiverDto) {
-    return this.rampService.createReceiver(dto);
+  async createReceiver(
+    @Body() dto: CreateReceiverDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.createReceiver({ ...dto, userId });
   }
 
   @Get('ramp/receiver')
   @ApiOperation({ summary: 'Get receiver details' })
-  getReceiver(@Query('userId') userId: string) {
-    return this.rampService.getReceiver(userId);
+  async getReceiver(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.getReceiver(ownerId);
   }
 
   // ─── KYC ────────────────────────────────────────────────────────────────────
@@ -155,8 +177,12 @@ export class RampController {
     description:
       'Fetches kyc_status from BlindPay, persists it locally and returns the open RFI when there is one. This is the endpoint the app polls while KYC is pending.',
   })
-  getKycStatus(@Query('userId') userId: string) {
-    return this.kycService.getKycStatus(userId);
+  async getKycStatus(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.kycService.getKycStatus(ownerId);
   }
 
   @Post('ramp/receiver/resubmit')
@@ -165,8 +191,12 @@ export class RampController {
     description:
       'BlindPay does not allow editing a rejected customer, so this creates a new one and re-registers the Pix account and blockchain wallet against it. Only allowed while kycStatus is REJECTED.',
   })
-  resubmitReceiver(@Body() dto: ResubmitReceiverDto) {
-    return this.kycService.resubmitReceiver(dto);
+  async resubmitReceiver(
+    @Body() dto: ResubmitReceiverDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.kycService.resubmitReceiver({ ...dto, userId });
   }
 
   @Get('ramp/receiver/rfi')
@@ -174,8 +204,12 @@ export class RampController {
     summary: 'Get the open Request for Information',
     description: 'Returns null when compliance has no pending request.',
   })
-  getRfi(@Query('userId') userId: string) {
-    return this.kycService.getRfi(userId);
+  async getRfi(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.kycService.getRfi(ownerId);
   }
 
   @Post('ramp/receiver/rfi')
@@ -184,44 +218,68 @@ export class RampController {
     description:
       'Validates the answers against the requested fields before forwarding. Submission is single-shot — partial answers are not accepted by BlindPay.',
   })
-  submitRfi(@Body() dto: SubmitRfiDto) {
-    return this.kycService.submitRfi(dto.userId, dto.responses);
+  async submitRfi(
+    @Body() dto: SubmitRfiDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.kycService.submitRfi(userId, dto.responses);
   }
 
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
   @Post('ramp/receiver/bank-accounts')
   @ApiOperation({ summary: 'Add a bank account to a receiver' })
-  createBankAccount(@Body() dto: CreateBankAccountDto) {
-    return this.rampService.createBankAccount(dto);
+  async createBankAccount(
+    @Body() dto: CreateBankAccountDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.createBankAccount({ ...dto, userId });
   }
 
   @Get('ramp/receiver/bank-accounts')
   @ApiOperation({ summary: 'List bank accounts for a receiver' })
-  listBankAccounts(@Query('userId') userId: string) {
-    return this.rampService.listBankAccounts(userId);
+  async listBankAccounts(
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.listBankAccounts(ownerId);
   }
 
   // ─── Blockchain Wallets ─────────────────────────────────────────────────────
 
   @Post('ramp/receiver/wallets')
   @ApiOperation({ summary: 'Add a blockchain wallet to a receiver' })
-  createBlockchainWallet(@Body() dto: CreateBlockchainWalletDto) {
-    return this.rampService.createBlockchainWallet(dto);
+  async createBlockchainWallet(
+    @Body() dto: CreateBlockchainWalletDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.createBlockchainWallet({ ...dto, userId });
   }
 
   // ─── On-ramp ────────────────────────────────────────────────────────────────
 
   @Post('ramp/onramp/quote')
   @ApiOperation({ summary: 'Get an on-ramp quote' })
-  getOnrampQuote(@Body() dto: OnrampQuoteDto) {
-    return this.rampService.getOnrampQuote(dto);
+  async getOnrampQuote(
+    @Body() dto: OnrampQuoteDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.getOnrampQuote({ ...dto, userId });
   }
 
   @Post('ramp/onramp')
   @ApiOperation({ summary: 'Create an on-ramp transaction' })
-  createOnramp(@Body() dto: CreateOnrampDto) {
-    return this.rampService.createOnramp(dto);
+  async createOnramp(
+    @Body() dto: CreateOnrampDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.createOnramp({ ...dto, userId });
   }
 
   @Get('ramp/transactions')
@@ -231,18 +289,19 @@ export class RampController {
       'Returns a sanitized, newest-first history of Pix deposits and withdrawals. Sensitive ramp payloads are not exposed.',
   })
   async listTransactions(@CurrentUser() user: { id: string }) {
-    const verifiedStellarAddresses =
-      await this.privyAuthService.getStellarWalletAddresses(user.id);
-    const userId = await this.accountOwner.resolveUserId(
-      verifiedStellarAddresses,
-    );
+    const userId = await this.assertOwner(user.id);
     return this.rampService.listTransactions(userId);
   }
 
   @Get('ramp/onramp/:id')
   @ApiOperation({ summary: 'Get on-ramp transaction details' })
-  getOnramp(@Param('id') id: string, @Query('userId') userId: string) {
-    return this.rampService.getOnramp(id, userId);
+  async getOnramp(
+    @Param('id') id: string,
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.getOnramp(id, ownerId);
   }
 
   @Post('ramp/onramp/:id/sync')
@@ -251,45 +310,70 @@ export class RampController {
     description:
       'Fetches the latest payin status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
   })
-  syncOnramp(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.rampService.syncOnrampFromBlindPay(id, userId);
+  async syncOnramp(
+    @Param('id') id: string,
+    @Body('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.syncOnrampFromBlindPay(id, ownerId);
   }
 
   // ─── Off-ramp ───────────────────────────────────────────────────────────────
 
   @Post('ramp/offramp/quote')
   @ApiOperation({ summary: 'Get an off-ramp quote' })
-  getOfframpQuote(@Body() dto: OfframpQuoteDto) {
-    return this.rampService.getOfframpQuote(dto);
+  async getOfframpQuote(
+    @Body() dto: OfframpQuoteDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.getOfframpQuote({ ...dto, userId });
   }
 
   @Post('ramp/offramp')
   @ApiOperation({ summary: 'Create an off-ramp transaction' })
-  createOfframp(@Body() dto: CreateOfframpDto) {
-    return this.rampService.createOfframp(dto);
+  async createOfframp(
+    @Body() dto: CreateOfframpDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.createOfframp({ ...dto, userId });
   }
 
   @Post('ramp/offramp/:id/delegation')
   @ApiOperation({
     summary: 'Refresh delegation XDR (when previous one expired)',
   })
-  refreshOfframpDelegation(
+  async refreshOfframpDelegation(
     @Param('id') id: string,
     @Body('userId') userId: string,
+    @CurrentUser() user: { id: string },
   ) {
-    return this.rampService.refreshOfframpDelegation(id, userId);
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.refreshOfframpDelegation(id, ownerId);
   }
 
   @Post('ramp/offramp/:id/submit')
   @ApiOperation({ summary: 'Submit signed XDR for off-ramp' })
-  submitOfframp(@Param('id') id: string, @Body() dto: SubmitOfframpDto) {
-    return this.rampService.submitOfframp(id, dto.userId, dto);
+  async submitOfframp(
+    @Param('id') id: string,
+    @Body() dto: SubmitOfframpDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id, dto.userId);
+    return this.rampService.submitOfframp(id, userId, { ...dto, userId });
   }
 
   @Get('ramp/offramp/:id')
   @ApiOperation({ summary: 'Get off-ramp transaction details' })
-  getOfframp(@Param('id') id: string, @Query('userId') userId: string) {
-    return this.rampService.getOfframp(id, userId);
+  async getOfframp(
+    @Param('id') id: string,
+    @Query('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.getOfframp(id, ownerId);
   }
 
   @Post('ramp/offramp/:id/sync')
@@ -298,8 +382,29 @@ export class RampController {
     description:
       'Fetches the latest payout status directly from BlindPay and updates the local database. Useful when webhooks are not configured or in development.',
   })
-  syncOfframp(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.rampService.syncOfframpFromBlindPay(id, userId);
+  async syncOfframp(
+    @Param('id') id: string,
+    @Body('userId') userId: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    const ownerId = await this.assertOwner(user.id, userId);
+    return this.rampService.syncOfframpFromBlindPay(id, ownerId);
+  }
+
+  /**
+   * O dono local por tras do bearer. `claimedUserId` e o que o cliente mandou:
+   * comparado, nunca usado como resposta.
+   */
+  private async assertOwner(
+    privyUserId: string,
+    claimedUserId?: string | null,
+  ): Promise<string> {
+    const verifiedStellarAddresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.assertOwnership(
+      verifiedStellarAddresses,
+      claimedUserId,
+    );
   }
 
   // ─── Webhook (public, Svix-verified) ────────────────────────────────────────
