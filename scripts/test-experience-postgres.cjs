@@ -5,6 +5,9 @@ const {
   ExperienceLedgerService,
 } = require('../dist/experience/experience-ledger.service');
 const { LearningService } = require('../dist/learning/learning.service');
+const {
+  VaultEligibilityService,
+} = require('../dist/vault-eligibility/vault-eligibility.service');
 
 async function main() {
   const prisma = new PrismaClient();
@@ -29,7 +32,8 @@ async function main() {
     assert.equal(questions.length, 6, 'M1 must contain six required questions');
 
     const ledger = new ExperienceLedgerService(prisma);
-    const learning = new LearningService(prisma, ledger);
+    const eligibility = { refreshUnlocksForUser: async () => [] };
+    const learning = new LearningService(prisma, ledger, eligibility);
 
     for (const question of questions.slice(0, 4)) {
       await learning.submitAnswer(
@@ -80,8 +84,68 @@ async function main() {
     assert.equal(ledgerEntries.length, 7, 'six question credits and one bonus');
     assert.ok(moduleProgress.completedAt, 'M1 must be completed');
 
+    const xlmVault = await prisma.vaultCatalog.findFirstOrThrow({
+      where: { assetSymbol: 'XLM' },
+      select: { id: true },
+    });
+    const latestPolicy = await prisma.vaultEligibilityPolicy.findFirst({
+      where: { vaultId: xlmVault.id },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const policyVersion = (latestPolicy?.version ?? 0) + 1;
+    const policyService = new VaultEligibilityService(prisma, {
+      get: () => true,
+    });
+    await policyService.upsertPolicy(xlmVault.id, {
+      version: policyVersion,
+      minimumLevel: 1,
+      requiredModuleKeys: ['M1'],
+      publish: true,
+    });
+    const unlock = await prisma.userVaultUnlock.findUnique({
+      where: { userId_vaultId: { userId: user.id, vaultId: xlmVault.id } },
+    });
+    assert.equal(
+      unlock?.policyVersion,
+      policyVersion,
+      'publishing must backfill users who already qualify',
+    );
+    await assert.rejects(
+      () =>
+        policyService.upsertPolicy(xlmVault.id, {
+          version: policyVersion,
+          minimumLevel: 2,
+          requiredModuleKeys: ['M1'],
+          publish: true,
+        }),
+      (error) =>
+        error?.response?.code === 'PUBLISHED_ELIGIBILITY_POLICY_IMMUTABLE',
+    );
+    await Promise.all([
+      policyService.upsertPolicy(xlmVault.id, {
+        version: policyVersion + 1,
+        minimumLevel: 1,
+        requiredModuleKeys: ['M1'],
+        publish: true,
+      }),
+      policyService.upsertPolicy(xlmVault.id, {
+        version: policyVersion + 2,
+        minimumLevel: 1,
+        requiredModuleKeys: ['M1'],
+        publish: true,
+      }),
+    ]);
+    assert.equal(
+      await prisma.vaultEligibilityPolicy.count({
+        where: { vaultId: xlmVault.id, isActive: true },
+      }),
+      1,
+      'concurrent publications must leave exactly one active policy',
+    );
+
     console.log(
-      'PostgreSQL checks passed: concurrent XP and duplicate answer protection.',
+      'PostgreSQL checks passed: concurrent XP, policy backfill and immutable publication.',
     );
   } finally {
     await prisma.user.delete({ where: { id: user.id } });

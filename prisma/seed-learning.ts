@@ -175,6 +175,8 @@ export async function seedLearning(
     data: { isActive: false },
   });
 
+  await seedDefaultEligibilityPolicies(prisma);
+
   // Every level advances the profile frame. Tier boundaries add the larger
   // identity rewards from the product document on top of that frame.
   for (let level = 1; level <= 50; level += 1) {
@@ -234,6 +236,114 @@ export async function seedLearning(
       where: { key },
       update: { type, name, minimumLevel: level, tier, isActive: true },
       create: { key, type, name, minimumLevel: level, tier, isActive: true },
+    });
+  }
+}
+
+async function seedDefaultEligibilityPolicies(
+  prisma: Prisma.TransactionClient,
+): Promise<void> {
+  const defaults = [
+    { assetSymbol: 'EURC', minimumLevel: 5, moduleKeys: ['M1', 'M2', 'M3'] },
+    {
+      assetSymbol: 'XLM',
+      minimumLevel: 10,
+      moduleKeys: ['M1', 'M2', 'M3', 'M4', 'M5'],
+    },
+  ];
+
+  for (const definition of defaults) {
+    const [vaults, modules] = await Promise.all([
+      prisma.vaultCatalog.findMany({
+        where: { assetSymbol: definition.assetSymbol },
+        select: { id: true },
+      }),
+      prisma.learningModule.findMany({
+        where: { key: { in: definition.moduleKeys } },
+        select: { id: true },
+      }),
+    ]);
+
+    for (const vault of vaults) {
+      const policyCount = await prisma.vaultEligibilityPolicy.count({
+        where: { vaultId: vault.id },
+      });
+      if (policyCount > 0) continue;
+
+      const policy = await prisma.vaultEligibilityPolicy.create({
+        data: {
+          vaultId: vault.id,
+          version: 1,
+          minimumLevel: definition.minimumLevel,
+          isActive: true,
+          publishedAt: new Date('2026-10-21T00:00:00.000Z'),
+        },
+      });
+      await prisma.vaultEligibilityRequiredModule.createMany({
+        data: modules.map((module) => ({
+          policyId: policy.id,
+          moduleId: module.id,
+        })),
+      });
+      await materializeSeedPolicyUnlocks(prisma, {
+        id: policy.id,
+        vaultId: vault.id,
+        version: policy.version,
+        minimumLevel: policy.minimumLevel,
+        requiredModuleIds: modules.map((module) => module.id),
+      });
+    }
+  }
+}
+
+async function materializeSeedPolicyUnlocks(
+  prisma: Prisma.TransactionClient,
+  policy: {
+    id: string;
+    vaultId: string;
+    version: number;
+    minimumLevel: number;
+    requiredModuleIds: string[];
+  },
+): Promise<void> {
+  const candidates = await prisma.user.findMany({
+    where: {
+      experienceMode: 'LITE',
+      experienceAccount: {
+        is: { currentLevel: { gte: policy.minimumLevel } },
+      },
+      vaultUnlocks: { none: { vaultId: policy.vaultId } },
+    },
+    select: {
+      id: true,
+      experienceAccount: { select: { currentLevel: true } },
+      learningModules: {
+        where: {
+          moduleId: { in: policy.requiredModuleIds },
+          completedAt: { not: null },
+        },
+        select: { moduleId: true },
+      },
+    },
+  });
+  const required = new Set(policy.requiredModuleIds);
+  const qualified = candidates.filter((candidate) => {
+    const completed = new Set(
+      candidate.learningModules.map((progress) => progress.moduleId),
+    );
+    return [...required].every((moduleId) => completed.has(moduleId));
+  });
+
+  if (qualified.length > 0) {
+    await prisma.userVaultUnlock.createMany({
+      data: qualified.map((candidate) => ({
+        userId: candidate.id,
+        vaultId: policy.vaultId,
+        policyId: policy.id,
+        policyVersion: policy.version,
+        levelAtUnlock: candidate.experienceAccount?.currentLevel ?? 0,
+      })),
+      skipDuplicates: true,
     });
   }
 }

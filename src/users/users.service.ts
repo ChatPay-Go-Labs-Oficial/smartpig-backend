@@ -10,6 +10,7 @@ import {
   ExperienceModeValue,
   UpdateExperienceModeDto,
 } from './dto/update-experience-mode.dto';
+import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const userSelect = {
   id: true,
@@ -27,7 +28,10 @@ const userSelect = {
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly vaultEligibility: VaultEligibilityService,
+  ) {}
 
   async getUser(id: string) {
     const user = await this.prisma.user.findUnique({
@@ -76,6 +80,10 @@ export class UsersService {
       },
       select: userSelect,
     });
+
+    if (dto.mode === 'LITE') {
+      await this.vaultEligibility.refreshUnlocksForUser(id);
+    }
 
     this.logger.log(`User ${id} selected ${dto.mode} experience mode`);
     return this.withEffectiveExperienceMode(updated);

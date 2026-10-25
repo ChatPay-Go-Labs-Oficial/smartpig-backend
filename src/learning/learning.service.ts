@@ -1,11 +1,13 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ExperienceXpSourceType, Prisma } from '@prisma/client';
 import { ExperienceLedgerService } from '../experience/experience-ledger.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const questionPublicSelect = {
   key: true,
@@ -22,9 +24,12 @@ const questionPublicSelect = {
 
 @Injectable()
 export class LearningService {
+  private readonly logger = new Logger(LearningService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly experience: ExperienceLedgerService,
+    private readonly vaultEligibility: VaultEligibilityService,
   ) {}
 
   async listStandaloneContent() {
@@ -370,6 +375,19 @@ export class LearningService {
       };
     });
 
+    if (result.correct) {
+      // The deposit boundary always re-evaluates eligibility. A projection
+      // refresh must therefore never turn an already committed answer/XP grant
+      // into a misleading 500 response.
+      try {
+        await this.vaultEligibility.refreshUnlocksForUser(userId);
+      } catch (error) {
+        this.logger.error(
+          `Could not refresh vault unlocks for ${userId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
     return result;
   }
 

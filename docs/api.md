@@ -415,11 +415,28 @@ Retorna perfil de XP, módulos, IDs das questões concluídas e ponto de retomad
 ### `GET /experience/profile`
 Retorna XP total, nível, tier, progresso para o próximo nível e recompensas desbloqueadas.
 
+### Políticas administrativas
+
+`GET /admin/vaults/:vaultId/eligibility-policies` lista versões. `POST` no mesmo caminho cria ou atualiza uma versão:
+
+```json
+{
+  "version": 1,
+  "minimumLevel": 5,
+  "requiredModuleKeys": ["M1", "M2", "M3"],
+  "publish": true
+}
+```
+
+Publicar uma versão desativa a política ativa anterior daquele vault. O disclosure continua sendo uma verificação separada.
+
 ---
 
 ## Vaults
 
 > **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+>
+> A resposta inclui `access`, uma projeção individual de disponibilidade operacional, disclosure e elegibilidade educacional. Vaults bloqueados para novo depósito continuam visíveis para não ocultar posições ou retiradas. Usuários `PRO` têm bypass educacional; usuários `LITE` seguem a política publicada. O bloqueio só é efetivo quando `ENFORCE_VAULT_EDUCATION=true`.
 
 ### `GET /vaults`
 Lista todos os vaults ativos (dados do banco local).

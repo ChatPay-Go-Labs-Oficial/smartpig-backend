@@ -202,7 +202,8 @@ export class ScrubService {
   private async deleteDerived(tx: Prisma.TransactionClient, userId: string) {
     // The User row is tombstoned rather than deleted, so relation cascades never
     // run. Remove the educational history explicitly; a later account created
-    // with the same public wallet must not inherit answers or rewards.
+    // with the same public wallet must not inherit answers or product unlocks.
+    await tx.userVaultUnlock.deleteMany({ where: { userId } });
     await tx.userExperienceRewardUnlock.deleteMany({ where: { userId } });
     await tx.experienceXpLedgerEntry.deleteMany({ where: { userId } });
     await tx.experienceAccount.deleteMany({ where: { userId } });

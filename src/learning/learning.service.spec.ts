@@ -57,10 +57,18 @@ function setup(options: {
       .mockResolvedValueOnce({ pointsGranted: 10 })
       .mockResolvedValueOnce({ pointsGranted: 40 }),
   };
+  const eligibility = {
+    refreshUnlocksForUser: jest.fn().mockResolvedValue([]),
+  };
   return {
-    service: new LearningService(prisma as never, experience as never),
+    service: new LearningService(
+      prisma as never,
+      experience as never,
+      eligibility as never,
+    ),
     tx,
     experience,
+    eligibility,
   };
 }
 
@@ -77,7 +85,7 @@ describe('LearningService.submitAnswer', () => {
   });
 
   it('records an incorrect attempt without granting XP', async () => {
-    const { service, experience } = setup({ correctCount: 0 });
+    const { service, experience, eligibility } = setup({ correctCount: 0 });
 
     await expect(
       service.submitAnswer('user-a', 'M1-Q01', 'A', 1),
@@ -87,10 +95,11 @@ describe('LearningService.submitAnswer', () => {
       moduleCompleted: false,
     });
     expect(experience.grant).not.toHaveBeenCalled();
+    expect(eligibility.refreshUnlocksForUser).not.toHaveBeenCalled();
   });
 
   it('grants question and module XP once the sixth answer is correct', async () => {
-    const { service, experience } = setup({ correctCount: 6 });
+    const { service, experience, eligibility } = setup({ correctCount: 6 });
 
     await expect(
       service.submitAnswer('user-a', 'M1-Q01', 'B', 1),
@@ -102,5 +111,21 @@ describe('LearningService.submitAnswer', () => {
       moduleCompleted: true,
     });
     expect(experience.grant).toHaveBeenCalledTimes(2);
+    expect(eligibility.refreshUnlocksForUser).toHaveBeenCalledWith('user-a');
+  });
+
+  it('returns the committed answer when the derived unlock refresh fails', async () => {
+    const { service, eligibility } = setup({ correctCount: 6 });
+    eligibility.refreshUnlocksForUser.mockRejectedValueOnce(
+      new Error('temporary database failure'),
+    );
+
+    await expect(
+      service.submitAnswer('user-a', 'M1-Q01', 'B', 1),
+    ).resolves.toMatchObject({
+      correct: true,
+      xpGranted: 50,
+      moduleCompleted: true,
+    });
   });
 });

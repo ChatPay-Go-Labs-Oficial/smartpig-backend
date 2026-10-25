@@ -28,6 +28,8 @@ interface Options {
   depositableThrows?: Error;
   /** Thrown by the disclosure gate. Undefined means the user has acknowledged. */
   disclosureThrows?: Error;
+  /** Thrown by the education gate. Undefined means the account is eligible. */
+  eligibilityThrows?: Error;
   wallet?: { id: string } | null;
   existingIntent?: Record<string, unknown> | null;
 }
@@ -37,6 +39,7 @@ function createService(options: Options = {}) {
     vault = VAULT,
     depositableThrows,
     disclosureThrows,
+    eligibilityThrows,
     wallet = { id: 'wallet-1' },
     existingIntent = null,
   } = options;
@@ -84,12 +87,19 @@ function createService(options: Options = {}) {
     attachDeposit: jest.fn().mockResolvedValue(undefined),
   };
 
+  const vaultEligibility = {
+    assertEligibleForDeposit: eligibilityThrows
+      ? jest.fn().mockRejectedValue(eligibilityThrows)
+      : jest.fn().mockResolvedValue({ eligible: true }),
+  };
+
   const service = new DepositsService(
     prisma as unknown as never,
     orchestrator as unknown as never,
     registry as unknown as never,
     disclosureGuard as unknown as never,
     conversions as unknown as never,
+    vaultEligibility as unknown as never,
   );
 
   return {
@@ -99,8 +109,52 @@ function createService(options: Options = {}) {
     registry,
     disclosureGuard,
     conversions,
+    vaultEligibility,
   };
 }
+
+describe('DepositsService education eligibility', () => {
+  it('checks the server-side vault before disclosure and intent creation', async () => {
+    const locked = new ConflictException({
+      statusCode: 409,
+      code: 'VAULT_EDUCATION_LOCKED',
+    });
+    const { service, prisma, disclosureGuard, vaultEligibility } =
+      createService({
+        eligibilityThrows: locked,
+      });
+
+    await expect(service.createDeposit(DTO)).rejects.toBe(locked);
+
+    expect(vaultEligibility.assertEligibleForDeposit).toHaveBeenCalledWith(
+      'user-1',
+      'vault-1',
+      'EURC',
+    );
+    expect(disclosureGuard.assertAcknowledged).not.toHaveBeenCalled();
+    expect(prisma.depositIntent.create).not.toHaveBeenCalled();
+  });
+
+  it('blocks auto-conversion before creating a conversion', async () => {
+    const locked = new ConflictException({
+      statusCode: 409,
+      code: 'VAULT_EDUCATION_LOCKED',
+    });
+    const { service, conversions } = createService({
+      eligibilityThrows: locked,
+    });
+
+    await expect(
+      service.createDeposit({
+        ...DTO,
+        assetSymbol: 'USDC',
+        autoConvert: true,
+      }),
+    ).rejects.toBe(locked);
+
+    expect(conversions.createConversion).not.toHaveBeenCalled();
+  });
+});
 
 describe('DepositsService.createDeposit', () => {
   describe('risk disclosure for non-USDC deposits', () => {
@@ -622,6 +676,33 @@ describe('DepositsService.createDeposit', () => {
       await expect(
         service.createDepositFromConversion('user-1', FROM),
       ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.depositIntent.create).not.toHaveBeenCalled();
+    });
+
+    it('enforces education before disclosure and intent creation', async () => {
+      const locked = new ConflictException({
+        statusCode: 409,
+        code: 'VAULT_EDUCATION_LOCKED',
+      });
+      const {
+        service,
+        conversions,
+        prisma,
+        disclosureGuard,
+        vaultEligibility,
+      } = createService({ eligibilityThrows: locked });
+      conversions.getConsumable.mockResolvedValue(consumable());
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).rejects.toBe(locked);
+
+      expect(vaultEligibility.assertEligibleForDeposit).toHaveBeenCalledWith(
+        'user-1',
+        'vault-1',
+        'EURC',
+      );
+      expect(disclosureGuard.assertAcknowledged).not.toHaveBeenCalled();
       expect(prisma.depositIntent.create).not.toHaveBeenCalled();
     });
 

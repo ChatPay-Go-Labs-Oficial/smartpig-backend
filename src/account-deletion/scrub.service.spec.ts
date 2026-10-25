@@ -76,6 +76,7 @@ function createService(
       update: record('gift', 'update'),
     },
     apiAuditLog: { updateMany: record('apiAuditLog', 'updateMany') },
+    userVaultUnlock: { deleteMany: record('userVaultUnlock', 'deleteMany') },
     userExperienceRewardUnlock: {
       deleteMany: record('userExperienceRewardUnlock', 'deleteMany'),
     },
@@ -398,6 +399,7 @@ describe('ScrubService', () => {
         where: { userId: USER },
       });
       for (const model of [
+        tx.userVaultUnlock,
         tx.userExperienceRewardUnlock,
         tx.experienceXpLedgerEntry,
         tx.experienceAccount,
@@ -430,6 +432,7 @@ describe('ScrubService', () => {
         'userExperienceRewardUnlock',
         'userLearningModuleProgress',
         'userLearningQuestionProgress',
+        'userVaultUnlock',
       ]);
     });
   });

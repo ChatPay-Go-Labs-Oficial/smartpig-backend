@@ -168,6 +168,7 @@ model User {
   experienceRewards  UserExperienceRewardUnlock[]
   learningQuestions  UserLearningQuestionProgress[]
   learningModules    UserLearningModuleProgress[]
+  vaultUnlocks       UserVaultUnlock[]
 
   @@index([deletedAt])
   @@map("users")
@@ -202,9 +203,10 @@ model LearningModule {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  contentItems LearningContentItem[]
-  questions    LearningQuestion[]
-  userProgress UserLearningModuleProgress[]
+  contentItems            LearningContentItem[]
+  questions               LearningQuestion[]
+  userProgress            UserLearningModuleProgress[]
+  eligibilityRequirements VaultEligibilityRequiredModule[]
 
   @@index([isPublished, displayOrder])
   @@map("learning_modules")
@@ -496,16 +498,77 @@ model VaultCatalog {
   /// observable without flipping isActive.
   lastSeenAt            DateTime?
 
-  depositIntents     DepositIntent[]
-  withdrawalIntents  WithdrawalIntent[]
-  portfolioSnapshots PortfolioSnapshot[]
-  managedVault       ManagedVault?
-  disclosures        VaultDisclosure[]
-  disclosureAcks     VaultDisclosureAcknowledgment[]
+  depositIntents      DepositIntent[]
+  withdrawalIntents   WithdrawalIntent[]
+  portfolioSnapshots  PortfolioSnapshot[]
+  managedVault        ManagedVault?
+  disclosures         VaultDisclosure[]
+  disclosureAcks      VaultDisclosureAcknowledgment[]
+  eligibilityPolicies VaultEligibilityPolicy[]
+  userUnlocks         UserVaultUnlock[]
 
   @@index([isActive])
   @@index([isActive, displayOrder])
   @@map("vault_catalog")
+}
+
+// ─────────────────────────────────────────────
+// Vault eligibility based on the user experience
+// ─────────────────────────────────────────────
+
+/// Versioned rule for opening new deposits. Policies never affect reads,
+/// withdrawals or recovery, and an existing UserVaultUnlock is permanent.
+model VaultEligibilityPolicy {
+  id           String    @id @default(cuid())
+  vaultId      String
+  version      Int
+  minimumLevel Int       @default(0)
+  isActive     Boolean   @default(false)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vault           VaultCatalog                     @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  requiredModules VaultEligibilityRequiredModule[]
+  userUnlocks     UserVaultUnlock[]
+
+  @@unique([vaultId, version])
+  @@index([vaultId, isActive, publishedAt])
+  @@map("vault_eligibility_policies")
+}
+
+model VaultEligibilityRequiredModule {
+  id       String @id @default(cuid())
+  policyId String
+  moduleId String
+
+  policy VaultEligibilityPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  module LearningModule         @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+
+  @@unique([policyId, moduleId])
+  @@index([moduleId])
+  @@map("vault_eligibility_required_modules")
+}
+
+/// Durable entitlement. Later policy changes cannot revoke an unlock already
+/// earned; the policy/version and level are retained as its audit evidence.
+model UserVaultUnlock {
+  id            String   @id @default(cuid())
+  userId        String
+  vaultId       String
+  policyId      String
+  policyVersion Int
+  levelAtUnlock Int
+  unlockedAt    DateTime @default(now())
+
+  user   User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vault  VaultCatalog           @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  policy VaultEligibilityPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, vaultId])
+  @@index([vaultId])
+  @@index([policyId])
+  @@map("user_vault_unlocks")
 }
 
 // ─────────────────────────────────────────────

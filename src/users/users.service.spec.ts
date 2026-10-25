@@ -24,9 +24,13 @@ describe('UsersService experience mode', () => {
           ),
       },
     };
+    const eligibility = {
+      refreshUnlocksForUser: jest.fn().mockResolvedValue([]),
+    };
     return {
       prisma,
-      service: new UsersService(prisma as never),
+      eligibility,
+      service: new UsersService(prisma as never, eligibility as never),
     };
   }
 
@@ -39,7 +43,7 @@ describe('UsersService experience mode', () => {
   });
 
   it('sets the requested mode idempotently', async () => {
-    const { service, prisma } = createService('LITE');
+    const { service, prisma, eligibility } = createService('LITE');
 
     await expect(
       service.updateExperienceMode('user-1', { mode: 'LITE' }),
@@ -52,5 +56,14 @@ describe('UsersService experience mode', () => {
         },
       }),
     );
+    expect(eligibility.refreshUnlocksForUser).toHaveBeenCalledWith('user-1');
+  });
+
+  it('does not run Lite eligibility materialization when selecting Pro', async () => {
+    const { service, eligibility } = createService('LITE');
+
+    await service.updateExperienceMode('user-1', { mode: 'PRO' });
+
+    expect(eligibility.refreshUnlocksForUser).not.toHaveBeenCalled();
   });
 });
