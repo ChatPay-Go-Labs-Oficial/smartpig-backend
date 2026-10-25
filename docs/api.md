@@ -77,6 +77,17 @@ Um Bearer inválido retorna 401 mesmo sendo rota pública.
 
 ## Users
 
+### `PATCH /users/me/experience-mode` 🔒
+Sincroniza o modo salvo pelo aplicativo. Envie `LITE` para a experiência guiada ou `PRO` para preservar o fluxo avançado existente.
+
+```json
+{ "mode": "LITE" }
+```
+
+Usuários legados com modo ainda não sincronizado (`null` no banco) são tratados como `PRO`.
+
+---
+
 ### `GET /users/:id` 🔒
 Retorna o perfil do usuário.
 

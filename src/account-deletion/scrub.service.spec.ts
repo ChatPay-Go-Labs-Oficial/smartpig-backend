@@ -122,6 +122,8 @@ describe('ScrubService', () => {
       expect(data.googleId).toBeNull();
       expect(data.appleId).toBeNull();
       expect(data.isOnboarded).toBe(false);
+      expect(data.experienceMode).toBeNull();
+      expect(data.experienceModeUpdatedAt).toBeNull();
       expect(data.deletedAt).toBeInstanceOf(Date);
     });
 

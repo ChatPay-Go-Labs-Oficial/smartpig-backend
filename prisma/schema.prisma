@@ -93,18 +93,27 @@ enum WalletActivationStatus {
   FAILED
 }
 
+/// Controls the language/detail of the experience. Existing users remain null
+/// until they explicitly choose a mode; migrations must not guess for them.
+enum ExperienceMode {
+  LITE
+  PRO
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
 
 model User {
-  id          String  @id @default(cuid())
-  email       String? @unique
-  name        String?
-  avatarUrl   String?
-  googleId    String? @unique
-  appleId     String? @unique
-  isOnboarded Boolean @default(false)
+  id                      String          @id @default(cuid())
+  email                   String?         @unique
+  name                    String?
+  avatarUrl               String?
+  googleId                String?         @unique
+  appleId                 String?         @unique
+  isOnboarded             Boolean         @default(false)
+  experienceMode          ExperienceMode?
+  experienceModeUpdatedAt DateTime?
 
   /// Tombstone marker. Set by the scrub; the row survives so the retained
   /// financial records keep an anchor that points to nobody identifiable.

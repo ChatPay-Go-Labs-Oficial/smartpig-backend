@@ -218,6 +218,8 @@ export class ScrubService {
         googleId: null,
         appleId: null,
         isOnboarded: false,
+        experienceMode: null,
+        experienceModeUpdatedAt: null,
         deletedAt: new Date(),
       },
     });

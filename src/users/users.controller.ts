@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/privy/current-user.decorator';
 import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateExperienceModeDto } from './dto/update-experience-mode.dto';
 
 /**
  * A conta vem do token, nunca da requisição.
@@ -21,6 +22,25 @@ export class UsersController {
     private readonly accountOwner: AccountOwnerService,
     private readonly privyAuthService: PrivyAuthService,
   ) {}
+
+  /**
+   * Static route intentionally precedes `:id`, so Express never interprets
+   * "me" as a local user id. The local account is derived from the bearer.
+   */
+  @Patch('me/experience-mode')
+  @ApiOperation({ summary: 'Select the Lite or Pro product experience' })
+  @ApiResponse({
+    status: 200,
+    description: 'Effective experience mode (idempotent).',
+    schema: { example: { experienceMode: 'LITE' } },
+  })
+  async updateExperienceMode(
+    @Body() dto: UpdateExperienceModeDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    const userId = await this.assertOwner(user.id);
+    return this.usersService.updateExperienceMode(userId, dto);
+  }
 
   /**
    * GET /users/:id
@@ -95,7 +115,7 @@ export class UsersController {
 
   private async assertOwner(
     privyUserId: string,
-    claimedUserId: string,
+    claimedUserId?: string,
   ): Promise<string> {
     const verifiedStellarAddresses =
       await this.privyAuthService.getStellarWalletAddresses(privyUserId);

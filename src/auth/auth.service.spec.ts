@@ -102,6 +102,8 @@ describe('AuthService', () => {
         name: null,
         email: null,
         avatarUrl: null,
+        experienceMode: 'LITE',
+        experienceModeUpdatedAt: new Date('2026-06-01T00:00:00.000Z'),
         createdAt: new Date('2026-06-01T00:00:00.000Z'),
       },
       wallet: {
@@ -118,5 +120,44 @@ describe('AuthService', () => {
 
     expect(result.isNewUser).toBe(true);
     expect(result.user.id).toBe('user-new');
+    expect(result.user.experienceMode).toBe('LITE');
+  });
+
+  it('persists LITE explicitly for a genuinely new account', async () => {
+    const { prisma, service } = createService();
+    prisma.walletAccount.findFirst.mockResolvedValue(null);
+    const tx = {
+      user: {
+        create: jest.fn().mockResolvedValue({
+          id: 'user-new',
+          name: null,
+          email: null,
+          avatarUrl: null,
+          experienceMode: 'LITE',
+          experienceModeUpdatedAt: new Date(),
+          createdAt: new Date(),
+        }),
+      },
+      walletAccount: {
+        create: jest.fn().mockResolvedValue({
+          id: 'wallet-new',
+          stellarAddress: additionalAddress,
+          label: null,
+          isActive: true,
+        }),
+      },
+    };
+    prisma.$transaction.mockImplementation(
+      (operation: (client: typeof tx) => unknown) => operation(tx),
+    );
+
+    await service.walletLogin({ stellarAddress: additionalAddress });
+
+    expect(tx.user.create).toHaveBeenCalledWith({
+      data: {
+        experienceMode: 'LITE',
+        experienceModeUpdatedAt: expect.any(Date),
+      },
+    });
   });
 });
