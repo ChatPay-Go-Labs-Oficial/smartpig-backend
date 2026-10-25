@@ -1,5 +1,5 @@
 import {
-  BadRequestException,
+  UnprocessableEntityException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -9,7 +9,8 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { StellarService } from '../wallets/stellar.service';
 
 export function normalizeUsername(value: string): string | null {
-  // Only ASCII letters are case-folded; do not silently accept whitespace or Unicode aliases.
+  value = value.trim();
+  // Accept only ASCII usernames after trimming, never Unicode aliases.
   if (!/^[a-zA-Z][a-zA-Z0-9._]{2,19}$/.test(value)) return null;
   return value.toLowerCase();
 }
@@ -23,22 +24,26 @@ export class UsernamesService {
 
   async availability(value: string) {
     const username = normalizeUsername(value);
-    if (!username) return { available: false, reason: 'USERNAME_INVALID' };
+    if (!username) return { available: false, reason: 'INVALID' };
     const found = await this.prisma.user.findUnique({
       where: { username },
       select: { id: true },
     });
-    return { available: !found, reason: found ? 'USERNAME_TAKEN' : null };
+    return found ? { available: false, reason: 'TAKEN' } : { available: true };
   }
 
   async register(userId: string, value: string) {
     const username = normalizeUsername(value);
-    if (!username) throw new BadRequestException({ code: 'USERNAME_INVALID' });
+    if (!username)
+      throw new UnprocessableEntityException({
+        code: 'USERNAME_INVALID',
+        statusCode: 422,
+      });
     try {
       return await this.prisma.$transaction(async (tx) => {
         const updated = await tx.user.updateMany({
           where: { id: userId, username: null, deletedAt: null },
-          data: { username },
+          data: { username, usernameSetAt: new Date() },
         });
         if (!updated.count)
           throw new ConflictException({ code: 'USERNAME_ALREADY_SET' });
@@ -57,11 +62,13 @@ export class UsernamesService {
 
   async resolve(value: string) {
     const username = normalizeUsername(value);
-    if (!username) throw new BadRequestException({ code: 'USERNAME_INVALID' });
+    if (!username) this.notFound();
     const user = await this.prisma.user.findUnique({
       where: { username },
       select: {
+        name: true,
         deletedAt: true,
+        etherfuseCustomer: { select: { kycStatus: true } },
         username: true,
         blindpayReceiver: { select: { name: true, kycStatus: true } },
         wallets: {
@@ -72,18 +79,36 @@ export class UsernamesService {
         },
       },
     });
-    if (!user || user.deletedAt || !user.wallets[0])
-      throw new NotFoundException('Username not found');
+    if (!user || user.deletedAt || !user.wallets[0]) this.notFound();
     const stellarAddress = user.wallets[0].stellarAddress;
-    const verified =
+    const blindPayVerified =
       !!user.blindpayReceiver &&
       ['APPROVED', 'APPROVED_RFI'].includes(user.blindpayReceiver.kycStatus);
+    const verified =
+      blindPayVerified || user.etherfuseCustomer?.kycStatus === 'APPROVED';
+    const name = blindPayVerified
+      ? user.blindpayReceiver!.name
+      : verified
+        ? user.name
+        : null;
+    const receives =
+      await this.stellar.getReceivingCapabilities(stellarAddress);
     return {
-      username: user.username,
-      name: verified ? user.blindpayReceiver!.name : null,
+      username,
+      displayName: name ?? 'Usuário PigFi',
+      name,
+      receives,
       verified,
       stellarAddress,
-      canReceive: await this.stellar.getReceivingCapabilities(stellarAddress),
+      canReceive: receives,
     };
+  }
+
+  private notFound(): never {
+    throw new NotFoundException({
+      statusCode: 404,
+      code: 'USERNAME_NOT_FOUND',
+      message: 'Username not found.',
+    });
   }
 }

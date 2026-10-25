@@ -14,23 +14,21 @@ export class ExperienceController {
     private readonly privyAuthService: PrivyAuthService,
   ) {}
 
-  @Post('daily-reward/claim')
-  async claimDailyReward(@CurrentUser() user: { id: string }) {
-    const addresses = await this.privyAuthService.getStellarWalletAddresses(
-      user.id,
-    );
-    return this.experience.claimDailyReward(
-      await this.accountOwner.resolveUserId(addresses),
-    );
-  }
-
   @Get('profile')
   @ApiOperation({ summary: 'Get the authenticated user XP, level and rewards' })
   async profile(@CurrentUser() user: { id: string }) {
-    const addresses = await this.privyAuthService.getStellarWalletAddresses(
-      user.id,
-    );
-    const userId = await this.accountOwner.resolveUserId(addresses);
-    return this.experience.profile(userId);
+    return this.experience.profile(await this.localUserId(user.id));
+  }
+
+  @Post('daily-reward/claim')
+  @ApiOperation({ summary: 'Claim the São Paulo calendar-day XP reward' })
+  async claimDailyReward(@CurrentUser() user: { id: string }) {
+    return this.experience.claimDailyReward(await this.localUserId(user.id));
+  }
+
+  private async localUserId(privyUserId: string): Promise<string> {
+    const addresses =
+      await this.privyAuthService.getStellarWalletAddresses(privyUserId);
+    return this.accountOwner.resolveUserId(addresses);
   }
 }

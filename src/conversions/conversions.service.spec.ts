@@ -59,6 +59,9 @@ function createService(options: Options = {}) {
       findFirst: jest.fn().mockResolvedValue(wallet),
       findUnique: jest.fn().mockResolvedValue(wallet),
     },
+    vaultCatalog: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'vault-eurc' }),
+    },
   };
 
   const config = {
@@ -107,6 +110,9 @@ function createService(options: Options = {}) {
       expiresAt: null,
     }),
   };
+  const eligibility = {
+    assertEligibleForDeposit: jest.fn().mockResolvedValue({ eligible: true }),
+  };
 
   return {
     service: new ConversionsService(
@@ -115,11 +121,13 @@ function createService(options: Options = {}) {
       stellar as never,
       quotes as never,
       trustlines as never,
+      eligibility as never,
     ),
     prisma,
     stellar,
     quotes,
     trustlines,
+    eligibility,
     updates,
   };
 }
@@ -188,6 +196,18 @@ describe('ConversionsService.createConversion', () => {
       unsignedXdr: 'AAAApathpayment',
       status: 'XDR_GENERATED',
     });
+  });
+
+  it('checks Lite education access before converting into EURC', async () => {
+    const { service, eligibility } = createService();
+
+    await service.createConversion(CREATE);
+
+    expect(eligibility.assertEligibleForDeposit).toHaveBeenCalledWith(
+      USER,
+      'vault-eurc',
+      'EURC',
+    );
   });
 
   it('uses the selected source asset for a standalone wallet swap', async () => {
@@ -408,5 +428,14 @@ describe('ConversionsService.listPending', () => {
       status: 'CONFIRMED',
       depositIntentId: null,
     });
+  });
+});
+
+describe('Conversion eligibility rollout compatibility', () => {
+  it('allows conversion without an education vault while enforcement is disabled', async () => {
+    const { service, prisma, eligibility } = createService();
+    prisma.vaultCatalog.findFirst.mockResolvedValue(null as never);
+    await expect(service.createConversion(CREATE)).resolves.toBeDefined();
+    expect(eligibility.assertEligibleForDeposit).not.toHaveBeenCalled();
   });
 });

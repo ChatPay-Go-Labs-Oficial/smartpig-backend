@@ -19,6 +19,7 @@ export async function seedLearning(
       where: { key: editorialModule.key },
       update: {
         title: editorialModule.title,
+        proTitle: 'proTitle' in editorialModule ? editorialModule.proTitle : null,
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
@@ -29,6 +30,7 @@ export async function seedLearning(
       create: {
         key: editorialModule.key,
         title: editorialModule.title,
+        proTitle: 'proTitle' in editorialModule ? editorialModule.proTitle : null,
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
@@ -65,14 +67,38 @@ export async function seedLearning(
       });
     }
 
+    // Move existing positions out of the editorial range before reordering.
+    await prisma.$executeRaw(Prisma.sql`UPDATE "learning_questions"
+      SET "displayOrder" = -ABS("displayOrder") - 1000
+      WHERE "moduleId" = ${module.id}`);
+
     for (const editorialQuestion of editorialModule.questions) {
+      const currentQuestion = await prisma.learningQuestion.findUnique({
+        where: { key: editorialQuestion.key },
+        select: { id: true },
+      });
+      if (!currentQuestion) {
+        await prisma.learningQuestion.updateMany({
+          where: { key: editorialQuestion.legacyKey },
+          data: { key: editorialQuestion.key },
+        });
+      }
+
       const question = await prisma.learningQuestion.upsert({
         where: { key: editorialQuestion.key },
         update: {
           moduleId: module.id,
+          title: editorialQuestion.title,
+          situation: {
+            ...editorialQuestion.situation,
+            valuesExample: editorialQuestion.valuesExample ?? false,
+            ...(editorialQuestion.proSuccessAddition
+              ? { proSuccessAddition: editorialQuestion.proSuccessAddition }
+              : {}),
+          } as Prisma.InputJsonValue,
           prompt: editorialQuestion.prompt,
           reviewScreenKey: editorialQuestion.reviewScreenKey,
-          stepOrder: editorialQuestion.stepOrder,
+          stepOrder: editorialQuestion.order,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
@@ -85,9 +111,17 @@ export async function seedLearning(
         create: {
           key: editorialQuestion.key,
           moduleId: module.id,
+          title: editorialQuestion.title,
+          situation: {
+            ...editorialQuestion.situation,
+            valuesExample: editorialQuestion.valuesExample ?? false,
+            ...(editorialQuestion.proSuccessAddition
+              ? { proSuccessAddition: editorialQuestion.proSuccessAddition }
+              : {}),
+          } as Prisma.InputJsonValue,
           prompt: editorialQuestion.prompt,
           reviewScreenKey: editorialQuestion.reviewScreenKey,
-          stepOrder: editorialQuestion.stepOrder,
+          stepOrder: editorialQuestion.order,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
@@ -137,6 +171,18 @@ export async function seedLearning(
         },
       },
       data: { isActive: false },
+    });
+    await prisma.userLearningModuleProgress.updateMany({
+      where: {
+        moduleId: module.id,
+        lastContentItemKey: {
+          notIn: [
+            ...editorialModule.content.map((item) => item.key),
+            ...editorialModule.questions.map((question) => question.key),
+          ],
+        },
+      },
+      data: { lastContentItemKey: editorialModule.content[0]?.key ?? null },
     });
   }
 
@@ -283,6 +329,10 @@ async function seedDefaultEligibilityPolicies(
         orderBy: { version: 'desc' },
         include: { requiredModules: { select: { moduleId: true } } },
       });
+      // Never replace a later operator-owned policy when re-running the seed.
+      if ((existing[0]?.version ?? 0) > 2) continue;
+      if (existing.some((policy) => policy.version === 2 && policy.publishedAt))
+        continue;
       const active = existing.find((policy) => policy.isActive);
       if (
         active?.minimumLevel === definition.minimumLevel &&
@@ -299,7 +349,7 @@ async function seedDefaultEligibilityPolicies(
       const policy = await prisma.vaultEligibilityPolicy.create({
         data: {
           vaultId: vault.id,
-          version: (existing[0]?.version ?? 0) + 1,
+          version: Math.max(2, (existing[0]?.version ?? 0) + 1),
           minimumLevel: definition.minimumLevel,
           isActive: true,
           publishedAt: new Date(),
@@ -383,6 +433,9 @@ async function materializeSeedPolicyUnlocks(
 
 function validateCatalog(): void {
   const allKeys = new Set<string>();
+  let screenCount = 0;
+  let questionCount = 0;
+  let reflectionCount = 0;
   for (const module of learningCatalog) {
     if (module.questions.length !== 6) {
       throw new Error(`${module.key} must contain exactly six questions`);
@@ -390,12 +443,22 @@ function validateCatalog(): void {
     for (const item of module.content) {
       if (allKeys.has(item.key)) throw new Error(`Duplicate key ${item.key}`);
       allKeys.add(item.key);
+      if (item.type === LearningContentType.EXPLANATION) screenCount += 1;
+      if (item.type === LearningContentType.REFLECTION) reflectionCount += 1;
     }
     for (const question of module.questions) {
       if (allKeys.has(question.key)) {
         throw new Error(`Duplicate key ${question.key}`);
       }
       allKeys.add(question.key);
+      questionCount += 1;
+      if (
+        !module.content.some((item) => item.key === question.reviewScreenKey)
+      ) {
+        throw new Error(
+          `${question.key} reviews missing screen ${question.reviewScreenKey}`,
+        );
+      }
       const optionKeys = question.options.map((option) => option.key);
       if (new Set(optionKeys).size !== optionKeys.length) {
         throw new Error(`Duplicate option key in ${question.key}`);
@@ -404,6 +467,11 @@ function validateCatalog(): void {
         throw new Error(`Correct option is missing in ${question.key}`);
       }
     }
+  }
+  if (screenCount !== 28 || questionCount !== 30 || reflectionCount !== 5) {
+    throw new Error(
+      `Intro catalog must contain 28 screens, 30 questions and 5 reflections; got ${screenCount}/${questionCount}/${reflectionCount}`,
+    );
   }
   for (const item of standaloneContent.filter(
     (item) => item.type !== LearningContentType.PRACTICE,

@@ -12,10 +12,11 @@ import { UpsertVaultEligibilityPolicyDto } from './dto/upsert-vault-eligibility-
 
 export interface VaultEligibilityResult {
   eligible: boolean;
-  newlyUnlocked?: boolean;
   mode: 'LITE' | 'PRO';
   source: 'PRO_BYPASS' | 'USDC_OPEN' | 'PERSISTED_UNLOCK' | 'POLICY';
   vaultId: string;
+  assetSymbol?: string;
+  newlyUnlocked?: boolean;
   currentLevel?: number;
   minimumLevel?: number;
   missingModules?: string[];
@@ -320,11 +321,23 @@ export class VaultEligibilityService {
     // Compatibility contract: all pre-existing null rows are effectively PRO.
     const mode = user.experienceMode ?? 'PRO';
     if (mode === 'PRO') {
-      return { eligible: true, mode, source: 'PRO_BYPASS', vaultId };
+      return {
+        eligible: true,
+        mode,
+        source: 'PRO_BYPASS',
+        vaultId,
+        assetSymbol: vaultAssetSymbol.toUpperCase(),
+      };
     }
 
     if (vaultAssetSymbol.toUpperCase() === 'USDC') {
-      return { eligible: true, mode, source: 'USDC_OPEN', vaultId };
+      return {
+        eligible: true,
+        mode,
+        source: 'USDC_OPEN',
+        vaultId,
+        assetSymbol: 'USDC',
+      };
     }
 
     const existingUnlock = await db.userVaultUnlock.findUnique({
@@ -337,6 +350,7 @@ export class VaultEligibilityService {
         mode,
         source: 'PERSISTED_UNLOCK',
         vaultId,
+        assetSymbol: vaultAssetSymbol.toUpperCase(),
         currentLevel: existingUnlock.levelAtUnlock,
         policyVersion: existingUnlock.policyVersion,
       };
@@ -366,6 +380,7 @@ export class VaultEligibilityService {
         mode,
         source: 'POLICY',
         vaultId,
+        assetSymbol: vaultAssetSymbol.toUpperCase(),
         currentLevel: 0,
         missingModules: [],
       };
@@ -417,6 +432,7 @@ export class VaultEligibilityService {
       mode,
       source: 'POLICY',
       vaultId,
+      assetSymbol: vaultAssetSymbol.toUpperCase(),
       currentLevel,
       minimumLevel: policy.minimumLevel,
       missingModules,

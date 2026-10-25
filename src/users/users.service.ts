@@ -16,6 +16,7 @@ const userSelect = {
   id: true,
   name: true,
   username: true,
+  usernameSetAt: true,
   email: true,
   avatarUrl: true,
   isOnboarded: true,

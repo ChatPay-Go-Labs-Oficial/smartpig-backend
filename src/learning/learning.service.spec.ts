@@ -31,6 +31,7 @@ function setup(
   let totalXp = 0;
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([]),
+    learningModule: { count: jest.fn().mockResolvedValue(5) },
     learningQuestion: {
       findUnique: jest.fn().mockResolvedValue(question),
       count: jest.fn().mockResolvedValue(6),
@@ -70,7 +71,7 @@ function setup(
   };
   const eligibility = {
     refreshUnlocksForUser: jest.fn().mockResolvedValue([
-      { vaultId: 'eurc', newlyUnlocked: true },
+      { vaultId: 'eurc', assetSymbol: 'EURC', newlyUnlocked: true },
       { vaultId: 'old', newlyUnlocked: false },
     ]),
   };
@@ -135,7 +136,7 @@ describe('Learning answers mobile integration', () => {
       levelBefore: 0,
       levelAfter: 0,
       tierAfter: 'UNRANKED',
-      newUnlocks: [{ vaultId: 'eurc', newlyUnlocked: true }],
+      newUnlocks: ['EURC'],
     });
     expect(ledger.grant).toHaveBeenCalledWith(
       tx,

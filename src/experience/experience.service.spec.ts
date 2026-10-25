@@ -12,7 +12,12 @@ describe('Daily XP reward', () => {
     );
   });
   it('awards 3 XP and returns 409 on a duplicate daily ledger entry', async () => {
-    const tx = {};
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      experienceAccount: {
+        findUnique: jest.fn().mockResolvedValue({ totalXp: 0 }),
+      },
+    };
     const prisma = { $transaction: (fn: (db: unknown) => unknown) => fn(tx) };
     const ledger = {
       grant: jest

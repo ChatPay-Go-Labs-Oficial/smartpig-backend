@@ -16,6 +16,7 @@ import { classifyFailure } from '../defindex/failure-classifier';
 import { assetIdOf } from '../config/asset-registry';
 import { QuoteService } from './quote.service';
 import { toPathAssets } from './path-mapper';
+import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 /**
  * How long a conversion intent may be signed.
@@ -43,6 +44,7 @@ export class ConversionsService {
     private readonly stellar: StellarService,
     private readonly quotes: QuoteService,
     private readonly trustlines: TrustlinesService,
+    private readonly vaultEligibility: VaultEligibilityService,
   ) {}
 
   /**
@@ -150,6 +152,44 @@ export class ConversionsService {
       throw new BadRequestException(
         `${targetAsset.symbol} needs no conversion`,
       );
+    }
+
+    // Lite unlocks govern both saving and acquiring the advanced currency.
+    // Quotes remain public/read-only; the check happens before an operation is
+    // created or a trustline/XDR is requested.
+    if (targetAsset.symbol !== 'USDC') {
+      const targetVault = params.plannedDeposit?.vaultId
+        ? await this.prisma.vaultCatalog.findFirst({
+            where: {
+              id: params.plannedDeposit.vaultId,
+              assetSymbol: targetAsset.symbol,
+              isActive: true,
+            },
+            select: { id: true },
+          })
+        : await this.prisma.vaultCatalog.findFirst({
+            where: { assetSymbol: targetAsset.symbol, isActive: true },
+            orderBy: { displayOrder: 'asc' },
+            select: { id: true },
+          });
+      if (targetVault) {
+        await this.vaultEligibility.assertEligibleForDeposit(
+          params.userId,
+          targetVault.id,
+          targetAsset.symbol,
+        );
+      } else if (this.config.get<boolean>('ENFORCE_VAULT_EDUCATION', false)) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: params.userId },
+          select: { experienceMode: true },
+        });
+        // A missing educational policy must not change legacy Pro conversions.
+        if (user?.experienceMode === 'LITE') {
+          throw new NotFoundException(
+            `Active ${targetAsset.symbol} vault not found for conversion eligibility`,
+          );
+        }
+      }
     }
 
     // The target asset has to be receivable before we move anything into it:

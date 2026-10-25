@@ -3,8 +3,8 @@ import { normalizeUsername, UsernamesService } from './usernames.service';
 
 describe('Usernames', () => {
   it('normalizes ASCII casing and validates syntax', () => {
-    expect(normalizeUsername('Carol.Tea_1')).toBe('carol.tea_1');
-    for (const name of ['ab', '1abc', ' abc', 'ábc', 'a-b', 'a'.repeat(21)])
+    expect(normalizeUsername(' Carol.Tea_1 ')).toBe('carol.tea_1');
+    for (const name of ['ab', '1abc', 'ábc', 'a-b', 'a'.repeat(21)])
       expect(normalizeUsername(name)).toBeNull();
   });
   it('does exact availability lookups without listing accounts', async () => {
@@ -15,7 +15,7 @@ describe('Usernames', () => {
     );
     await expect(service.availability('ALICE')).resolves.toEqual({
       available: false,
-      reason: 'USERNAME_TAKEN',
+      reason: 'TAKEN',
     });
     expect(findUnique).toHaveBeenCalledWith({
       where: { username: 'alice' },

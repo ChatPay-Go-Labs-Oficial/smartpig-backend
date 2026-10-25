@@ -45,15 +45,16 @@ export class UsersController {
     return this.usersService.updateExperienceMode(userId, dto);
   }
 
+  @Get('me')
+  @ApiOperation({ summary: 'Get the authenticated user profile' })
+  async getMe(@CurrentUser() user: { id: string }) {
+    return this.usersService.getUser(await this.assertOwner(user.id));
+  }
+
   /**
    * GET /users/:id
    * Returns the user profile.
    */
-  @Get('me')
-  async me(@CurrentUser() user: { id: string }) {
-    return this.usersService.getUser(await this.assertOwner(user.id));
-  }
-
   @Post('me/username')
   async registerUsername(
     @Body() dto: RegisterUsernameDto,

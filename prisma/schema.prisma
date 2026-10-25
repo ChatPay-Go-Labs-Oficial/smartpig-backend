@@ -132,12 +132,13 @@ enum ExperienceRewardType {
 
 model User {
   id                      String          @id @default(cuid())
-  username                String?         @unique
   email                   String?         @unique
   name                    String?
   avatarUrl               String?
   googleId                String?         @unique
   appleId                 String?         @unique
+  username                String?         @unique
+  usernameSetAt           DateTime?
   isOnboarded             Boolean         @default(false)
   experienceMode          ExperienceMode?
   experienceModeUpdatedAt DateTime?
@@ -199,6 +200,7 @@ model LearningModule {
   id             String    @id @default(cuid())
   key            String    @unique
   title          String
+  proTitle       String?
   description    String?   @db.Text
   displayOrder   Int       @unique
   contentVersion Int       @default(1)
@@ -243,6 +245,8 @@ model LearningContentItem {
 /// A single-answer question. The correct option is stored as its stable key and
 /// is never selected by catalog queries returned to the client.
 model LearningQuestion {
+  title String?
+  situation Json?
   id               String   @id @default(cuid())
   key              String   @unique
   moduleId         String

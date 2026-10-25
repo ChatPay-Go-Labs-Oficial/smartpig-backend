@@ -33,7 +33,8 @@ async function main() {
 
     const ledger = new ExperienceLedgerService(prisma);
     const eligibility = { refreshUnlocksForUser: async () => [] };
-    const learning = new LearningService(prisma, ledger, eligibility);
+    const config = { get: (_key, fallback) => fallback };
+    const learning = new LearningService(prisma, ledger, eligibility, config);
 
     for (const question of questions.slice(0, 4)) {
       await learning.submitAnswer(
@@ -115,7 +116,7 @@ async function main() {
       () =>
         policyService.upsertPolicy(xlmVault.id, {
           version: policyVersion,
-          minimumLevel: 2,
+          minimumLevel: 1,
           requiredModuleKeys: ['M1'],
           publish: true,
         }),
