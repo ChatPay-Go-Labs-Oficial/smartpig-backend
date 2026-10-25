@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
 
 const questionPublicSelect = {
@@ -142,5 +147,195 @@ export class LearningService {
       })),
       progress: moduleProgress,
     };
+  }
+
+  async progress(userId: string) {
+    const [modules, completedQuestions, resume] = await Promise.all([
+      this.listModules(userId),
+      this.prisma.userLearningQuestionProgress.findMany({
+        where: {
+          userId,
+          firstCorrectAt: { not: null },
+          question: { isActive: true, module: { isPublished: true } },
+        },
+        orderBy: { firstCorrectAt: 'asc' },
+        select: { question: { select: { key: true } } },
+      }),
+      this.prisma.userLearningModuleProgress.findFirst({
+        where: { userId, completedAt: null, module: { isPublished: true } },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          lastContentItemKey: true,
+          module: { select: { key: true } },
+        },
+      }),
+    ]);
+    return {
+      modules,
+      completedQuestionIds: completedQuestions.map((item) => item.question.key),
+      resume: resume
+        ? {
+            moduleId: resume.module.key,
+            contentItemId: resume.lastContentItemKey,
+          }
+        : null,
+    };
+  }
+
+  async markContent(userId: string, moduleKey: string, contentItemKey: string) {
+    const module = await this.prisma.learningModule.findUnique({
+      where: { key: moduleKey },
+      select: {
+        id: true,
+        isPublished: true,
+        contentItems: {
+          where: { key: contentItemKey, isActive: true },
+          select: { key: true },
+        },
+      },
+    });
+    if (!module?.isPublished || module.contentItems.length === 0) {
+      throw new NotFoundException('Learning content not found');
+    }
+
+    return this.prisma.userLearningModuleProgress.upsert({
+      where: { userId_moduleId: { userId, moduleId: module.id } },
+      create: {
+        userId,
+        moduleId: module.id,
+        lastContentItemKey: contentItemKey,
+      },
+      update: { lastContentItemKey: contentItemKey },
+      select: { lastContentItemKey: true, startedAt: true, completedAt: true },
+    });
+  }
+
+  async submitAnswer(
+    userId: string,
+    questionKey: string,
+    optionKey: string,
+    contentVersion: number,
+  ) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const question = await tx.learningQuestion.findUnique({
+        where: { key: questionKey },
+        include: {
+          module: true,
+          options: { select: { key: true } },
+        },
+      });
+      if (!question?.isActive || !question.module.isPublished) {
+        throw new NotFoundException(
+          `Learning question ${questionKey} not found`,
+        );
+      }
+      if (question.contentVersion !== contentVersion) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'LEARNING_CONTENT_VERSION_STALE',
+          message: 'Learning content changed. Reload before answering.',
+          details: {
+            questionId: question.key,
+            currentVersion: question.contentVersion,
+          },
+        });
+      }
+      if (!question.options.some((option) => option.key === optionKey)) {
+        throw new NotFoundException(
+          'Answer option not found for this question',
+        );
+      }
+
+      // Two devices can answer the last two pending questions together. The
+      // transaction-scoped lock serializes completion for this user/module so
+      // the second transaction observes the first before completing the module.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`${userId}:${question.moduleId}`}))`,
+      );
+
+      const prior = await tx.userLearningQuestionProgress.findUnique({
+        where: {
+          userId_questionId: { userId, questionId: question.id },
+        },
+        select: { firstCorrectAt: true },
+      });
+      const correct = optionKey === question.correctOptionKey;
+      const firstCorrect = correct && !prior?.firstCorrectAt;
+      const answeredAt = new Date();
+
+      await tx.userLearningQuestionProgress.upsert({
+        where: {
+          userId_questionId: { userId, questionId: question.id },
+        },
+        create: {
+          userId,
+          questionId: question.id,
+          attempts: 1,
+          firstCorrectAt: correct ? answeredAt : null,
+          lastAnsweredAt: answeredAt,
+          lastSelectedOptionKey: optionKey,
+          lastContentVersion: question.contentVersion,
+        },
+        update: {
+          attempts: { increment: 1 },
+          ...(firstCorrect ? { firstCorrectAt: answeredAt } : {}),
+          lastAnsweredAt: answeredAt,
+          lastSelectedOptionKey: optionKey,
+          lastContentVersion: question.contentVersion,
+        },
+      });
+
+      const requiredCount = await tx.learningQuestion.count({
+        where: {
+          moduleId: question.moduleId,
+          isActive: true,
+          isRequired: true,
+        },
+      });
+      const correctCount = await tx.userLearningQuestionProgress.count({
+        where: {
+          userId,
+          firstCorrectAt: { not: null },
+          question: {
+            moduleId: question.moduleId,
+            isActive: true,
+            isRequired: true,
+          },
+        },
+      });
+      const moduleCompleted =
+        requiredCount > 0 && correctCount >= requiredCount;
+
+      const priorModule = await tx.userLearningModuleProgress.findUnique({
+        where: {
+          userId_moduleId: { userId, moduleId: question.moduleId },
+        },
+        select: { completedAt: true },
+      });
+
+      await tx.userLearningModuleProgress.upsert({
+        where: {
+          userId_moduleId: { userId, moduleId: question.moduleId },
+        },
+        create: {
+          userId,
+          moduleId: question.moduleId,
+          completedAt: moduleCompleted ? answeredAt : null,
+        },
+        update: moduleCompleted
+          ? { completedAt: priorModule?.completedAt ?? answeredAt }
+          : {},
+      });
+
+      return {
+        correct,
+        feedback: correct ? question.successFeedback : question.retryFeedback,
+        firstCorrect,
+        moduleCompleted,
+        progress: { correctRequired: correctCount, required: requiredCount },
+      };
+    });
+
+    return result;
   }
 }

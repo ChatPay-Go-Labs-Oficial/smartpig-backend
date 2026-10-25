@@ -390,6 +390,28 @@ Lista os módulos publicados e o progresso do usuário autenticado.
 ### `GET /learning/modules/:moduleKey`
 Retorna telas, questões e alternativas do módulo. O gabarito nunca é enviado ao cliente.
 
+### `PATCH /learning/modules/:moduleKey/progress`
+Salva o ponto de retomada.
+
+```json
+{ "contentItemKey": "M1-SCREEN-A" }
+```
+
+### `POST /learning/questions/:questionKey/answer`
+Valida uma alternativa no servidor. Registra tentativas, feedback, primeiro acerto e conclusão do módulo; novas tentativas são permitidas.
+
+```json
+{
+  "optionId": "B",
+  "contentVersion": 1
+}
+```
+
+Uma versão desatualizada retorna `409 LEARNING_CONTENT_VERSION_STALE`.
+
+### `GET /learning/progress`
+Retorna módulos, IDs das questões concluídas e ponto de retomada do usuário autenticado.
+
 ---
 
 ## Vaults

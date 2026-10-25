@@ -198,8 +198,10 @@ export class ScrubService {
     });
   }
 
-  /** Derived analytics and credentials. Neither has AML value. */
+  /** Derived analytics, credentials and learning progress have no AML value. */
   private async deleteDerived(tx: Prisma.TransactionClient, userId: string) {
+    await tx.userLearningQuestionProgress.deleteMany({ where: { userId } });
+    await tx.userLearningModuleProgress.deleteMany({ where: { userId } });
     await tx.portfolioSnapshot.deleteMany({ where: { userId } });
     await tx.refreshToken.deleteMany({ where: { userId } });
   }

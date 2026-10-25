@@ -1,8 +1,10 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AccountOwnerService } from '../auth/privy/account-owner.service';
 import { CurrentUser } from '../auth/privy/current-user.decorator';
 import { PrivyAuthService } from '../auth/privy/privy-auth.service';
+import { SubmitLearningAnswerDto } from './dto/submit-answer.dto';
+import { UpdateLearningProgressDto } from './dto/update-learning-progress.dto';
 import { LearningService } from './learning.service';
 
 @ApiTags('Learning')
@@ -34,6 +36,43 @@ export class LearningController {
     @CurrentUser() user: { id: string },
   ) {
     return this.learning.getModule(await this.localUserId(user.id), moduleKey);
+  }
+
+  @Patch('modules/:moduleKey/progress')
+  @ApiOperation({ summary: 'Save the last viewed content item for resume' })
+  async markContent(
+    @Param('moduleKey') moduleKey: string,
+    @Body() dto: UpdateLearningProgressDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.learning.markContent(
+      await this.localUserId(user.id),
+      moduleKey,
+      dto.contentItemKey,
+    );
+  }
+
+  @Post('questions/:questionKey/answer')
+  @ApiOperation({
+    summary: 'Validate an answer and record learning progress atomically',
+  })
+  async answer(
+    @Param('questionKey') questionKey: string,
+    @Body() dto: SubmitLearningAnswerDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.learning.submitAnswer(
+      await this.localUserId(user.id),
+      questionKey,
+      dto.optionId,
+      dto.contentVersion,
+    );
+  }
+
+  @Get('progress')
+  @ApiOperation({ summary: 'Get learning progress for resume' })
+  async progress(@CurrentUser() user: { id: string }) {
+    return this.learning.progress(await this.localUserId(user.id));
   }
 
   private async localUserId(privyUserId: string): Promise<string> {
