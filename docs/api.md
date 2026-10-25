@@ -377,6 +377,21 @@ Verifica se a API está no ar.
 
 ---
 
+## Learning
+
+Todas estas rotas são 🔒 e resolvem o usuário a partir do Bearer token.
+
+### `GET /learning/content`
+Retorna boas-vindas, práticas de hábito e glossário sem pontuação.
+
+### `GET /learning/modules`
+Lista os módulos publicados e o progresso do usuário autenticado.
+
+### `GET /learning/modules/:moduleKey`
+Retorna telas, questões e alternativas do módulo. O gabarito nunca é enviado ao cliente.
+
+---
+
 ## Vaults
 
 > **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.

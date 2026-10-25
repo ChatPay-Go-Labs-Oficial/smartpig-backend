@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { seedLearning } from './seed-learning';
 
 const prisma = new PrismaClient();
 
@@ -60,6 +61,11 @@ async function main() {
   ]);
 
   console.log(`✅ Seeded ${appVersionConfigs.length} app version configs`);
+
+  // Publish the editorial catalog as one unit. A failed upsert must not leave a
+  // partially visible trail in production.
+  await prisma.$transaction((tx) => seedLearning(tx), { timeout: 60_000 });
+  console.log('✅ Seeded PigFi learning catalog');
 }
 
 main()
