@@ -56,10 +56,10 @@ Todos os endpoints abaixo exigem autenticação, salvo as regras administrativas
 
 ## Publicação
 
-1. Executar as migrations incrementais, incluindo os ajustes mobile e Meridian e regenerar o Prisma Client.
+1. Executar a migration e regenerar o Prisma Client.
 2. Executar `npx prisma db seed` para publicar o catálogo e as recompensas.
 3. Manter `ENFORCE_VAULT_EDUCATION=false` enquanto o mobile sincroniza os modos locais.
-4. Confirmar a política Meridian dos vaults avançados; versões posteriores publicadas pelo operador são preservadas.
+4. Confirmar a política Meridian v2 dos vaults avançados; futuras mudanças usam uma versão maior.
 5. Monitorar a projeção `access` e só então habilitar o enforcement.
 
 O disclosure continua separado da aprendizagem: aceitar riscos não concede XP, e concluir a trilha não substitui o aceite da versão vigente do disclosure.

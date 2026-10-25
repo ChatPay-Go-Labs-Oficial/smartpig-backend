@@ -1,184 +1,166 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
 import { LearningService } from './learning.service';
+import { ConflictException } from '@nestjs/common';
 
-function setup(
-  options: {
-    correctCount?: number;
-    completedLessons?: number;
-    priorCompleted?: boolean;
-    priorCorrect?: boolean;
-  } = {},
-) {
+function setup(options: {
+  correctOption?: string;
+  priorCorrect?: Date | null;
+  correctCount?: number;
+  completedLessonCount?: number;
+}) {
   const question = {
-    id: 'q1',
-    key: 'M1-Q01',
-    moduleId: 'm1',
-    contentVersion: 3,
-    correctOptionKey: 'B',
-    successFeedback: 'yes',
-    retryFeedback: 'retry',
+    id: 'question-id',
+    key: 'L1-Q01',
+    moduleId: 'module-id',
+    contentVersion: 1,
+    correctOptionKey: options.correctOption ?? 'B',
+    successFeedback: 'Isso!',
+    retryFeedback: 'Vamos ver um exemplo?',
     xpReward: 0,
     isActive: true,
     module: {
-      id: 'm1',
+      id: 'module-id',
       key: 'M1',
       isPublished: true,
       completionXp: 15,
-      contentVersion: 3,
+      contentVersion: 1,
     },
-    options: [{ key: 'A' }, { key: 'B' }],
+    options: [{ key: 'A' }, { key: 'B' }, { key: 'C' }],
   };
-  let totalXp = 0;
   const tx = {
-    $queryRaw: jest.fn().mockResolvedValue([]),
-    learningModule: { count: jest.fn().mockResolvedValue(5) },
+    $queryRaw: jest.fn().mockResolvedValue([{ pg_advisory_xact_lock: null }]),
     learningQuestion: {
       findUnique: jest.fn().mockResolvedValue(question),
       count: jest.fn().mockResolvedValue(6),
     },
+    learningModule: {
+      count: jest.fn().mockResolvedValue(5),
+    },
     userLearningQuestionProgress: {
       findUnique: jest.fn().mockResolvedValue({
-        firstCorrectAt: options.priorCorrect ? new Date() : null,
+        firstCorrectAt: options.priorCorrect ?? null,
       }),
       upsert: jest.fn().mockResolvedValue({}),
       count: jest.fn().mockResolvedValue(options.correctCount ?? 0),
     },
     userLearningModuleProgress: {
-      findUnique: jest.fn().mockResolvedValue({
-        completedAt: options.priorCompleted ? new Date() : null,
-      }),
+      findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockResolvedValue({}),
-      count: jest.fn().mockResolvedValue(options.completedLessons ?? 0),
+      count: jest.fn().mockResolvedValue(options.completedLessonCount ?? 1),
     },
     experienceAccount: {
       findUnique: jest
         .fn()
-        .mockImplementation(() =>
-          Promise.resolve({ totalXp, currentLevel: 0 }),
-        ),
+        .mockResolvedValue({ totalXp: 100, currentLevel: 2 }),
     },
   };
   const prisma = {
-    $transaction: jest.fn((fn: (db: typeof tx) => unknown) => fn(tx)),
+    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
   };
-  const ledger = {
-    grant: jest
-      .fn()
-      .mockImplementation((_db: unknown, input: { points: number }) => {
-        totalXp += input.points;
-        return Promise.resolve({ pointsGranted: input.points });
-      }),
+  const experience = {
+    grant: jest.fn().mockResolvedValue({ pointsGranted: 15 }),
   };
   const eligibility = {
-    refreshUnlocksForUser: jest.fn().mockResolvedValue([
-      { vaultId: 'eurc', assetSymbol: 'EURC', newlyUnlocked: true },
-      { vaultId: 'old', newlyUnlocked: false },
-    ]),
+    refreshUnlocksForUser: jest.fn().mockResolvedValue([]),
+  };
+  const config = {
+    get: jest.fn((_key: string, fallback: number) => fallback),
   };
   return {
     service: new LearningService(
       prisma as never,
-      ledger as never,
+      experience as never,
       eligibility as never,
+      config as never,
     ),
     tx,
-    ledger,
+    experience,
     eligibility,
   };
 }
 
-describe('Learning answers mobile integration', () => {
-  it('rejects stale content with the expected code before recording attempts', async () => {
-    const { service, tx } = setup();
+describe('LearningService.submitAnswer', () => {
+  it('rejects an answer produced from a stale content version', async () => {
+    const { service, tx, experience } = setup({ correctCount: 0 });
+
     await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 2),
-    ).rejects.toMatchObject({
-      response: { code: 'LEARNING_CONTENT_VERSION_STALE' },
-    });
+      service.submitAnswer('user-a', 'L1-Q01', 'B', 2),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(tx.userLearningQuestionProgress.upsert).not.toHaveBeenCalled();
+    expect(experience.grant).not.toHaveBeenCalled();
   });
-  it('rejects unknown alternatives', async () => {
+
+  it('records an incorrect attempt without granting XP', async () => {
+    const { service, experience, eligibility } = setup({ correctCount: 0 });
+
     await expect(
-      setup().service.submitAnswer('u', 'M1-Q01', 'X', 3),
-    ).rejects.toBeInstanceOf(NotFoundException);
-  });
-  it('awards no XP for an incorrect answer', async () => {
-    const { service, ledger, eligibility } = setup();
-    await expect(
-      service.submitAnswer('u', 'M1-Q01', 'A', 3),
-    ).resolves.toMatchObject({ correct: false, xpAwarded: 0, newUnlocks: [] });
-    expect(ledger.grant).not.toHaveBeenCalled();
+      service.submitAnswer('user-a', 'L1-Q01', 'A', 1),
+    ).resolves.toMatchObject({
+      correct: false,
+      xpGranted: 0,
+      lessonCompleted: false,
+      moduleCompleted: false,
+    });
+    expect(experience.grant).not.toHaveBeenCalled();
     expect(eligibility.refreshUnlocksForUser).not.toHaveBeenCalled();
   });
-  it('awards no individual-question XP', async () => {
-    const { service, ledger } = setup({ correctCount: 1 });
+
+  it('grants lesson XP, but no question XP, once the sixth answer is correct', async () => {
+    const { service, experience, eligibility } = setup({ correctCount: 6 });
+
     await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 3),
+      service.submitAnswer('user-a', 'L1-Q01', 'B', 1),
     ).resolves.toMatchObject({
+      correct: true,
       firstCorrect: true,
-      xpAwarded: 0,
-      lessonCompleted: false,
-    });
-    expect(ledger.grant).not.toHaveBeenCalled();
-  });
-  it('awards 15 XP once per lesson and returns newly created unlocks', async () => {
-    const { service, ledger, tx } = setup({
-      correctCount: 6,
-      completedLessons: 1,
-    });
-    await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 3),
-    ).resolves.toMatchObject({
+      questionXpGranted: 0,
+      moduleXpGranted: 15,
+      xpAwarded: 15,
       lessonCompleted: true,
       moduleCompleted: false,
-      xpAwarded: 15,
-      totalXp: 15,
-      levelBefore: 0,
-      levelAfter: 0,
-      tierAfter: 'UNRANKED',
-      newUnlocks: ['EURC'],
     });
-    expect(ledger.grant).toHaveBeenCalledWith(
-      tx,
+    expect(experience.grant).toHaveBeenCalledTimes(1);
+    expect(experience.grant).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ sourceRef: 'lesson:M1', points: 15 }),
     );
+    expect(eligibility.refreshUnlocksForUser).toHaveBeenCalledWith('user-a');
   });
-  it('adds the INTRO bonus only when all five lessons are complete', async () => {
-    const { service, ledger, tx } = setup({
+
+  it('adds the 45 XP introduction bonus when the fifth lesson completes', async () => {
+    const { service, experience } = setup({
       correctCount: 6,
-      completedLessons: 5,
+      completedLessonCount: 5,
     });
+    experience.grant
+      .mockResolvedValueOnce({ pointsGranted: 15 })
+      .mockResolvedValueOnce({ pointsGranted: 45 });
+
     await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 3),
+      service.submitAnswer('user-a', 'L1-Q01', 'B', 1),
     ).resolves.toMatchObject({
-      xpAwarded: 60,
+      lessonCompleted: true,
       moduleCompleted: true,
-      levelAfter: 1,
+      xpAwarded: 60,
     });
-    expect(ledger.grant).toHaveBeenCalledWith(
-      tx,
+    expect(experience.grant).toHaveBeenLastCalledWith(
+      expect.anything(),
       expect.objectContaining({ sourceRef: 'module:INTRO', points: 45 }),
     );
   });
-  it('does not re-credit a completed lesson', async () => {
-    const { service, ledger } = setup({
-      correctCount: 6,
-      completedLessons: 1,
-      priorCompleted: true,
-      priorCorrect: true,
-    });
-    await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 3),
-    ).resolves.toMatchObject({ xpAwarded: 0, firstCorrect: false });
-    expect(ledger.grant).not.toHaveBeenCalled();
-  });
-  it('rolls the answer transaction back on unlock failure rather than losing a notification', async () => {
+
+  it('returns the committed answer when the derived unlock refresh fails', async () => {
     const { service, eligibility } = setup({ correctCount: 6 });
-    eligibility.refreshUnlocksForUser.mockRejectedValue(
-      new ConflictException('retry'),
+    eligibility.refreshUnlocksForUser.mockRejectedValueOnce(
+      new Error('temporary database failure'),
     );
+
     await expect(
-      service.submitAnswer('u', 'M1-Q01', 'B', 3),
-    ).rejects.toBeInstanceOf(ConflictException);
+      service.submitAnswer('user-a', 'L1-Q01', 'B', 1),
+    ).resolves.toMatchObject({
+      correct: true,
+      xpGranted: 15,
+      lessonCompleted: true,
+    });
   });
 });

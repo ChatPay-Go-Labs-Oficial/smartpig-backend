@@ -430,12 +430,3 @@ describe('ConversionsService.listPending', () => {
     });
   });
 });
-
-describe('Conversion eligibility rollout compatibility', () => {
-  it('allows conversion without an education vault while enforcement is disabled', async () => {
-    const { service, prisma, eligibility } = createService();
-    prisma.vaultCatalog.findFirst.mockResolvedValue(null as never);
-    await expect(service.createConversion(CREATE)).resolves.toBeDefined();
-    expect(eligibility.assertEligibleForDeposit).not.toHaveBeenCalled();
-  });
-});

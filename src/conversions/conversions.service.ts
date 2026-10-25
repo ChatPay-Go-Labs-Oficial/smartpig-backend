@@ -172,24 +172,16 @@ export class ConversionsService {
             orderBy: { displayOrder: 'asc' },
             select: { id: true },
           });
-      if (targetVault) {
-        await this.vaultEligibility.assertEligibleForDeposit(
-          params.userId,
-          targetVault.id,
-          targetAsset.symbol,
+      if (!targetVault) {
+        throw new NotFoundException(
+          `Active ${targetAsset.symbol} vault not found for conversion eligibility`,
         );
-      } else if (this.config.get<boolean>('ENFORCE_VAULT_EDUCATION', false)) {
-        const user = await this.prisma.user.findUnique({
-          where: { id: params.userId },
-          select: { experienceMode: true },
-        });
-        // A missing educational policy must not change legacy Pro conversions.
-        if (user?.experienceMode === 'LITE') {
-          throw new NotFoundException(
-            `Active ${targetAsset.symbol} vault not found for conversion eligibility`,
-          );
-        }
       }
+      await this.vaultEligibility.assertEligibleForDeposit(
+        params.userId,
+        targetVault.id,
+        targetAsset.symbol,
+      );
     }
 
     // The target asset has to be receivable before we move anything into it:

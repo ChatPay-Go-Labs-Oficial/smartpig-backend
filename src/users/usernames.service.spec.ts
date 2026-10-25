@@ -1,94 +1,111 @@
-import { Prisma } from '@prisma/client';
-import { normalizeUsername, UsernamesService } from './usernames.service';
+import {
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { UsernamesService } from './usernames.service';
 
-describe('Usernames', () => {
-  it('normalizes ASCII casing and validates syntax', () => {
-    expect(normalizeUsername(' Carol.Tea_1 ')).toBe('carol.tea_1');
-    for (const name of ['ab', '1abc', 'ábc', 'a-b', 'a'.repeat(21)])
-      expect(normalizeUsername(name)).toBeNull();
-  });
-  it('does exact availability lookups without listing accounts', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ id: 'u' });
-    const service = new UsernamesService(
-      { user: { findUnique } } as never,
-      {} as never,
+function setup() {
+  const prisma = {
+    user: {
+      findUnique: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+  };
+  const stellar = {
+    getAsset: jest.fn((symbol: string) => ({ symbol })),
+    hasTrustline: jest
+      .fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false),
+  };
+  return {
+    service: new UsernamesService(prisma as never, stellar as never),
+    prisma,
+    stellar,
+  };
+}
+
+describe('UsernamesService', () => {
+  it('checks availability using the normalized exact username', async () => {
+    const { service, prisma } = setup();
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(service.availability(' Ana.Lima ')).resolves.toEqual({
+      available: true,
+    });
+    expect(prisma.user.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { username: 'ana.lima' } }),
     );
-    await expect(service.availability('ALICE')).resolves.toEqual({
+  });
+
+  it('rejects invalid usernames without querying other users', async () => {
+    const { service, prisma } = setup();
+
+    await expect(service.availability('_ana')).resolves.toEqual({
       available: false,
-      reason: 'TAKEN',
+      reason: 'INVALID',
     });
-    expect(findUnique).toHaveBeenCalledWith({
-      where: { username: 'alice' },
-      select: { id: true },
-    });
-  });
-  it('atomically refuses a second username', async () => {
-    const tx = {
-      user: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    };
-    const service = new UsernamesService(
-      { $transaction: (fn: (db: typeof tx) => unknown) => fn(tx) } as never,
-      {} as never,
+    await expect(service.create('user-a', 'a!')).rejects.toBeInstanceOf(
+      UnprocessableEntityException,
     );
-    await expect(service.register('u', 'alice')).rejects.toMatchObject({
-      response: { code: 'USERNAME_ALREADY_SET' },
-    });
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
-  it('maps a concurrent unique constraint failure to USERNAME_TAKEN', async () => {
-    const service = new UsernamesService(
-      {
-        $transaction: jest.fn().mockRejectedValue(
-          new Prisma.PrismaClientKnownRequestError('unique', {
-            code: 'P2002',
-            clientVersion: '5',
-          }),
-        ),
-      } as never,
-      {} as never,
+
+  it('sets a username only once', async () => {
+    const { service, prisma } = setup();
+    prisma.user.findUnique.mockResolvedValue({ username: null });
+
+    await expect(service.create('user-a', 'Ana.Lima')).resolves.toEqual({
+      username: 'ana.lima',
+    });
+    expect(prisma.user.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'user-a', username: null },
+        data: expect.objectContaining({ username: 'ana.lima' }),
+      }),
     );
-    await expect(service.register('u', 'alice')).rejects.toMatchObject({
-      response: { code: 'USERNAME_TAKEN' },
-    });
   });
-  it('returns only a KYC verified name and asks Stellar for receiving capability', async () => {
-    const user = {
-      username: 'alice',
+
+  it('does not allow replacing a permanent username', async () => {
+    const { service, prisma } = setup();
+    prisma.user.findUnique.mockResolvedValue({ username: 'ana.lima' });
+
+    await expect(service.create('user-a', 'ana.nova')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('resolves the verified name, address and receivable assets', async () => {
+    const { service, prisma, stellar } = setup();
+    prisma.user.findUnique.mockResolvedValue({
+      name: 'João Silva',
       deletedAt: null,
-      blindpayReceiver: { name: 'Alice', kycStatus: 'VERIFYING' },
+      blindpayReceiver: { name: 'João KYC', kycStatus: 'APPROVED' },
+      etherfuseCustomer: null,
       wallets: [{ stellarAddress: 'GADDRESS' }],
-    };
-    const stellar = {
-      getReceivingCapabilities: jest
-        .fn()
-        .mockResolvedValue({ USDC: true, EURC: false, XLM: true }),
-    };
-    const service = new UsernamesService(
-      { user: { findUnique: async () => user } } as never,
-      stellar as never,
-    );
-    await expect(service.resolve('alice')).resolves.toMatchObject({
-      name: null,
-      verified: false,
-      stellarAddress: 'GADDRESS',
-      canReceive: { EURC: false },
     });
-    user.blindpayReceiver.kycStatus = 'APPROVED';
-    await expect(service.resolve('alice')).resolves.toMatchObject({
-      name: 'Alice',
+
+    await expect(service.resolve('JOAO.SILVA')).resolves.toEqual({
+      username: 'joao.silva',
+      displayName: 'João KYC',
       verified: true,
+      stellarAddress: 'GADDRESS',
+      receives: { USDC: true, EURC: false, XLM: true },
     });
+    expect(stellar.hasTrustline).toHaveBeenCalledTimes(2);
   });
-  it('does not resolve a deleted account', async () => {
-    const service = new UsernamesService(
-      {
-        user: {
-          findUnique: async () => ({ deletedAt: new Date(), wallets: [] }),
-        },
-      } as never,
-      {} as never,
+
+  it('does not expose whether an invalid or absent exact name ever existed', async () => {
+    const { service, prisma } = setup();
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(service.resolve('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
     );
-    await expect(service.resolve('alice')).rejects.toMatchObject({
-      status: 404,
-    });
+    await expect(service.resolve('!!')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

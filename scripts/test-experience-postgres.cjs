@@ -81,8 +81,8 @@ async function main() {
       }),
     ]);
 
-    assert.equal(account.totalXp, 15, 'one lesson completion');
-    assert.equal(ledgerEntries.length, 1, 'one lesson credit');
+    assert.equal(account.totalXp, 15, 'one lesson completion credit');
+    assert.equal(ledgerEntries.length, 1, 'questions do not receive XP');
     assert.ok(moduleProgress.completedAt, 'M1 must be completed');
 
     const xlmVault = await prisma.vaultCatalog.findFirstOrThrow({

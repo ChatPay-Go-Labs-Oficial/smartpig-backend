@@ -222,7 +222,6 @@ model LearningModule {
 /// Explanations, examples and optional reflections. `moduleId` is nullable so
 /// welcome, habit and glossary items can live outside a scored module.
 model LearningContentItem {
-  reviewedQuestions LearningQuestion[]
   id             String              @id @default(cuid())
   key            String              @unique
   moduleId       String?
@@ -245,25 +244,23 @@ model LearningContentItem {
 /// A single-answer question. The correct option is stored as its stable key and
 /// is never selected by catalog queries returned to the client.
 model LearningQuestion {
-  title String?
-  situation Json?
-  id               String   @id @default(cuid())
-  key              String   @unique
-  moduleId         String
-  contentVersion   Int      @default(1)
-  prompt           String   @db.Text
-  reviewScreen LearningContentItem? @relation(fields: [reviewScreenKey], references: [key], onDelete: SetNull)
-  reviewScreenKey  String?
-  stepOrder        Int?
-  correctOptionKey String
-  successFeedback  String   @db.Text
-  retryFeedback    String   @db.Text
-  xpReward         Int      @default(0)
-  isRequired       Boolean  @default(true)
-  isActive         Boolean  @default(true)
-  displayOrder     Int
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  moduleId             String
+  contentVersion       Int      @default(1)
+  title                String?
+  situation            Json?
+  prompt               String   @db.Text
+  reviewContentItemKey String?
+  correctOptionKey     String
+  successFeedback      String   @db.Text
+  retryFeedback        String   @db.Text
+  xpReward             Int      @default(0)
+  isRequired           Boolean  @default(true)
+  isActive             Boolean  @default(true)
+  displayOrder         Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   module       LearningModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   options      LearningQuestionOption[]

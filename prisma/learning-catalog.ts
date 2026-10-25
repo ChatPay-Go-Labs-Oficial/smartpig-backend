@@ -8,7 +8,6 @@ type Option = { key: string; text: string };
 type Question = {
   key: string;
   legacyKey: string;
-  stepOrder?: number;
   order: number;
   title: string;
   situation: { text?: string; card?: string[] };

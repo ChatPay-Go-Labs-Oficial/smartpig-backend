@@ -15,10 +15,10 @@ import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.
 const userSelect = {
   id: true,
   name: true,
-  username: true,
-  usernameSetAt: true,
   email: true,
   avatarUrl: true,
+  username: true,
+  usernameSetAt: true,
   isOnboarded: true,
   experienceMode: true,
   experienceModeUpdatedAt: true,

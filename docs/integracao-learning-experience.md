@@ -190,20 +190,12 @@ Exemplo de resolução:
 
 O nome KYC só é mostrado quando o cadastro está verificado; caso contrário, `displayName` é `Usuário PigFi`. As trustlines de USDC/EURC são consultadas na rede e XLM é nativo.
 
-Contrato previsto para o mobile: Lite envia por username; Pro pode usar username ou endereço. A execução P2P não é implementada por estes endpoints de consulta e não concede XP.
+Decisão desta entrega: no Pro, a transferência direta por endereço continua somente em USDC. Lite transfere por username; Pro pode usar username ou o fluxo preexistente por endereço. Transferência não concede XP.
 
 ## 8. Migração e garantias
 
 - IDs editoriais antigos `M1-Q01` são migrados para `L1-Q01`, preservando progresso.
-- Bônus antigos permanecem imutáveis; a conclusão persistida impede um novo crédito da mesma lição.
+- Bônus antigos de lição recebem a chave lógica nova para não serem creditados outra vez.
 - Alterar texto aumenta `contentVersion`, mas não repete XP.
 - Disclosure continua por usuário, vault e versão e nunca concede XP.
 - Nenhuma conclusão inicia troca, depósito ou seleção de vault automaticamente.
-
-## Integração na hackmeridian_2026
-
-Origem incorporada: `84efc10`, após `6a42efe`. O backend resolve usernames; a execução P2P e as regras Lite/Pro de envio continuam pendentes, pois não há endpoint de transferência P2P neste repositório.
-
-A integração mantém `reviewScreenKey` com sua chave estrangeira, o identificador diário `daily:AAAA-MM-DD` e o alias `LEARNING_INTRO_XP`. Isso preserva dados e deduplicação existentes. `newUnlocks` retorna símbolos e `newUnlockDetails` preserva os detalhes.
-
-Conflitos preservados para decisão: o scrub da origem apagava usernames, contrariando o trigger local de permanência; a migration da origem reescrevia o ledger e políticas publicadas. Esses trechos não foram incorporados. Foi criada uma migration incremental apenas para os campos novos. A resposta e os desbloqueios continuam na mesma transação, em vez de confirmar a resposta antes de atualizar os desbloqueios.

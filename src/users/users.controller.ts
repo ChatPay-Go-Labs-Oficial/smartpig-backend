@@ -1,10 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AccountOwnerService } from '../auth/privy/account-owner.service';
 import { CurrentUser } from '../auth/privy/current-user.decorator';
 import { PrivyAuthService } from '../auth/privy/privy-auth.service';
-import { RegisterUsernameDto } from './dto/register-username.dto';
-import { UsernamesService } from './usernames.service';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateExperienceModeDto } from './dto/update-experience-mode.dto';
@@ -23,7 +21,6 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly accountOwner: AccountOwnerService,
     private readonly privyAuthService: PrivyAuthService,
-    private readonly usernames: UsernamesService,
   ) {}
 
   /**
@@ -55,17 +52,6 @@ export class UsersController {
    * GET /users/:id
    * Returns the user profile.
    */
-  @Post('me/username')
-  async registerUsername(
-    @Body() dto: RegisterUsernameDto,
-    @CurrentUser() user: { id: string },
-  ) {
-    return this.usernames.register(
-      await this.assertOwner(user.id),
-      dto.username,
-    );
-  }
-
   @Get(':id')
   @ApiOperation({ summary: 'Get user profile' })
   @ApiParam({

@@ -6,7 +6,7 @@ import {
   type ExperienceLevel,
 } from './experience-level';
 
-type DbClient = Prisma.TransactionClient;
+type DbClient = Prisma.TransactionClient | PrismaService;
 
 export interface GrantXpInput {
   userId: string;
@@ -39,10 +39,6 @@ export class ExperienceLedgerService {
       throw new RangeError('XP grant points must be a positive integer');
     }
 
-    // Serialize every XP source for the same user, including daily rewards.
-    await db.$queryRaw(
-      Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`experience:${input.userId}`}))`,
-    );
     const dedupeKey = `${input.userId}:${input.sourceType}:${input.sourceRef}`;
     const inserted = await db.experienceXpLedgerEntry.createMany({
       data: [

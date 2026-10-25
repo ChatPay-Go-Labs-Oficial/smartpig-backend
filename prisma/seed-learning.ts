@@ -19,7 +19,8 @@ export async function seedLearning(
       where: { key: editorialModule.key },
       update: {
         title: editorialModule.title,
-        proTitle: 'proTitle' in editorialModule ? editorialModule.proTitle : null,
+        proTitle:
+          'proTitle' in editorialModule ? editorialModule.proTitle : null,
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
@@ -30,7 +31,8 @@ export async function seedLearning(
       create: {
         key: editorialModule.key,
         title: editorialModule.title,
-        proTitle: 'proTitle' in editorialModule ? editorialModule.proTitle : null,
+        proTitle:
+          'proTitle' in editorialModule ? editorialModule.proTitle : null,
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
@@ -67,11 +69,6 @@ export async function seedLearning(
       });
     }
 
-    // Move existing positions out of the editorial range before reordering.
-    await prisma.$executeRaw(Prisma.sql`UPDATE "learning_questions"
-      SET "displayOrder" = -ABS("displayOrder") - 1000
-      WHERE "moduleId" = ${module.id}`);
-
     for (const editorialQuestion of editorialModule.questions) {
       const currentQuestion = await prisma.learningQuestion.findUnique({
         where: { key: editorialQuestion.key },
@@ -97,8 +94,7 @@ export async function seedLearning(
               : {}),
           } as Prisma.InputJsonValue,
           prompt: editorialQuestion.prompt,
-          reviewScreenKey: editorialQuestion.reviewScreenKey,
-          stepOrder: editorialQuestion.order,
+          reviewContentItemKey: editorialQuestion.reviewScreenKey,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
@@ -120,8 +116,7 @@ export async function seedLearning(
               : {}),
           } as Prisma.InputJsonValue,
           prompt: editorialQuestion.prompt,
-          reviewScreenKey: editorialQuestion.reviewScreenKey,
-          stepOrder: editorialQuestion.order,
+          reviewContentItemKey: editorialQuestion.reviewScreenKey,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
@@ -191,9 +186,7 @@ export async function seedLearning(
     data: { isPublished: false },
   });
 
-  for (const item of standaloneContent.filter(
-    (item) => item.type !== LearningContentType.PRACTICE,
-  )) {
+  for (const item of standaloneContent) {
     await prisma.learningContentItem.upsert({
       where: { key: item.key },
       update: {
@@ -222,11 +215,7 @@ export async function seedLearning(
   await prisma.learningContentItem.updateMany({
     where: {
       moduleId: null,
-      key: {
-        notIn: standaloneContent
-          .filter((item) => item.type !== LearningContentType.PRACTICE)
-          .map((item) => item.key),
-      },
+      key: { notIn: standaloneContent.map((item) => item.key) },
     },
     data: { isActive: false },
   });
@@ -307,6 +296,7 @@ async function seedDefaultEligibilityPolicies(
       moduleKeys: ['M1', 'M2', 'M3', 'M4', 'M5'],
     },
   ];
+  const meridianPolicyVersion = 2;
 
   for (const definition of defaults) {
     const [vaults, modules] = await Promise.all([
@@ -321,39 +311,54 @@ async function seedDefaultEligibilityPolicies(
     ]);
 
     for (const vault of vaults) {
-      await prisma.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`vault-policy:${vault.id}`}))`,
-      );
-      const existing = await prisma.vaultEligibilityPolicy.findMany({
+      const latestPolicy = await prisma.vaultEligibilityPolicy.findFirst({
         where: { vaultId: vault.id },
         orderBy: { version: 'desc' },
-        include: { requiredModules: { select: { moduleId: true } } },
+        select: { version: true },
       });
-      // Never replace a later operator-owned policy when re-running the seed.
-      if ((existing[0]?.version ?? 0) > 2) continue;
-      if (existing.some((policy) => policy.version === 2 && policy.publishedAt))
+      // A later operator-owned version always wins. Re-running the seed must not
+      // roll production policy back to the temporary Meridian rule.
+      if (latestPolicy && latestPolicy.version > meridianPolicyVersion)
         continue;
-      const active = existing.find((policy) => policy.isActive);
-      if (
-        active?.minimumLevel === definition.minimumLevel &&
-        active.requiredModules.length === modules.length &&
-        modules.every((module) =>
-          active.requiredModules.some((item) => item.moduleId === module.id),
-        )
-      )
-        continue;
+
+      const existingMeridian = await prisma.vaultEligibilityPolicy.findUnique({
+        where: {
+          vaultId_version: {
+            vaultId: vault.id,
+            version: meridianPolicyVersion,
+          },
+        },
+        select: { id: true, publishedAt: true },
+      });
+      if (existingMeridian?.publishedAt) continue;
+
       await prisma.vaultEligibilityPolicy.updateMany({
         where: { vaultId: vault.id, isActive: true },
         data: { isActive: false },
       });
-      const policy = await prisma.vaultEligibilityPolicy.create({
-        data: {
+
+      const policy = await prisma.vaultEligibilityPolicy.upsert({
+        where: {
+          vaultId_version: {
+            vaultId: vault.id,
+            version: meridianPolicyVersion,
+          },
+        },
+        create: {
           vaultId: vault.id,
-          version: Math.max(2, (existing[0]?.version ?? 0) + 1),
+          version: meridianPolicyVersion,
           minimumLevel: definition.minimumLevel,
           isActive: true,
-          publishedAt: new Date(),
+          publishedAt: new Date('2026-10-25T00:00:00.000Z'),
         },
+        update: {
+          minimumLevel: definition.minimumLevel,
+          isActive: true,
+          publishedAt: new Date('2026-10-25T00:00:00.000Z'),
+        },
+      });
+      await prisma.vaultEligibilityRequiredModule.deleteMany({
+        where: { policyId: policy.id },
       });
       await prisma.vaultEligibilityRequiredModule.createMany({
         data: modules.map((module) => ({
@@ -385,16 +390,9 @@ async function materializeSeedPolicyUnlocks(
   const candidates = await prisma.user.findMany({
     where: {
       experienceMode: 'LITE',
-      OR: [
-        {
-          experienceAccount: {
-            is: { currentLevel: { gte: policy.minimumLevel } },
-          },
-        },
-        ...(policy.minimumLevel === 0
-          ? [{ experienceAccount: { is: null } }]
-          : []),
-      ],
+      experienceAccount: {
+        is: { currentLevel: { gte: policy.minimumLevel } },
+      },
       vaultUnlocks: { none: { vaultId: policy.vaultId } },
     },
     select: {
@@ -473,9 +471,7 @@ function validateCatalog(): void {
       `Intro catalog must contain 28 screens, 30 questions and 5 reflections; got ${screenCount}/${questionCount}/${reflectionCount}`,
     );
   }
-  for (const item of standaloneContent.filter(
-    (item) => item.type !== LearningContentType.PRACTICE,
-  )) {
+  for (const item of standaloneContent) {
     if (allKeys.has(item.key)) throw new Error(`Duplicate key ${item.key}`);
     allKeys.add(item.key);
   }

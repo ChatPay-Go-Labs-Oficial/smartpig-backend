@@ -1,19 +1,14 @@
 import {
-  UnprocessableEntityException,
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { StellarService } from '../wallets/stellar.service';
 
-export function normalizeUsername(value: string): string | null {
-  value = value.trim();
-  // Accept only ASCII usernames after trimming, never Unicode aliases.
-  if (!/^[a-zA-Z][a-zA-Z0-9._]{2,19}$/.test(value)) return null;
-  return value.toLowerCase();
-}
+const USERNAME_PATTERN = /^[a-z][a-z0-9._]{2,19}$/;
 
 @Injectable()
 export class UsernamesService {
@@ -22,86 +17,128 @@ export class UsernamesService {
     private readonly stellar: StellarService,
   ) {}
 
-  async availability(value: string) {
-    const username = normalizeUsername(value);
-    if (!username) return { available: false, reason: 'INVALID' };
-    const found = await this.prisma.user.findUnique({
+  async availability(rawUsername: string) {
+    const username = this.normalize(rawUsername);
+    if (!USERNAME_PATTERN.test(username)) {
+      return { available: false, reason: 'INVALID' as const };
+    }
+    const existing = await this.prisma.user.findUnique({
       where: { username },
       select: { id: true },
     });
-    return found ? { available: false, reason: 'TAKEN' } : { available: true };
+    return existing
+      ? { available: false, reason: 'TAKEN' as const }
+      : { available: true };
   }
 
-  async register(userId: string, value: string) {
-    const username = normalizeUsername(value);
-    if (!username)
+  async create(userId: string, rawUsername: string) {
+    const username = this.normalize(rawUsername);
+    if (!USERNAME_PATTERN.test(username)) {
       throw new UnprocessableEntityException({
-        code: 'USERNAME_INVALID',
         statusCode: 422,
+        code: 'USERNAME_INVALID',
+        message:
+          'Username must have 3 to 20 characters, start with a letter and use only lowercase letters, numbers, dots or underscores.',
       });
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    if (!user) throw new NotFoundException(`User ${userId} not found`);
+    if (user.username) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'USERNAME_ALREADY_SET',
+        message: 'Username is permanent and has already been set.',
+      });
+    }
+
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const updated = await tx.user.updateMany({
-          where: { id: userId, username: null, deletedAt: null },
-          data: { username, usernameSetAt: new Date() },
-        });
-        if (!updated.count)
-          throw new ConflictException({ code: 'USERNAME_ALREADY_SET' });
-        return { username };
+      const updated = await this.prisma.user.updateMany({
+        where: { id: userId, username: null },
+        data: { username, usernameSetAt: new Date() },
       });
+      if (updated.count === 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'USERNAME_ALREADY_SET',
+          message: 'Username is permanent and has already been set.',
+        });
+      }
+      return { username };
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException({ code: 'USERNAME_TAKEN' });
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'USERNAME_TAKEN',
+          message: 'Username is already in use.',
+        });
       }
       throw error;
     }
   }
 
-  async resolve(value: string) {
-    const username = normalizeUsername(value);
-    if (!username) this.notFound();
+  async resolve(rawUsername: string) {
+    const username = this.normalize(rawUsername);
+    if (!USERNAME_PATTERN.test(username)) this.notFound();
+
     const user = await this.prisma.user.findUnique({
       where: { username },
       select: {
         name: true,
         deletedAt: true,
-        etherfuseCustomer: { select: { kycStatus: true } },
-        username: true,
         blindpayReceiver: { select: { name: true, kycStatus: true } },
+        etherfuseCustomer: { select: { kycStatus: true } },
         wallets: {
           where: { isActive: true },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          orderBy: { createdAt: 'asc' },
           take: 1,
           select: { stellarAddress: true },
         },
       },
     });
-    if (!user || user.deletedAt || !user.wallets[0]) this.notFound();
-    const stellarAddress = user.wallets[0].stellarAddress;
-    const blindPayVerified =
-      !!user.blindpayReceiver &&
-      ['APPROVED', 'APPROVED_RFI'].includes(user.blindpayReceiver.kycStatus);
-    const verified =
-      blindPayVerified || user.etherfuseCustomer?.kycStatus === 'APPROVED';
-    const name = blindPayVerified
-      ? user.blindpayReceiver!.name
-      : verified
-        ? user.name
-        : null;
-    const receives =
-      await this.stellar.getReceivingCapabilities(stellarAddress);
+    const wallet = user?.wallets[0];
+    if (!user || user.deletedAt || !wallet) this.notFound();
+
+    const blindPayVerified = ['APPROVED', 'APPROVED_RFI'].includes(
+      user.blindpayReceiver?.kycStatus ?? '',
+    );
+    const etherfuseVerified = user.etherfuseCustomer?.kycStatus === 'APPROVED';
+    const verified = blindPayVerified || etherfuseVerified;
+    const [usdc, eurc] = await Promise.all([
+      this.receives(wallet.stellarAddress, 'USDC'),
+      this.receives(wallet.stellarAddress, 'EURC'),
+    ]);
+
     return {
       username,
-      displayName: name ?? 'Usuário PigFi',
-      name,
-      receives,
+      displayName: verified
+        ? (user.blindpayReceiver?.name ?? user.name ?? 'Usuário PigFi')
+        : 'Usuário PigFi',
       verified,
-      stellarAddress,
-      canReceive: receives,
+      stellarAddress: wallet.stellarAddress,
+      receives: { USDC: usdc, EURC: eurc, XLM: true },
     };
+  }
+
+  private async receives(address: string, symbol: string): Promise<boolean> {
+    try {
+      return await this.stellar.hasTrustline(
+        address,
+        this.stellar.getAsset(symbol),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private normalize(value: string): string {
+    return value.trim().toLowerCase();
   }
 
   private notFound(): never {

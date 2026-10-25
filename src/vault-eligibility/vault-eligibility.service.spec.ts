@@ -37,7 +37,7 @@ function createService(options?: {
     },
     userVaultUnlock: {
       findUnique: jest.fn().mockResolvedValue(options?.unlock ?? null),
-      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      upsert: jest.fn().mockResolvedValue({ id: 'unlock-1' }),
     },
     vaultEligibilityPolicy: {
       findFirst: jest.fn().mockResolvedValue(policy),
@@ -123,17 +123,16 @@ describe('VaultEligibilityService', () => {
     );
 
     expect(result.eligible).toBe(true);
-    expect(prisma.userVaultUnlock.createMany).toHaveBeenCalledWith({
-      data: [
-        {
-          userId: 'user-1',
-          vaultId: 'vault-1',
-          policyId: 'policy-1',
-          policyVersion: 2,
-          levelAtUnlock: 5,
-        },
-      ],
-      skipDuplicates: true,
+    expect(prisma.userVaultUnlock.upsert).toHaveBeenCalledWith({
+      where: { userId_vaultId: { userId: 'user-1', vaultId: 'vault-1' } },
+      create: {
+        userId: 'user-1',
+        vaultId: 'vault-1',
+        policyId: 'policy-1',
+        policyVersion: 2,
+        levelAtUnlock: 5,
+      },
+      update: {},
     });
   });
 
@@ -157,7 +156,7 @@ describe('VaultEligibilityService', () => {
         policyVersion: 2,
       },
     });
-    expect(prisma.userVaultUnlock.createMany).not.toHaveBeenCalled();
+    expect(prisma.userVaultUnlock.upsert).not.toHaveBeenCalled();
   });
 
   it('fails closed for Lite when no education policy is published', async () => {
@@ -192,7 +191,7 @@ describe('VaultEligibilityService', () => {
       currentLevel: 4,
       missingModules: ['M2', 'M3'],
     });
-    expect(prisma.userVaultUnlock.createMany).not.toHaveBeenCalled();
+    expect(prisma.userVaultUnlock.upsert).not.toHaveBeenCalled();
   });
 
   it('refreshes and persists newly qualified Lite policies outside deposits', async () => {
@@ -205,7 +204,7 @@ describe('VaultEligibilityService', () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ eligible: true, source: 'POLICY' });
-    expect(prisma.userVaultUnlock.createMany).toHaveBeenCalled();
+    expect(prisma.userVaultUnlock.upsert).toHaveBeenCalled();
   });
 
   it('does not persist an unlock from the visibility read model', async () => {
@@ -214,6 +213,6 @@ describe('VaultEligibilityService', () => {
     const result = await service.getEligibility('user-1', 'vault-1', 'EURC');
 
     expect(result.eligible).toBe(true);
-    expect(prisma.userVaultUnlock.createMany).not.toHaveBeenCalled();
+    expect(prisma.userVaultUnlock.upsert).not.toHaveBeenCalled();
   });
 });

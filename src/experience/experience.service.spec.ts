@@ -1,62 +1,87 @@
+import { ConflictException } from '@nestjs/common';
 import { ExperienceService } from './experience.service';
-import { dailyRewardWindow } from './daily-reward';
 
-describe('Daily XP reward', () => {
-  it('uses Sao Paulo midnight rather than UTC midnight', () => {
-    expect(dailyRewardWindow(new Date('2026-10-25T02:59:59Z'))).toEqual({
-      date: '2026-10-24',
-      nextAvailableAt: new Date('2026-10-25T03:00:00Z'),
-    });
-    expect(dailyRewardWindow(new Date('2026-10-25T03:00:00Z')).date).toBe(
-      '2026-10-25',
-    );
-  });
-  it('awards 3 XP and returns 409 on a duplicate daily ledger entry', async () => {
-    const tx = {
-      $queryRaw: jest.fn().mockResolvedValue([]),
-      experienceAccount: {
-        findUnique: jest.fn().mockResolvedValue({ totalXp: 0 }),
-      },
-    };
-    const prisma = { $transaction: (fn: (db: unknown) => unknown) => fn(tx) };
-    const ledger = {
-      grant: jest
+function setup(options: { existingClaim?: boolean } = {}) {
+  const tx = {
+    experienceAccount: {
+      findUnique: jest.fn().mockResolvedValue({ totalXp: 42 }),
+    },
+  };
+  const prisma = {
+    userExperienceRewardUnlock: { findMany: jest.fn().mockResolvedValue([]) },
+    experienceXpLedgerEntry: {
+      findUnique: jest
         .fn()
-        .mockResolvedValueOnce({
-          granted: true,
-          pointsGranted: 3,
-          profile: { totalXp: 3 },
-        })
-        .mockResolvedValueOnce({ granted: false }),
-    };
-    const service = new ExperienceService(prisma as never, ledger as never);
-    await expect(service.claimDailyReward('u')).resolves.toMatchObject({
-      xpAwarded: 3,
-      dailyReward: { available: false },
+        .mockResolvedValue(options.existingClaim ? { id: 'claim-1' } : null),
+    },
+    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+  };
+  const ledger = {
+    profile: jest.fn().mockResolvedValue({ totalXp: 42, level: 1 }),
+    grant: jest.fn().mockResolvedValue({
+      granted: true,
+      pointsGranted: 3,
+      profile: { totalXp: 45, level: 1, tier: 'BEGINNER' },
+    }),
+  };
+  const config = {
+    get: jest.fn((_key: string, fallback: number) => fallback),
+  };
+  return {
+    service: new ExperienceService(
+      prisma as never,
+      ledger as never,
+      config as never,
+    ),
+    prisma,
+    ledger,
+  };
+}
+
+describe('ExperienceService', () => {
+  it('returns all 50 rounded thresholds and daily reward availability', async () => {
+    const { service } = setup();
+
+    await expect(service.profile('user-a')).resolves.toMatchObject({
+      totalXp: 42,
+      dailyReward: { available: true, xp: 3 },
+      levelThresholds: expect.arrayContaining([
+        { level: 1, totalXp: 40 },
+        { level: 2, totalXp: 139 },
+        { level: 50, totalXp: 45731 },
+      ]),
     });
-    await expect(service.claimDailyReward('u')).rejects.toMatchObject({
-      response: { code: 'DAILY_REWARD_ALREADY_CLAIMED' },
+  });
+
+  it('grants the daily reward with a São Paulo calendar-date key', async () => {
+    const { service, ledger } = setup();
+
+    await expect(service.claimDailyReward('user-a')).resolves.toMatchObject({
+      xpAwarded: 3,
+      totalXp: 45,
+      levelBefore: 1,
+      levelAfter: 1,
     });
     expect(ledger.grant).toHaveBeenCalledWith(
-      tx,
+      expect.anything(),
       expect.objectContaining({
+        sourceRef: expect.stringMatching(/^daily-reward:\d{4}-\d{2}-\d{2}$/),
         points: 3,
-        sourceType: 'DAILY_ACTIVITY',
-        sourceRef: expect.stringMatching(/^daily:\d{4}-\d{2}-\d{2}$/),
+        metadata: expect.objectContaining({ timeZone: 'America/Sao_Paulo' }),
       }),
     );
   });
-  it('exposes thresholds and daily availability in the profile', async () => {
-    const service = new ExperienceService(
-      {
-        userExperienceRewardUnlock: { findMany: async () => [] },
-        experienceXpLedgerEntry: { findUnique: async () => null },
-      } as never,
-      { profile: async () => ({ totalXp: 0, level: 0 }) } as never,
-    );
-    const profile = await service.profile('u');
-    expect(profile.levelThresholds).toHaveLength(50);
-    expect(profile.levelThresholds[0]).toEqual({ level: 1, totalXp: 40 });
-    expect(profile.dailyReward.available).toBe(true);
+
+  it('returns the stable 409 code when the day was already claimed', async () => {
+    const { service, ledger } = setup();
+    ledger.grant.mockResolvedValue({ granted: false, pointsGranted: 0 });
+
+    const error = await service
+      .claimDailyReward('user-a')
+      .catch((value) => value);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getResponse()).toMatchObject({
+      code: 'DAILY_REWARD_ALREADY_CLAIMED',
+    });
   });
 });

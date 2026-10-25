@@ -1,7 +1,6 @@
 import * as Joi from 'joi';
 
 export const envSchema = Joi.object({
-  LEARNING_INTRO_XP: Joi.number().integer().min(0).default(45),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().required(),
 
@@ -106,7 +105,7 @@ export const envSchema = Joi.object({
   LEARNING_INTRO_MODULE_COMPLETION_XP: Joi.number()
     .integer()
     .min(0)
-    .default(Joi.ref('LEARNING_INTRO_XP')),
+    .default(45),
   EXPERIENCE_DAILY_REWARD_XP: Joi.number().integer().min(1).default(3),
   // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
   // `.default('')` only applies when the key is absent. Without it, the documented

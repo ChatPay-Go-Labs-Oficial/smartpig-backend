@@ -107,37 +107,6 @@ export class StellarService {
     return this.treasuryKeypair;
   }
 
-  /** On-chain receiving capability, not an authorization to execute a payment. */
-  async getReceivingCapabilities(
-    address: string,
-  ): Promise<Record<string, boolean>> {
-    const account = await this.server.loadAccount(address);
-    return Object.fromEntries(
-      ['USDC', 'EURC', 'XLM'].map((symbol) => {
-        const asset = this.assetRegistry.find(
-          (entry) => entry.symbol === symbol,
-        );
-        if (!asset) return [symbol, false];
-        if (asset.kind === 'NATIVE') return [symbol, true];
-        const line = account.balances.find(
-          (balance) =>
-            balance.asset_type !== 'native' &&
-            balance.asset_type !== 'liquidity_pool_shares' &&
-            balance.asset_code === asset.code &&
-            balance.asset_issuer === asset.issuer,
-        );
-        const allowed =
-          line &&
-          line.asset_type !== 'native' &&
-          line.asset_type !== 'liquidity_pool_shares' &&
-          line.is_authorized !== false &&
-          Number(line.limit) >
-            Number(line.balance) + Number(line.buying_liabilities);
-        return [symbol, !!allowed];
-      }),
-    );
-  }
-
   /** Every asset this deployment supports. */
   listAssets(): AssetDefinition[] {
     return this.assetRegistry;

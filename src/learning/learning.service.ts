@@ -1,24 +1,23 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ExperienceXpSourceType, Prisma } from '@prisma/client';
-import { ExperienceLedgerService } from '../experience/experience-ledger.service';
 import { ConfigService } from '@nestjs/config';
+import { ExperienceLedgerService } from '../experience/experience-ledger.service';
 import { calculateExperienceLevel } from '../experience/experience-level';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const questionPublicSelect = {
   key: true,
-  reviewScreenKey: true,
-  stepOrder: true,
   contentVersion: true,
   title: true,
   situation: true,
   prompt: true,
-  xpReward: true,
+  reviewContentItemKey: true,
   isRequired: true,
   displayOrder: true,
   options: {
@@ -42,17 +41,19 @@ const INTRO_LESSON_KEYS = ['M1', 'M2', 'M3', 'M4', 'M5'];
 
 @Injectable()
 export class LearningService {
+  private readonly logger = new Logger(LearningService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly experience: ExperienceLedgerService,
     private readonly vaultEligibility: VaultEligibilityService,
-    private readonly config: ConfigService = new ConfigService(),
+    private readonly config: ConfigService,
   ) {}
 
   async listStandaloneContent(userId: string) {
     const [items, mode] = await Promise.all([
       this.prisma.learningContentItem.findMany({
-        where: { moduleId: null, isActive: true, type: { not: 'PRACTICE' } },
+        where: { moduleId: null, isActive: true },
         orderBy: { displayOrder: 'asc' },
         select: {
           key: true,
@@ -70,7 +71,7 @@ export class LearningService {
       proVocabulary: mode === 'PRO' ? PRO_VOCABULARY : null,
       introModuleCompletionXp: this.config.get<number>(
         'LEARNING_INTRO_MODULE_COMPLETION_XP',
-        this.config.get<number>('LEARNING_INTRO_XP', 45),
+        45,
       ),
       items,
     };
@@ -199,15 +200,13 @@ export class LearningService {
         type: 'question',
         key: question.key,
         displayOrder: question.displayOrder,
-        reviewScreenKey: question.reviewScreenKey,
+        reviewScreenKey: question.reviewContentItemKey,
         content: question,
       })),
     ].sort((left, right) => left.displayOrder - right.displayOrder);
 
     return {
       ...module,
-      catalogFormatVersion: '1.1.1',
-      contentUpgradePending: module.contentVersion < 4,
       id: undefined,
       isPublished: undefined,
       title: mode === 'PRO' && module.proTitle ? module.proTitle : module.title,
@@ -298,14 +297,7 @@ export class LearningService {
     optionKey: string,
     contentVersion: number,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      // One lock across lessons and daily grants, so INTRO completion and level deltas are consistent.
-      await tx.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`experience:${userId}`}))`,
-      );
-      const before = calculateExperienceLevel(
-        (await this.experienceProfile(tx, userId)).totalXp,
-      );
+    const result = await this.prisma.$transaction(async (tx) => {
       const question = await tx.learningQuestion.findUnique({
         where: { key: questionKey },
         include: {
@@ -334,6 +326,15 @@ export class LearningService {
           'Answer option not found for this question',
         );
       }
+
+      // One user-wide lock also covers the case where two devices complete two
+      // different lessons together. The second transaction then observes the
+      // first and can award the five-lesson module exactly once.
+      await tx.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`learning:${userId}`}))`,
+      );
+
+      const profileBefore = await this.experienceProfile(tx, userId);
 
       const prior = await tx.userLearningQuestionProgress.findUnique({
         where: {
@@ -367,8 +368,6 @@ export class LearningService {
         },
       });
 
-      const questionXpGranted = 0;
-
       const requiredCount = await tx.learningQuestion.count({
         where: {
           moduleId: question.moduleId,
@@ -387,9 +386,8 @@ export class LearningService {
           },
         },
       });
-      const lessonCompleted =
-        requiredCount > 0 && correctCount >= requiredCount;
-      let moduleXpGranted = 0;
+      const lessonComplete = requiredCount > 0 && correctCount >= requiredCount;
+      let lessonXpGranted = 0;
 
       const priorModule = await tx.userLearningModuleProgress.findUnique({
         where: {
@@ -397,7 +395,7 @@ export class LearningService {
         },
         select: { completedAt: true },
       });
-      const lessonCompletedNow = lessonCompleted && !priorModule?.completedAt;
+      const lessonCompletedNow = lessonComplete && !priorModule?.completedAt;
 
       await tx.userLearningModuleProgress.upsert({
         where: {
@@ -406,19 +404,14 @@ export class LearningService {
         create: {
           userId,
           moduleId: question.moduleId,
-          completedAt: lessonCompleted ? answeredAt : null,
+          completedAt: lessonComplete ? answeredAt : null,
         },
-        update: lessonCompleted
+        update: lessonComplete
           ? { completedAt: priorModule?.completedAt ?? answeredAt }
           : {},
       });
 
-      if (
-        correct &&
-        lessonCompleted &&
-        !priorModule?.completedAt &&
-        question.module.completionXp > 0
-      ) {
+      if (lessonComplete && question.module.completionXp > 0) {
         const grant = await this.experience.grant(tx, {
           userId,
           sourceType: ExperienceXpSourceType.LEARNING_MODULE,
@@ -426,7 +419,7 @@ export class LearningService {
           points: question.module.completionXp,
           metadata: { contentVersion: question.module.contentVersion },
         });
-        moduleXpGranted = grant.pointsGranted;
+        lessonXpGranted = grant.pointsGranted;
       }
 
       const [publishedLessonCount, completedLessonCount] = await Promise.all([
@@ -447,10 +440,10 @@ export class LearningService {
       const introModuleComplete =
         publishedLessonCount === INTRO_LESSON_KEYS.length &&
         completedLessonCount >= INTRO_LESSON_KEYS.length;
-      let introXpGranted = 0;
+      let introModuleXpGranted = 0;
       const introModuleXp = this.config.get<number>(
         'LEARNING_INTRO_MODULE_COMPLETION_XP',
-        this.config.get<number>('LEARNING_INTRO_XP', 45),
+        45,
       );
       if (lessonCompletedNow && introModuleComplete && introModuleXp > 0) {
         const grant = await this.experience.grant(tx, {
@@ -460,41 +453,54 @@ export class LearningService {
           points: introModuleXp,
           metadata: { catalog: 'INTRODUCTION' },
         });
-        introXpGranted = grant.pointsGranted;
+        introModuleXpGranted = grant.pointsGranted;
       }
 
-      const profile = await this.experienceProfile(tx, userId);
-      const after = calculateExperienceLevel(profile.totalXp);
-      const unlocks = correct
-        ? await this.vaultEligibility.refreshUnlocksForUser(userId, tx)
-        : [];
-      const xpAwarded = questionXpGranted + moduleXpGranted + introXpGranted;
+      const profileAfter = await this.experienceProfile(tx, userId);
+      const xpAwarded = lessonXpGranted + introModuleXpGranted;
+
       return {
         correct,
         feedback: correct ? question.successFeedback : question.retryFeedback,
         firstCorrect,
-        xpGranted: xpAwarded,
-        questionXpGranted,
-        moduleXpGranted,
-        introXpGranted,
         lessonCompleted: lessonCompletedNow,
-        moduleCompleted: introXpGranted > 0,
-        lessonXpAwarded: moduleXpGranted,
-        introModuleXpAwarded: introXpGranted,
+        moduleCompleted: introModuleXpGranted > 0,
         xpAwarded,
-        totalXp: after.totalXp,
-        levelBefore: before.level,
-        levelAfter: after.level,
-        tierAfter: after.tier,
-        newUnlocks: unlocks
-          .filter((unlock) => unlock.newlyUnlocked)
-          .map((unlock) => unlock.assetSymbol)
-          .filter((symbol): symbol is string => Boolean(symbol)),
-        newUnlockDetails: unlocks.filter((unlock) => unlock.newlyUnlocked),
+        lessonXpAwarded: lessonXpGranted,
+        introModuleXpAwarded: introModuleXpGranted,
+        totalXp: profileAfter.totalXp,
+        levelBefore: profileBefore.level,
+        levelAfter: profileAfter.level,
+        tierAfter: profileAfter.tier,
+        // Compatibility aliases for the first mobile integration.
+        xpGranted: xpAwarded,
+        questionXpGranted: 0,
+        moduleXpGranted: lessonXpGranted,
         progress: { correctRequired: correctCount, required: requiredCount },
-        profile,
+        profile: profileAfter,
       };
     });
+
+    let newUnlocks: string[] = [];
+    if (result.correct) {
+      // The deposit boundary always re-evaluates eligibility. A projection
+      // refresh must therefore never turn an already committed answer/XP grant
+      // into a misleading 500 response.
+      try {
+        const refresh =
+          await this.vaultEligibility.refreshUnlocksForUser(userId);
+        newUnlocks = refresh
+          .filter((item) => item.newlyUnlocked)
+          .map((item) => item.assetSymbol)
+          .filter((symbol): symbol is string => Boolean(symbol));
+      } catch (error) {
+        this.logger.error(
+          `Could not refresh vault unlocks for ${userId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
+    return { ...result, newUnlocks };
   }
 
   private async experienceProfile(
