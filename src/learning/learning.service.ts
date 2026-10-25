@@ -3,7 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { ExperienceXpSourceType, Prisma } from '@prisma/client';
+import { ExperienceLedgerService } from '../experience/experience-ledger.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
 
 const questionPublicSelect = {
@@ -21,7 +22,10 @@ const questionPublicSelect = {
 
 @Injectable()
 export class LearningService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly experience: ExperienceLedgerService,
+  ) {}
 
   async listStandaloneContent() {
     return this.prisma.learningContentItem.findMany({
@@ -150,7 +154,8 @@ export class LearningService {
   }
 
   async progress(userId: string) {
-    const [modules, completedQuestions, resume] = await Promise.all([
+    const [profile, modules, completedQuestions, resume] = await Promise.all([
+      this.experience.profile(userId),
       this.listModules(userId),
       this.prisma.userLearningQuestionProgress.findMany({
         where: {
@@ -171,6 +176,7 @@ export class LearningService {
       }),
     ]);
     return {
+      profile,
       modules,
       completedQuestionIds: completedQuestions.map((item) => item.question.key),
       resume: resume
@@ -248,7 +254,7 @@ export class LearningService {
 
       // Two devices can answer the last two pending questions together. The
       // transaction-scoped lock serializes completion for this user/module so
-      // the second transaction observes the first before completing the module.
+      // the second transaction observes the first and awards the module bonus.
       await tx.$queryRaw(
         Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`${userId}:${question.moduleId}`}))`,
       );
@@ -285,6 +291,18 @@ export class LearningService {
         },
       });
 
+      let questionXpGranted = 0;
+      if (correct) {
+        const grant = await this.experience.grant(tx, {
+          userId,
+          sourceType: ExperienceXpSourceType.LEARNING_QUESTION,
+          sourceRef: question.key,
+          points: question.xpReward,
+          metadata: { contentVersion: question.contentVersion },
+        });
+        questionXpGranted = grant.pointsGranted;
+      }
+
       const requiredCount = await tx.learningQuestion.count({
         where: {
           moduleId: question.moduleId,
@@ -305,6 +323,7 @@ export class LearningService {
       });
       const moduleCompleted =
         requiredCount > 0 && correctCount >= requiredCount;
+      let moduleXpGranted = 0;
 
       const priorModule = await tx.userLearningModuleProgress.findUnique({
         where: {
@@ -327,15 +346,41 @@ export class LearningService {
           : {},
       });
 
+      if (moduleCompleted) {
+        const grant = await this.experience.grant(tx, {
+          userId,
+          sourceType: ExperienceXpSourceType.LEARNING_MODULE,
+          sourceRef: question.module.key,
+          points: question.module.completionXp,
+          metadata: { contentVersion: question.module.contentVersion },
+        });
+        moduleXpGranted = grant.pointsGranted;
+      }
+
       return {
         correct,
         feedback: correct ? question.successFeedback : question.retryFeedback,
         firstCorrect,
+        xpGranted: questionXpGranted + moduleXpGranted,
+        questionXpGranted,
+        moduleXpGranted,
         moduleCompleted,
         progress: { correctRequired: correctCount, required: requiredCount },
+        profile: await this.experienceProfile(tx, userId),
       };
     });
 
     return result;
+  }
+
+  private async experienceProfile(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ) {
+    const account = await tx.experienceAccount.findUnique({
+      where: { userId },
+      select: { totalXp: true, currentLevel: true },
+    });
+    return account ?? { totalXp: 0, currentLevel: 0 };
   }
 }

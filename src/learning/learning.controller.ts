@@ -54,7 +54,7 @@ export class LearningController {
 
   @Post('questions/:questionKey/answer')
   @ApiOperation({
-    summary: 'Validate an answer and record learning progress atomically',
+    summary: 'Validate an answer and grant first-correct XP atomically',
   })
   async answer(
     @Param('questionKey') questionKey: string,
@@ -70,7 +70,7 @@ export class LearningController {
   }
 
   @Get('progress')
-  @ApiOperation({ summary: 'Get learning progress for resume' })
+  @ApiOperation({ summary: 'Get XP and learning progress for resume' })
   async progress(@CurrentUser() user: { id: string }) {
     return this.learning.progress(await this.localUserId(user.id));
   }

@@ -377,7 +377,7 @@ Verifica se a API está no ar.
 
 ---
 
-## Learning
+## Learning e Experience
 
 Todas estas rotas são 🔒 e resolvem o usuário a partir do Bearer token.
 
@@ -398,7 +398,7 @@ Salva o ponto de retomada.
 ```
 
 ### `POST /learning/questions/:questionKey/answer`
-Valida uma alternativa no servidor. Registra tentativas, feedback, primeiro acerto e conclusão do módulo; novas tentativas são permitidas.
+Valida uma alternativa no servidor. O primeiro acerto da questão concede 10 XP; completar as seis questões obrigatórias concede 40 XP adicionais uma única vez.
 
 ```json
 {
@@ -410,7 +410,10 @@ Valida uma alternativa no servidor. Registra tentativas, feedback, primeiro acer
 Uma versão desatualizada retorna `409 LEARNING_CONTENT_VERSION_STALE`.
 
 ### `GET /learning/progress`
-Retorna módulos, IDs das questões concluídas e ponto de retomada do usuário autenticado.
+Retorna perfil de XP, módulos, IDs das questões concluídas e ponto de retomada do usuário autenticado.
+
+### `GET /experience/profile`
+Retorna XP total, nível, tier, progresso para o próximo nível e recompensas desbloqueadas.
 
 ---
 

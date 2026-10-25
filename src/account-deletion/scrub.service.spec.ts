@@ -76,6 +76,15 @@ function createService(
       update: record('gift', 'update'),
     },
     apiAuditLog: { updateMany: record('apiAuditLog', 'updateMany') },
+    userExperienceRewardUnlock: {
+      deleteMany: record('userExperienceRewardUnlock', 'deleteMany'),
+    },
+    experienceXpLedgerEntry: {
+      deleteMany: record('experienceXpLedgerEntry', 'deleteMany'),
+    },
+    experienceAccount: {
+      deleteMany: record('experienceAccount', 'deleteMany'),
+    },
     userLearningQuestionProgress: {
       deleteMany: record('userLearningQuestionProgress', 'deleteMany'),
     },
@@ -377,7 +386,7 @@ describe('ScrubService', () => {
       expect(data).not.toHaveProperty('resource');
     });
 
-    it('deletes derived, credential and learning progress state', async () => {
+    it('deletes derived, credential and experience state', async () => {
       const { service, tx } = createService();
 
       await service.scrub(USER);
@@ -389,6 +398,9 @@ describe('ScrubService', () => {
         where: { userId: USER },
       });
       for (const model of [
+        tx.userExperienceRewardUnlock,
+        tx.experienceXpLedgerEntry,
+        tx.experienceAccount,
         tx.userLearningQuestionProgress,
         tx.userLearningModuleProgress,
       ]) {
@@ -411,8 +423,11 @@ describe('ScrubService', () => {
 
       const deletes = calls.filter((c) => c.op === 'deleteMany');
       expect(deletes.map((c) => c.model).sort()).toEqual([
+        'experienceAccount',
+        'experienceXpLedgerEntry',
         'portfolioSnapshot',
         'refreshToken',
+        'userExperienceRewardUnlock',
         'userLearningModuleProgress',
         'userLearningQuestionProgress',
       ]);

@@ -63,9 +63,9 @@ async function main() {
   console.log(`✅ Seeded ${appVersionConfigs.length} app version configs`);
 
   // Publish the editorial catalog as one unit. A failed upsert must not leave a
-  // partially visible trail in production.
+  // partially visible trail or half of the reward definitions in production.
   await prisma.$transaction((tx) => seedLearning(tx), { timeout: 60_000 });
-  console.log('✅ Seeded PigFi learning catalog');
+  console.log('✅ Seeded PigFi Experience learning catalog and rewards');
 }
 
 main()

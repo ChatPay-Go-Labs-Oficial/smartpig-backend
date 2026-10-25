@@ -109,6 +109,23 @@ enum LearningContentType {
   GLOSSARY
 }
 
+enum ExperienceXpSourceType {
+  LEARNING_QUESTION
+  LEARNING_MODULE
+  STREAK
+  SAVINGS_GOAL
+  DAILY_ACTIVITY
+  LEGACY_MIGRATION
+  ADMIN_ADJUSTMENT
+}
+
+enum ExperienceRewardType {
+  PROFILE_FRAME
+  TITLE
+  BADGE
+  COSMETIC
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
@@ -146,6 +163,9 @@ model User {
   giftsSent          Gift[]                          @relation("giftsSent")
   giftsReceived      Gift[]                          @relation("giftsReceived")
   disclosureAcks     VaultDisclosureAcknowledgment[]
+  experienceAccount  ExperienceAccount?
+  experienceXpLedger ExperienceXpLedgerEntry[]
+  experienceRewards  UserExperienceRewardUnlock[]
   learningQuestions  UserLearningQuestionProgress[]
   learningModules    UserLearningModuleProgress[]
 
@@ -289,6 +309,75 @@ model UserLearningModuleProgress {
   @@unique([userId, moduleId])
   @@index([userId, completedAt])
   @@map("user_learning_module_progress")
+}
+
+/// Fast projection of the immutable XP ledger. Services update both in the same
+/// transaction; callers never submit either value.
+model ExperienceAccount {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  totalXp      Int      @default(0)
+  currentLevel Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([currentLevel])
+  @@map("experience_accounts")
+}
+
+/// Immutable and idempotent source of truth for XP. `dedupeKey` protects retries
+/// across transports; the composite unique protects each logical source too.
+model ExperienceXpLedgerEntry {
+  id         String                 @id @default(cuid())
+  userId     String
+  sourceType ExperienceXpSourceType
+  sourceRef  String
+  dedupeKey  String                 @unique
+  points     Int
+  metadata   Json?
+  createdAt  DateTime               @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceRef])
+  @@index([userId, createdAt])
+  @@map("experience_xp_ledger")
+}
+
+model ExperienceRewardDefinition {
+  id           String               @id @default(cuid())
+  key          String               @unique
+  type         ExperienceRewardType
+  name         String
+  description  String?              @db.Text
+  minimumLevel Int?
+  tier         String?
+  payload      Json?
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  userUnlocks UserExperienceRewardUnlock[]
+
+  @@index([isActive, minimumLevel])
+  @@map("experience_reward_definitions")
+}
+
+model UserExperienceRewardUnlock {
+  id          String   @id @default(cuid())
+  userId      String
+  rewardId    String
+  sourceLevel Int?
+  unlockedAt  DateTime @default(now())
+
+  user   User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward ExperienceRewardDefinition @relation(fields: [rewardId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, rewardId])
+  @@index([userId, unlockedAt])
+  @@map("user_experience_reward_unlocks")
 }
 
 // ─────────────────────────────────────────────

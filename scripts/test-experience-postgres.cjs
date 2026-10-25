@@ -1,0 +1,95 @@
+/* eslint-disable no-console */
+const assert = require('node:assert/strict');
+const { PrismaClient } = require('@prisma/client');
+const {
+  ExperienceLedgerService,
+} = require('../dist/experience/experience-ledger.service');
+const { LearningService } = require('../dist/learning/learning.service');
+
+async function main() {
+  const prisma = new PrismaClient();
+  const user = await prisma.user.create({
+    data: {
+      email: `experience-concurrency-${Date.now()}@example.invalid`,
+      experienceMode: 'LITE',
+      experienceModeUpdatedAt: new Date(),
+    },
+  });
+
+  try {
+    const questions = await prisma.learningQuestion.findMany({
+      where: { module: { key: 'M1' }, isRequired: true, isActive: true },
+      orderBy: { displayOrder: 'asc' },
+      select: {
+        key: true,
+        correctOptionKey: true,
+        contentVersion: true,
+      },
+    });
+    assert.equal(questions.length, 6, 'M1 must contain six required questions');
+
+    const ledger = new ExperienceLedgerService(prisma);
+    const learning = new LearningService(prisma, ledger);
+
+    for (const question of questions.slice(0, 4)) {
+      await learning.submitAnswer(
+        user.id,
+        question.key,
+        question.correctOptionKey,
+        question.contentVersion,
+      );
+    }
+
+    await Promise.all(
+      questions
+        .slice(4)
+        .map((question) =>
+          learning.submitAnswer(
+            user.id,
+            question.key,
+            question.correctOptionKey,
+            question.contentVersion,
+          ),
+        ),
+    );
+
+    await learning.submitAnswer(
+      user.id,
+      questions[0].key,
+      questions[0].correctOptionKey,
+      questions[0].contentVersion,
+    );
+    const publicModule = await learning.getModule(user.id, 'M1');
+    assert.equal(
+      JSON.stringify(publicModule).includes('correctOptionKey'),
+      false,
+      'public learning payload must not expose answer keys',
+    );
+
+    const [account, ledgerEntries, moduleProgress] = await Promise.all([
+      prisma.experienceAccount.findUnique({ where: { userId: user.id } }),
+      prisma.experienceXpLedgerEntry.findMany({
+        where: { userId: user.id },
+      }),
+      prisma.userLearningModuleProgress.findFirst({
+        where: { userId: user.id, module: { key: 'M1' } },
+      }),
+    ]);
+
+    assert.equal(account.totalXp, 100, 'six answers plus one module bonus');
+    assert.equal(ledgerEntries.length, 7, 'six question credits and one bonus');
+    assert.ok(moduleProgress.completedAt, 'M1 must be completed');
+
+    console.log(
+      'PostgreSQL checks passed: concurrent XP and duplicate answer protection.',
+    );
+  } finally {
+    await prisma.user.delete({ where: { id: user.id } });
+    await prisma.$disconnect();
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

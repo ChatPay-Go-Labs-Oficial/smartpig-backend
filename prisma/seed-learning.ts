@@ -1,4 +1,8 @@
-import { LearningContentType, Prisma } from '@prisma/client';
+import {
+  ExperienceRewardType,
+  LearningContentType,
+  Prisma,
+} from '@prisma/client';
 import {
   LEARNING_CATALOG_VERSION,
   learningCatalog,
@@ -170,6 +174,68 @@ export async function seedLearning(
     },
     data: { isActive: false },
   });
+
+  // Every level advances the profile frame. Tier boundaries add the larger
+  // identity rewards from the product document on top of that frame.
+  for (let level = 1; level <= 50; level += 1) {
+    const key = `LEVEL_${String(level).padStart(2, '0')}_FRAME`;
+    await prisma.experienceRewardDefinition.upsert({
+      where: { key },
+      update: {
+        type: ExperienceRewardType.PROFILE_FRAME,
+        name: `Moldura nível ${level}`,
+        minimumLevel: level,
+        payload: { frameIndex: level },
+        isActive: true,
+      },
+      create: {
+        key,
+        type: ExperienceRewardType.PROFILE_FRAME,
+        name: `Moldura nível ${level}`,
+        minimumLevel: level,
+        payload: { frameIndex: level },
+        isActive: true,
+      },
+    });
+  }
+
+  const tierRewards = [
+    [
+      10,
+      'BEGINNER_BADGE_AND_FRAME',
+      ExperienceRewardType.PROFILE_FRAME,
+      'Porquinho Iniciante',
+      'BEGINNER',
+    ],
+    [
+      25,
+      'CONSISTENT_NAME_BADGE',
+      ExperienceRewardType.BADGE,
+      'Emblema Consistente',
+      'CONSISTENT',
+    ],
+    [
+      40,
+      'DEDICATED_PIG_VARIANTS',
+      ExperienceRewardType.COSMETIC,
+      'Variações do porquinho',
+      'DEDICATED',
+    ],
+    [
+      50,
+      'VETERAN_EXCLUSIVE_SKIN',
+      ExperienceRewardType.COSMETIC,
+      'Skin Veterano',
+      'VETERAN',
+    ],
+  ] as const;
+  for (const [level, key, type, name, tier] of tierRewards) {
+    await prisma.experienceRewardDefinition.upsert({
+      where: { key },
+      update: { type, name, minimumLevel: level, tier, isActive: true },
+      create: { key, type, name, minimumLevel: level, tier, isActive: true },
+    });
+  }
 }
 
 function validateCatalog(): void {
