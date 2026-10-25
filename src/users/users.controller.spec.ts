@@ -1,4 +1,8 @@
-import { ForbiddenException, INestApplication } from '@nestjs/common';
+import {
+  ForbiddenException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -29,6 +33,9 @@ describe('UsersController', () => {
   const usersService = {
     getUser: jest.fn().mockResolvedValue({ id: 'user-a' }),
     updateUser: jest.fn().mockResolvedValue({ id: 'user-a' }),
+    updateExperienceMode: jest
+      .fn()
+      .mockResolvedValue({ id: 'user-a', experienceMode: 'LITE' }),
   };
 
   // The real service resolves the owner from the wallets Privy verified. Here
@@ -77,6 +84,13 @@ describe('UsersController', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
     await app.init();
   });
 
@@ -102,6 +116,33 @@ describe('UsersController', () => {
     expect(usersService.updateUser).toHaveBeenCalledWith('user-a', {
       name: 'João',
     });
+  });
+
+  it('updates experience mode for the account resolved from the bearer', async () => {
+    await request(app.getHttpServer())
+      .patch('/users/me/experience-mode')
+      .send({ mode: 'LITE' })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.experienceMode).toBe('LITE');
+      });
+
+    expect(accountOwner.assertOwnership).toHaveBeenCalledWith(
+      ['GA_USER_A'],
+      undefined,
+    );
+    expect(usersService.updateExperienceMode).toHaveBeenCalledWith('user-a', {
+      mode: 'LITE',
+    });
+  });
+
+  it('rejects an unknown experience mode', async () => {
+    await request(app.getHttpServer())
+      .patch('/users/me/experience-mode')
+      .send({ mode: 'BEGINNER' })
+      .expect(400);
+
+    expect(usersService.updateExperienceMode).not.toHaveBeenCalled();
   });
 
   it('refuses GET /users/:id for another account', async () => {

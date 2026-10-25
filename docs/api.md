@@ -5,6 +5,7 @@ Base URL: `http://localhost:3000` (dev) | configurável via `PORT`
 > **Autenticação via Privy**: todas as rotas são protegidas por padrão pelo `PrivyAuthGuard` (guard global). O app envia `Authorization: Bearer {privyAccessToken}` nas chamadas marcadas com 🔒. Rotas marcadas com 🌐 são públicas (`@Public()`).
 >
 > O `userId` interno (cuid do `User`) continua sendo enviado no body/query das rotas de negócio — o guard valida a identidade Privy, mas os serviços resolvem o usuário pelo `userId` recebido.
+> As rotas novas de Learning, Experience e seleção de modo não recebem `userId`: elas derivam a conta local exclusivamente do token Privy e das carteiras Stellar verificadas.
 >
 > Rotas públicas: `GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`.
 
@@ -76,6 +77,17 @@ Um Bearer inválido retorna 401 mesmo sendo rota pública.
 ---
 
 ## Users
+
+### `PATCH /users/me/experience-mode` 🔒
+Sincroniza o modo salvo pelo aplicativo. Envie `LITE` para a experiência guiada ou `PRO` para preservar o fluxo avançado existente.
+
+```json
+{ "mode": "LITE" }
+```
+
+Usuários legados com modo ainda não sincronizado (`null` no banco) são tratados como `PRO`.
+
+---
 
 ### `GET /users/:id` 🔒
 Retorna o perfil do usuário.
@@ -366,9 +378,66 @@ Verifica se a API está no ar.
 
 ---
 
+## Learning e Experience
+
+Todas estas rotas são 🔒 e resolvem o usuário a partir do Bearer token.
+
+### `GET /learning/content`
+Retorna boas-vindas, práticas de hábito e glossário sem pontuação.
+
+### `GET /learning/modules`
+Lista os módulos publicados e o progresso do usuário autenticado.
+
+### `GET /learning/modules/:moduleKey`
+Retorna telas, questões e alternativas do módulo. O gabarito nunca é enviado ao cliente.
+
+### `PATCH /learning/modules/:moduleKey/progress`
+Salva o ponto de retomada.
+
+```json
+{ "contentItemKey": "M1-E03" }
+```
+
+### `POST /learning/questions/:questionKey/answer`
+Valida uma alternativa no servidor. O primeiro acerto da questão concede 10 XP; completar as seis questões obrigatórias concede 40 XP adicionais uma única vez.
+
+```json
+{
+  "optionId": "B",
+  "contentVersion": 1
+}
+```
+
+Uma versão desatualizada retorna `409 LEARNING_CONTENT_VERSION_STALE`.
+
+### `GET /learning/progress`
+Retorna perfil de XP, módulos, IDs das questões concluídas e ponto de retomada do usuário autenticado.
+
+### `GET /experience/profile`
+Retorna XP total, nível, tier, progresso para o próximo nível e recompensas desbloqueadas.
+
+### Políticas administrativas
+
+`GET /admin/vaults/:vaultId/eligibility-policies` lista versões. `POST` no mesmo caminho cria ou atualiza uma versão:
+
+```json
+{
+  "version": 1,
+  "minimumLevel": 5,
+  "requiredModuleKeys": ["M1", "M2", "M3"],
+  "publish": true
+}
+```
+
+Publicar uma versão desativa a política ativa anterior daquele vault. O disclosure continua sendo uma verificação separada.
+
+---
+
 ## Vaults
 
 > **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+>
+> A resposta inclui `access`, uma projeção individual de disponibilidade operacional, disclosure e elegibilidade educacional. Vaults bloqueados para novo depósito continuam visíveis para não ocultar posições ou retiradas. Usuários `PRO` têm bypass educacional; usuários `LITE` seguem a política publicada. O bloqueio só é efetivo quando `ENFORCE_VAULT_EDUCATION=true`.
 
 ### `GET /vaults`
 Lista todos os vaults ativos (dados do banco local).

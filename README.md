@@ -16,6 +16,7 @@ Bem-vindo à documentação técnica do backend do **PigFi**, um app de finança
 | [docs/modules/infra.md](./docs/modules/infra.md) | Infraestrutura: PrismaModule |
 | [docs/modules/defindex.md](./docs/modules/defindex.md) | Integração com o SDK do DeFindex |
 | [docs/modules/vaults.md](./docs/modules/vaults.md) | Consulta de vaults, APY e saldo |
+| [docs/modules/learning.md](./docs/modules/learning.md) | PigFi Experience: trilha, XP, modos Lite/Pro e elegibilidade de vaults |
 | [docs/modules/vault-manager.md](./docs/modules/vault-manager.md) | Criação e gestão de vaults próprios do SmartPig |
 | [docs/modules/deposits.md](./docs/modules/deposits.md) | Criação e processamento de depósitos |
 | [docs/modules/withdrawals.md](./docs/modules/withdrawals.md) | Criação e processamento de saques |

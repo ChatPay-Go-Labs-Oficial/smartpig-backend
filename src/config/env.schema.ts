@@ -99,6 +99,9 @@ export const envSchema = Joi.object({
   // while installed legacy builds can still deposit. Enable only after every active
   // non-USDC vault has a published disclosure and the compatible app is mandatory.
   ENFORCE_VAULT_DISCLOSURE: Joi.boolean().default(false),
+  // Evaluate and expose education eligibility during rollout, but keep legacy
+  // deposits open until the compatible clients and policies are published.
+  ENFORCE_VAULT_EDUCATION: Joi.boolean().default(false),
   // `allow('')` is load-bearing: Joi.string() rejects an empty string, and
   // `.default('')` only applies when the key is absent. Without it, the documented
   // "empty means no allowlist" could only be expressed by deleting the variable —

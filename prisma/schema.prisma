@@ -93,18 +93,53 @@ enum WalletActivationStatus {
   FAILED
 }
 
+/// Controls the language/detail of the experience. Existing users remain null
+/// until they explicitly choose a mode; migrations must not guess for them.
+enum ExperienceMode {
+  LITE
+  PRO
+}
+
+enum LearningContentType {
+  INTRODUCTION
+  EXPLANATION
+  EXAMPLE
+  REFLECTION
+  PRACTICE
+  GLOSSARY
+}
+
+enum ExperienceXpSourceType {
+  LEARNING_QUESTION
+  LEARNING_MODULE
+  STREAK
+  SAVINGS_GOAL
+  DAILY_ACTIVITY
+  LEGACY_MIGRATION
+  ADMIN_ADJUSTMENT
+}
+
+enum ExperienceRewardType {
+  PROFILE_FRAME
+  TITLE
+  BADGE
+  COSMETIC
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
 
 model User {
-  id          String  @id @default(cuid())
-  email       String? @unique
-  name        String?
-  avatarUrl   String?
-  googleId    String? @unique
-  appleId     String? @unique
-  isOnboarded Boolean @default(false)
+  id                      String          @id @default(cuid())
+  email                   String?         @unique
+  name                    String?
+  avatarUrl               String?
+  googleId                String?         @unique
+  appleId                 String?         @unique
+  isOnboarded             Boolean         @default(false)
+  experienceMode          ExperienceMode?
+  experienceModeUpdatedAt DateTime?
 
   /// Tombstone marker. Set by the scrub; the row survives so the retained
   /// financial records keep an anchor that points to nobody identifiable.
@@ -128,6 +163,12 @@ model User {
   giftsSent          Gift[]                          @relation("giftsSent")
   giftsReceived      Gift[]                          @relation("giftsReceived")
   disclosureAcks     VaultDisclosureAcknowledgment[]
+  experienceAccount  ExperienceAccount?
+  experienceXpLedger ExperienceXpLedgerEntry[]
+  learningQuestions  UserLearningQuestionProgress[]
+  learningModules    UserLearningModuleProgress[]
+  experienceRewards  UserExperienceRewardUnlock[]
+  vaultUnlocks       UserVaultUnlock[]
 
   @@index([deletedAt])
   @@map("users")
@@ -145,6 +186,204 @@ model RefreshToken {
 
   @@index([userId])
   @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────
+// PigFi Experience & learning catalog
+// ─────────────────────────────────────────────
+
+/// A stable editorial unit (M1, M2, ...). Text revisions increment
+/// `contentVersion`; they do not change `key`, so earned XP is never reopened.
+model LearningModule {
+  id             String    @id @default(cuid())
+  key            String    @unique
+  title          String
+  description    String?   @db.Text
+  displayOrder   Int       @unique
+  contentVersion Int       @default(1)
+  completionXp   Int       @default(40)
+  isPublished    Boolean   @default(false)
+  publishedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  contentItems            LearningContentItem[]
+  questions               LearningQuestion[]
+  userProgress            UserLearningModuleProgress[]
+  eligibilityRequirements VaultEligibilityRequiredModule[]
+
+  @@index([isPublished, displayOrder])
+  @@map("learning_modules")
+}
+
+/// Explanations, examples and optional reflections. `moduleId` is nullable so
+/// welcome, habit and glossary items can live outside a scored module.
+model LearningContentItem {
+  id             String              @id @default(cuid())
+  key            String              @unique
+  moduleId       String?
+  type           LearningContentType
+  contentVersion Int                 @default(1)
+  title          String?
+  content        Json
+  displayOrder   Int
+  isRequired     Boolean             @default(false)
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  module LearningModule? @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId, isActive, displayOrder])
+  @@map("learning_content_items")
+}
+
+/// A single-answer question. The correct option is stored as its stable key and
+/// is never selected by catalog queries returned to the client.
+model LearningQuestion {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  moduleId         String
+  contentVersion   Int      @default(1)
+  prompt           String   @db.Text
+  correctOptionKey String
+  successFeedback  String   @db.Text
+  retryFeedback    String   @db.Text
+  xpReward         Int      @default(10)
+  isRequired       Boolean  @default(true)
+  isActive         Boolean  @default(true)
+  displayOrder     Int
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  module       LearningModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  options      LearningQuestionOption[]
+  userProgress UserLearningQuestionProgress[]
+
+  @@unique([moduleId, displayOrder])
+  @@index([moduleId, isActive, displayOrder])
+  @@map("learning_questions")
+}
+
+model LearningQuestionOption {
+  id           String @id @default(cuid())
+  questionId   String
+  key          String
+  text         String @db.Text
+  displayOrder Int
+
+  question LearningQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, key])
+  @@unique([questionId, displayOrder])
+  @@map("learning_question_options")
+}
+
+/// Attempts are mutable progress; XP is separately immutable in the ledger.
+model UserLearningQuestionProgress {
+  id                    String    @id @default(cuid())
+  userId                String
+  questionId            String
+  attempts              Int       @default(0)
+  firstCorrectAt        DateTime?
+  lastAnsweredAt        DateTime?
+  lastSelectedOptionKey String?
+  lastContentVersion    Int?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question LearningQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@index([userId, firstCorrectAt])
+  @@map("user_learning_question_progress")
+}
+
+model UserLearningModuleProgress {
+  id                 String    @id @default(cuid())
+  userId             String
+  moduleId           String
+  lastContentItemKey String?
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  updatedAt          DateTime  @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module LearningModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([userId, completedAt])
+  @@map("user_learning_module_progress")
+}
+
+/// Fast projection of the immutable XP ledger. Services update both in the same
+/// transaction; callers never submit either value.
+model ExperienceAccount {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  totalXp      Int      @default(0)
+  currentLevel Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([currentLevel])
+  @@map("experience_accounts")
+}
+
+/// Immutable and idempotent source of truth for XP. `dedupeKey` protects retries
+/// across transports; the composite unique protects each logical source too.
+model ExperienceXpLedgerEntry {
+  id         String                 @id @default(cuid())
+  userId     String
+  sourceType ExperienceXpSourceType
+  sourceRef  String
+  dedupeKey  String                 @unique
+  points     Int
+  metadata   Json?
+  createdAt  DateTime               @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceRef])
+  @@index([userId, createdAt])
+  @@map("experience_xp_ledger")
+}
+
+model ExperienceRewardDefinition {
+  id           String               @id @default(cuid())
+  key          String               @unique
+  type         ExperienceRewardType
+  name         String
+  description  String?              @db.Text
+  minimumLevel Int?
+  tier         String?
+  payload      Json?
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  userUnlocks UserExperienceRewardUnlock[]
+
+  @@index([isActive, minimumLevel])
+  @@map("experience_reward_definitions")
+}
+
+model UserExperienceRewardUnlock {
+  id          String   @id @default(cuid())
+  userId      String
+  rewardId    String
+  sourceLevel Int?
+  unlockedAt  DateTime @default(now())
+
+  user   User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reward ExperienceRewardDefinition @relation(fields: [rewardId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, rewardId])
+  @@index([userId, unlockedAt])
+  @@map("user_experience_reward_unlocks")
 }
 
 // ─────────────────────────────────────────────
@@ -263,16 +502,77 @@ model VaultCatalog {
   /// observable without flipping isActive.
   lastSeenAt            DateTime?
 
-  depositIntents     DepositIntent[]
-  withdrawalIntents  WithdrawalIntent[]
-  portfolioSnapshots PortfolioSnapshot[]
-  managedVault       ManagedVault?
-  disclosures        VaultDisclosure[]
-  disclosureAcks     VaultDisclosureAcknowledgment[]
+  depositIntents      DepositIntent[]
+  withdrawalIntents   WithdrawalIntent[]
+  portfolioSnapshots  PortfolioSnapshot[]
+  managedVault        ManagedVault?
+  disclosures         VaultDisclosure[]
+  disclosureAcks      VaultDisclosureAcknowledgment[]
+  eligibilityPolicies VaultEligibilityPolicy[]
+  userUnlocks         UserVaultUnlock[]
 
   @@index([isActive])
   @@index([isActive, displayOrder])
   @@map("vault_catalog")
+}
+
+// ─────────────────────────────────────────────
+// Vault eligibility based on the user experience
+// ─────────────────────────────────────────────
+
+/// Versioned rule for opening new deposits. Policies never affect reads,
+/// withdrawals or recovery, and an existing UserVaultUnlock is permanent.
+model VaultEligibilityPolicy {
+  id           String    @id @default(cuid())
+  vaultId      String
+  version      Int
+  minimumLevel Int       @default(0)
+  isActive     Boolean   @default(false)
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vault           VaultCatalog                     @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  requiredModules VaultEligibilityRequiredModule[]
+  userUnlocks     UserVaultUnlock[]
+
+  @@unique([vaultId, version])
+  @@index([vaultId, isActive, publishedAt])
+  @@map("vault_eligibility_policies")
+}
+
+model VaultEligibilityRequiredModule {
+  id       String @id @default(cuid())
+  policyId String
+  moduleId String
+
+  policy VaultEligibilityPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  module LearningModule         @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+
+  @@unique([policyId, moduleId])
+  @@index([moduleId])
+  @@map("vault_eligibility_required_modules")
+}
+
+/// Durable entitlement. Later policy changes cannot revoke an unlock already
+/// earned; the policy/version and level are retained as its audit evidence.
+model UserVaultUnlock {
+  id            String   @id @default(cuid())
+  userId        String
+  vaultId       String
+  policyId      String
+  policyVersion Int
+  levelAtUnlock Int
+  unlockedAt    DateTime @default(now())
+
+  user   User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vault  VaultCatalog           @relation(fields: [vaultId], references: [id], onDelete: Cascade)
+  policy VaultEligibilityPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, vaultId])
+  @@index([vaultId])
+  @@index([policyId])
+  @@map("user_vault_unlocks")
 }
 
 // ─────────────────────────────────────────────

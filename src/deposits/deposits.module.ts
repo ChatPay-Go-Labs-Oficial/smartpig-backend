@@ -5,9 +5,16 @@ import { DefindexModule } from '../defindex/defindex.module';
 import { VaultRegistryModule } from '../vault-registry/vault-registry.module';
 import { ConversionsModule } from '../conversions/conversions.module';
 import { AuthModule } from '../auth/auth.module';
+import { VaultEligibilityModule } from '../vault-eligibility/vault-eligibility.module';
 
 @Module({
-  imports: [DefindexModule, VaultRegistryModule, ConversionsModule, AuthModule],
+  imports: [
+    DefindexModule,
+    VaultRegistryModule,
+    ConversionsModule,
+    AuthModule,
+    VaultEligibilityModule,
+  ],
   providers: [DepositsService],
   controllers: [DepositsController],
   exports: [DepositsService],

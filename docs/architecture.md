@@ -140,6 +140,21 @@ src/
 │   ├── users.module.ts
 │   └── dto/update-user.dto.ts
 │
+├── learning/              # Catálogo, respostas e progresso educacional
+│   ├── learning.controller.ts
+│   ├── learning.service.ts
+│   └── learning.module.ts
+│
+├── experience/            # Ledger de XP, níveis, tiers e recompensas
+│   ├── experience.controller.ts
+│   ├── experience-ledger.service.ts
+│   └── experience-level.ts
+│
+├── vault-eligibility/     # Políticas Lite e desbloqueios permanentes
+│   ├── vault-eligibility.service.ts
+│   ├── vault-eligibility.admin.controller.ts
+│   └── vault-eligibility.module.ts
+│
 ├── wallets/               # Carteiras Stellar: ativação, trustline e saldo
 │   ├── wallets.controller.ts
 │   ├── wallets.service.ts

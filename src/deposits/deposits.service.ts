@@ -21,6 +21,7 @@ import { VaultRegistryService } from '../vault-registry/vault-registry.service';
 import { DisclosureGuardService } from '../vault-registry/disclosure.guard.service';
 import { ConversionsService } from '../conversions/conversions.service';
 import { CreateDepositFromConversionDto } from './dto/from-conversion.dto';
+import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const INTENT_TTL_HOURS = 24;
 
@@ -51,6 +52,7 @@ export class DepositsService {
     private readonly registry: VaultRegistryService,
     private readonly disclosureGuard: DisclosureGuardService,
     private readonly conversions: ConversionsService,
+    private readonly vaultEligibility: VaultEligibilityService,
   ) {}
 
   async createDeposit(dto: CreateDepositDto) {
@@ -60,6 +62,11 @@ export class DepositsService {
       select: { ...intentSelect, unsignedXdr: true },
     });
     if (existing) {
+      if (existing.userId !== dto.userId) {
+        throw new ConflictException(
+          'Idempotency key is already associated with another account',
+        );
+      }
       this.logger.log(`Idempotent deposit hit: ${dto.idempotencyKey}`);
       return existing;
     }
@@ -67,6 +74,16 @@ export class DepositsService {
     // The registry is the single answer to "is this vault usable", and it
     // distinguishes a delisted vault (404) from one with deposits frozen (409).
     const vault = await this.registry.assertDepositable(dto.vaultId);
+
+    // Education eligibility is independent from risk acknowledgment. It runs
+    // before both disclosure and conversion planning so a locked Lite account
+    // cannot create an intent or a conversion as a side effect. PRO is an
+    // explicit bypass inside the policy service.
+    await this.vaultEligibility.assertEligibleForDeposit(
+      dto.userId,
+      vault.id,
+      vault.assetSymbol,
+    );
 
     // Non-USDC vaults require acknowledgment of their current risk disclosure.
     // Checked here, before anything is persisted and before any XDR is generated,
@@ -321,7 +338,14 @@ export class DepositsService {
       where: { idempotencyKey: dto.idempotencyKey },
       select: { ...intentSelect, unsignedXdr: true },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.userId !== userId) {
+        throw new ConflictException(
+          'Idempotency key is already associated with another account',
+        );
+      }
+      return existing;
+    }
 
     const conversion = await this.conversions.getConsumable(
       dto.conversionId,
@@ -329,6 +353,11 @@ export class DepositsService {
     );
 
     const vault = await this.registry.assertDepositable(conversion.vaultId);
+    await this.vaultEligibility.assertEligibleForDeposit(
+      userId,
+      vault.id,
+      vault.assetSymbol,
+    );
     await this.disclosureGuard.assertAcknowledged(
       userId,
       vault.id,

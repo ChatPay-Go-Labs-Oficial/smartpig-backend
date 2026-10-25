@@ -6,6 +6,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { VaultSyncJob } from '../jobs/vault-sync.job';
 import { VaultRegistryService } from '../vault-registry/vault-registry.service';
 import { VaultAdapterRegistry } from '../defindex/adapter.registry';
+import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const APY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -24,33 +25,40 @@ export class VaultsService {
     private readonly config: ConfigService,
     private readonly registry: VaultRegistryService,
     private readonly adapters: VaultAdapterRegistry,
+    private readonly eligibility: VaultEligibilityService,
   ) {}
 
   /**
    * Delegates to the registry, which is the single answer to "which vaults".
    *
-   * `userId` only decides the `acknowledgmentRequired` hint, so taking it from the
-   * request is acceptable here: it is a display flag, not an authorization
-   * decision. The rule itself is enforced server-side in `createDeposit`, which is
-   * where a wrong answer would actually matter.
+   * For an app request, the controller resolves `userId` from the verified Privy
+   * identity. It personalizes both the disclosure hint and the education access
+   * projection. Deposit still repeats both checks as the authoritative boundary.
    */
   async listVaults(userId?: string) {
-    return this.registry.listForUser(userId);
+    const vaults = await this.registry.listForUser(userId);
+    if (!userId) return vaults;
+    return Promise.all(
+      vaults.map(async (vault) => this.withAccessProjection(vault, userId)),
+    );
   }
 
   async getVault(id: string, userId?: string) {
     const vault = await this.registry.getOrThrow(id, userId);
+    const projected = userId
+      ? await this.withAccessProjection(vault, userId)
+      : vault;
 
     // Live info is best-effort: the detail screen must still render the stored
     // record and the disclosure when DeFindex is unreachable.
     try {
       const liveInfo = await this.defindex.getVaultInfo(vault.defindexVaultId);
-      return { ...vault, liveInfo };
+      return { ...projected, liveInfo };
     } catch (err) {
       this.logger.warn(
         `Could not fetch live vault info for ${id}: ${(err as Error).message}`,
       );
-      return vault;
+      return projected;
     }
   }
 
@@ -134,6 +142,53 @@ export class VaultsService {
   async triggerSync() {
     await this.vaultSyncJob.syncVaultsFromDefindex();
     return { message: 'Vault sync triggered successfully' };
+  }
+
+  private async withAccessProjection<
+    T extends {
+      id: string;
+      assetSymbol: string;
+      depositsEnabled: boolean;
+      disclosure?: { acknowledgmentRequired?: boolean } | null;
+    },
+  >(vault: T, userId: string) {
+    const education = await this.eligibility.getEligibility(
+      userId,
+      vault.id,
+      vault.assetSymbol,
+    );
+    const educationEnforced = this.config.get<boolean>(
+      'ENFORCE_VAULT_EDUCATION',
+      false,
+    );
+    const disclosureEnforced = this.config.get<boolean>(
+      'ENFORCE_VAULT_DISCLOSURE',
+      false,
+    );
+    const disclosureSatisfied =
+      !disclosureEnforced || vault.disclosure?.acknowledgmentRequired !== true;
+    const educationSatisfied = !educationEnforced || education.eligible;
+
+    return {
+      ...vault,
+      access: {
+        experienceMode: education.mode,
+        educationRequired:
+          education.mode === 'LITE' && education.source !== 'USDC_OPEN',
+        educationUnlocked: education.eligible,
+        educationEnforced,
+        currentLevel: education.currentLevel ?? null,
+        requiredLevel: education.minimumLevel ?? null,
+        missingModules: education.missingModules ?? [],
+        operationallyAvailable: vault.depositsEnabled,
+        disclosureAcknowledged:
+          vault.disclosure?.acknowledgmentRequired === undefined
+            ? null
+            : !vault.disclosure.acknowledgmentRequired,
+        canDeposit:
+          vault.depositsEnabled && educationSatisfied && disclosureSatisfied,
+      },
+    };
   }
 
   private async findActiveVaultOrThrow(id: string) {
