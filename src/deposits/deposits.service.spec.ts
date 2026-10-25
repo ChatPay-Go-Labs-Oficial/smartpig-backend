@@ -296,7 +296,11 @@ describe('DepositsService.createDeposit', () => {
     it('returns the existing intent without re-checking consent', async () => {
       // A retry of a deposit already created must not fail because a new
       // disclosure version was published in the meantime.
-      const existing = { id: 'intent-existing', unsignedXdr: 'AAAAold' };
+      const existing = {
+        id: 'intent-existing',
+        userId: DTO.userId,
+        unsignedXdr: 'AAAAold',
+      };
       const { service, disclosureGuard, orchestrator } = createService({
         existingIntent: existing,
       });
@@ -304,6 +308,21 @@ describe('DepositsService.createDeposit', () => {
       await expect(service.createDeposit(DTO)).resolves.toBe(existing);
 
       expect(disclosureGuard.assertAcknowledged).not.toHaveBeenCalled();
+      expect(orchestrator.buildDepositXdr).not.toHaveBeenCalled();
+    });
+
+    it('does not expose an intent when another user reused its key', async () => {
+      const { service, orchestrator } = createService({
+        existingIntent: {
+          id: 'intent-other-user',
+          userId: 'user-2',
+          unsignedXdr: 'AAAAsecret',
+        },
+      });
+
+      await expect(service.createDeposit(DTO)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
       expect(orchestrator.buildDepositXdr).not.toHaveBeenCalled();
     });
   });
@@ -622,6 +641,21 @@ describe('DepositsService.createDeposit', () => {
       };
     }
 
+    it('does not expose a converted deposit owned by another user', async () => {
+      const { service, conversions } = createService({
+        existingIntent: {
+          id: 'intent-other-user',
+          userId: 'user-2',
+          unsignedXdr: 'AAAAsecret',
+        },
+      });
+
+      await expect(
+        service.createDepositFromConversion('user-1', FROM),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(conversions.getConsumable).not.toHaveBeenCalled();
+    });
+
     it('sizes the deposit by what arrived, not by the quote', async () => {
       const { service, prisma, conversions } = createService();
       conversions.getConsumable.mockResolvedValue(consumable('8.9712345'));
@@ -717,7 +751,11 @@ describe('DepositsService.createDeposit', () => {
     });
 
     it('is idempotent on the deposit key', async () => {
-      const existing = { id: 'intent-existing', unsignedXdr: 'AAAAold' };
+      const existing = {
+        id: 'intent-existing',
+        userId: 'user-1',
+        unsignedXdr: 'AAAAold',
+      };
       const { service, conversions } = createService({
         existingIntent: existing,
       });

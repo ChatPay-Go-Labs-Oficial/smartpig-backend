@@ -5,6 +5,7 @@ Base URL: `http://localhost:3000` (dev) | configurável via `PORT`
 > **Autenticação via Privy**: todas as rotas são protegidas por padrão pelo `PrivyAuthGuard` (guard global). O app envia `Authorization: Bearer {privyAccessToken}` nas chamadas marcadas com 🔒. Rotas marcadas com 🌐 são públicas (`@Public()`).
 >
 > O `userId` interno (cuid do `User`) continua sendo enviado no body/query das rotas de negócio — o guard valida a identidade Privy, mas os serviços resolvem o usuário pelo `userId` recebido.
+> As rotas novas de Learning, Experience e seleção de modo não recebem `userId`: elas derivam a conta local exclusivamente do token Privy e das carteiras Stellar verificadas.
 >
 > Rotas públicas: `GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`.
 

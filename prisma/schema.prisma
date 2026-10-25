@@ -165,9 +165,9 @@ model User {
   disclosureAcks     VaultDisclosureAcknowledgment[]
   experienceAccount  ExperienceAccount?
   experienceXpLedger ExperienceXpLedgerEntry[]
-  experienceRewards  UserExperienceRewardUnlock[]
   learningQuestions  UserLearningQuestionProgress[]
   learningModules    UserLearningModuleProgress[]
+  experienceRewards  UserExperienceRewardUnlock[]
   vaultUnlocks       UserVaultUnlock[]
 
   @@index([deletedAt])
@@ -187,6 +187,10 @@ model RefreshToken {
   @@index([userId])
   @@map("refresh_tokens")
 }
+
+// ─────────────────────────────────────────────
+// PigFi Experience & learning catalog
+// ─────────────────────────────────────────────
 
 /// A stable editorial unit (M1, M2, ...). Text revisions increment
 /// `contentVersion`; they do not change `key`, so earned XP is never reopened.

@@ -62,6 +62,11 @@ export class DepositsService {
       select: { ...intentSelect, unsignedXdr: true },
     });
     if (existing) {
+      if (existing.userId !== dto.userId) {
+        throw new ConflictException(
+          'Idempotency key is already associated with another account',
+        );
+      }
       this.logger.log(`Idempotent deposit hit: ${dto.idempotencyKey}`);
       return existing;
     }
@@ -333,7 +338,14 @@ export class DepositsService {
       where: { idempotencyKey: dto.idempotencyKey },
       select: { ...intentSelect, unsignedXdr: true },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.userId !== userId) {
+        throw new ConflictException(
+          'Idempotency key is already associated with another account',
+        );
+      }
+      return existing;
+    }
 
     const conversion = await this.conversions.getConsumable(
       dto.conversionId,
