@@ -3,6 +3,7 @@ import {
   INestApplication,
   ValidationPipe,
 } from '@nestjs/common';
+import { UsernamesService } from './usernames.service';
 import { APP_GUARD } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
@@ -62,6 +63,7 @@ describe('UsersController', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
       providers: [
+        { provide: UsernamesService, useValue: { register: jest.fn() } },
         { provide: UsersService, useValue: usersService },
         { provide: AccountOwnerService, useValue: accountOwner },
         { provide: PrivyAuthService, useValue: privyAuthService },

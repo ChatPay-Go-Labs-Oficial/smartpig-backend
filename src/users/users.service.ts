@@ -15,6 +15,7 @@ import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.
 const userSelect = {
   id: true,
   name: true,
+  username: true,
   email: true,
   avatarUrl: true,
   isOnboarded: true,

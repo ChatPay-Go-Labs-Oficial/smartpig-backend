@@ -132,6 +132,7 @@ enum ExperienceRewardType {
 
 model User {
   id                      String          @id @default(cuid())
+  username                String?         @unique
   email                   String?         @unique
   name                    String?
   avatarUrl               String?
@@ -201,7 +202,7 @@ model LearningModule {
   description    String?   @db.Text
   displayOrder   Int       @unique
   contentVersion Int       @default(1)
-  completionXp   Int       @default(40)
+  completionXp   Int       @default(15)
   isPublished    Boolean   @default(false)
   publishedAt    DateTime?
   createdAt      DateTime  @default(now())
@@ -219,6 +220,7 @@ model LearningModule {
 /// Explanations, examples and optional reflections. `moduleId` is nullable so
 /// welcome, habit and glossary items can live outside a scored module.
 model LearningContentItem {
+  reviewedQuestions LearningQuestion[]
   id             String              @id @default(cuid())
   key            String              @unique
   moduleId       String?
@@ -246,10 +248,13 @@ model LearningQuestion {
   moduleId         String
   contentVersion   Int      @default(1)
   prompt           String   @db.Text
+  reviewScreen LearningContentItem? @relation(fields: [reviewScreenKey], references: [key], onDelete: SetNull)
+  reviewScreenKey  String?
+  stepOrder        Int?
   correctOptionKey String
   successFeedback  String   @db.Text
   retryFeedback    String   @db.Text
-  xpReward         Int      @default(10)
+  xpReward         Int      @default(0)
   isRequired       Boolean  @default(true)
   isActive         Boolean  @default(true)
   displayOrder     Int

@@ -22,7 +22,7 @@ export async function seedLearning(
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
-        completionXp: 40,
+        completionXp: 15,
         isPublished: true,
         publishedAt: new Date('2026-10-21T00:00:00.000Z'),
       },
@@ -32,7 +32,7 @@ export async function seedLearning(
         description: editorialModule.description,
         displayOrder: editorialModule.order,
         contentVersion: LEARNING_CATALOG_VERSION,
-        completionXp: 40,
+        completionXp: 15,
         isPublished: true,
         publishedAt: new Date('2026-10-21T00:00:00.000Z'),
       },
@@ -71,11 +71,13 @@ export async function seedLearning(
         update: {
           moduleId: module.id,
           prompt: editorialQuestion.prompt,
+          reviewScreenKey: editorialQuestion.reviewScreenKey,
+          stepOrder: editorialQuestion.stepOrder,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
           displayOrder: editorialQuestion.order,
-          xpReward: 10,
+          xpReward: 0,
           isRequired: true,
           isActive: true,
           contentVersion: LEARNING_CATALOG_VERSION,
@@ -84,11 +86,13 @@ export async function seedLearning(
           key: editorialQuestion.key,
           moduleId: module.id,
           prompt: editorialQuestion.prompt,
+          reviewScreenKey: editorialQuestion.reviewScreenKey,
+          stepOrder: editorialQuestion.stepOrder,
           correctOptionKey: editorialQuestion.correct,
           successFeedback: editorialQuestion.success,
           retryFeedback: editorialQuestion.retry,
           displayOrder: editorialQuestion.order,
-          xpReward: 10,
+          xpReward: 0,
           isRequired: true,
           isActive: true,
           contentVersion: LEARNING_CATALOG_VERSION,
@@ -141,7 +145,9 @@ export async function seedLearning(
     data: { isPublished: false },
   });
 
-  for (const item of standaloneContent) {
+  for (const item of standaloneContent.filter(
+    (item) => item.type !== LearningContentType.PRACTICE,
+  )) {
     await prisma.learningContentItem.upsert({
       where: { key: item.key },
       update: {
@@ -170,7 +176,11 @@ export async function seedLearning(
   await prisma.learningContentItem.updateMany({
     where: {
       moduleId: null,
-      key: { notIn: standaloneContent.map((item) => item.key) },
+      key: {
+        notIn: standaloneContent
+          .filter((item) => item.type !== LearningContentType.PRACTICE)
+          .map((item) => item.key),
+      },
     },
     data: { isActive: false },
   });
@@ -244,10 +254,10 @@ async function seedDefaultEligibilityPolicies(
   prisma: Prisma.TransactionClient,
 ): Promise<void> {
   const defaults = [
-    { assetSymbol: 'EURC', minimumLevel: 5, moduleKeys: ['M1', 'M2', 'M3'] },
+    { assetSymbol: 'EURC', minimumLevel: 0, moduleKeys: ['M1', 'M2', 'M3'] },
     {
       assetSymbol: 'XLM',
-      minimumLevel: 10,
+      minimumLevel: 0,
       moduleKeys: ['M1', 'M2', 'M3', 'M4', 'M5'],
     },
   ];
@@ -265,18 +275,34 @@ async function seedDefaultEligibilityPolicies(
     ]);
 
     for (const vault of vaults) {
-      const policyCount = await prisma.vaultEligibilityPolicy.count({
+      await prisma.$queryRaw(
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`vault-policy:${vault.id}`}))`,
+      );
+      const existing = await prisma.vaultEligibilityPolicy.findMany({
         where: { vaultId: vault.id },
+        orderBy: { version: 'desc' },
+        include: { requiredModules: { select: { moduleId: true } } },
       });
-      if (policyCount > 0) continue;
-
+      const active = existing.find((policy) => policy.isActive);
+      if (
+        active?.minimumLevel === definition.minimumLevel &&
+        active.requiredModules.length === modules.length &&
+        modules.every((module) =>
+          active.requiredModules.some((item) => item.moduleId === module.id),
+        )
+      )
+        continue;
+      await prisma.vaultEligibilityPolicy.updateMany({
+        where: { vaultId: vault.id, isActive: true },
+        data: { isActive: false },
+      });
       const policy = await prisma.vaultEligibilityPolicy.create({
         data: {
           vaultId: vault.id,
-          version: 1,
+          version: (existing[0]?.version ?? 0) + 1,
           minimumLevel: definition.minimumLevel,
           isActive: true,
-          publishedAt: new Date('2026-10-21T00:00:00.000Z'),
+          publishedAt: new Date(),
         },
       });
       await prisma.vaultEligibilityRequiredModule.createMany({
@@ -309,9 +335,16 @@ async function materializeSeedPolicyUnlocks(
   const candidates = await prisma.user.findMany({
     where: {
       experienceMode: 'LITE',
-      experienceAccount: {
-        is: { currentLevel: { gte: policy.minimumLevel } },
-      },
+      OR: [
+        {
+          experienceAccount: {
+            is: { currentLevel: { gte: policy.minimumLevel } },
+          },
+        },
+        ...(policy.minimumLevel === 0
+          ? [{ experienceAccount: { is: null } }]
+          : []),
+      ],
       vaultUnlocks: { none: { vaultId: policy.vaultId } },
     },
     select: {
@@ -372,7 +405,9 @@ function validateCatalog(): void {
       }
     }
   }
-  for (const item of standaloneContent) {
+  for (const item of standaloneContent.filter(
+    (item) => item.type !== LearningContentType.PRACTICE,
+  )) {
     if (allKeys.has(item.key)) throw new Error(`Duplicate key ${item.key}`);
     allKeys.add(item.key);
   }

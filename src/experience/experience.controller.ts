@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AccountOwnerService } from '../auth/privy/account-owner.service';
 import { CurrentUser } from '../auth/privy/current-user.decorator';
@@ -13,6 +13,16 @@ export class ExperienceController {
     private readonly accountOwner: AccountOwnerService,
     private readonly privyAuthService: PrivyAuthService,
   ) {}
+
+  @Post('daily-reward/claim')
+  async claimDailyReward(@CurrentUser() user: { id: string }) {
+    const addresses = await this.privyAuthService.getStellarWalletAddresses(
+      user.id,
+    );
+    return this.experience.claimDailyReward(
+      await this.accountOwner.resolveUserId(addresses),
+    );
+  }
 
   @Get('profile')
   @ApiOperation({ summary: 'Get the authenticated user XP, level and rewards' })

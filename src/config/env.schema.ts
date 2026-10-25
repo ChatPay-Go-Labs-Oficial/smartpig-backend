@@ -1,6 +1,7 @@
 import * as Joi from 'joi';
 
 export const envSchema = Joi.object({
+  LEARNING_INTRO_XP: Joi.number().integer().min(0).default(45),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().required(),
 

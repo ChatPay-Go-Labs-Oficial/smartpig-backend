@@ -12,6 +12,7 @@ import { UpsertVaultEligibilityPolicyDto } from './dto/upsert-vault-eligibility-
 
 export interface VaultEligibilityResult {
   eligible: boolean;
+  newlyUnlocked?: boolean;
   mode: 'LITE' | 'PRO';
   source: 'PRO_BYPASS' | 'USDC_OPEN' | 'PERSISTED_UNLOCK' | 'POLICY';
   vaultId: string;
@@ -168,9 +169,16 @@ export class VaultEligibilityService {
     const candidates = await tx.user.findMany({
       where: {
         experienceMode: 'LITE',
-        experienceAccount: {
-          is: { currentLevel: { gte: policy.minimumLevel } },
-        },
+        OR: [
+          {
+            experienceAccount: {
+              is: { currentLevel: { gte: policy.minimumLevel } },
+            },
+          },
+          ...(policy.minimumLevel === 0
+            ? [{ experienceAccount: { is: null } }]
+            : []),
+        ],
         vaultUnlocks: { none: { vaultId: policy.vaultId } },
       },
       select: {
@@ -246,24 +254,23 @@ export class VaultEligibilityService {
    */
   async refreshUnlocksForUser(
     userId: string,
+    db: Prisma.TransactionClient = this.prisma,
   ): Promise<VaultEligibilityResult[]> {
-    const user = await this.prisma.user.findUnique({
+    const user = await db.user.findUnique({
       where: { id: userId },
       select: { experienceMode: true },
     });
     if (!user) throw new NotFoundException(`User ${userId} not found`);
     if ((user.experienceMode ?? 'PRO') !== 'LITE') return [];
 
-    const publishedPolicies = await this.prisma.vaultEligibilityPolicy.findMany(
-      {
-        where: { isActive: true, publishedAt: { not: null } },
-        orderBy: [{ vaultId: 'asc' }, { version: 'desc' }],
-        select: {
-          vaultId: true,
-          vault: { select: { assetSymbol: true } },
-        },
+    const publishedPolicies = await db.vaultEligibilityPolicy.findMany({
+      where: { isActive: true, publishedAt: { not: null } },
+      orderBy: [{ vaultId: 'asc' }, { version: 'desc' }],
+      select: {
+        vaultId: true,
+        vault: { select: { assetSymbol: true } },
       },
-    );
+    });
     const seenVaults = new Set<string>();
     const policies = publishedPolicies.filter((policy) => {
       if (seenVaults.has(policy.vaultId)) return false;
@@ -273,7 +280,13 @@ export class VaultEligibilityService {
 
     return Promise.all(
       policies.map((policy) =>
-        this.evaluate(userId, policy.vaultId, policy.vault.assetSymbol, true),
+        this.evaluate(
+          userId,
+          policy.vaultId,
+          policy.vault.assetSymbol,
+          true,
+          db,
+        ),
       ),
     );
   }
@@ -296,8 +309,9 @@ export class VaultEligibilityService {
     vaultId: string,
     vaultAssetSymbol: string,
     persistUnlock: boolean,
+    db: Prisma.TransactionClient = this.prisma,
   ): Promise<VaultEligibilityResult> {
-    const user = await this.prisma.user.findUnique({
+    const user = await db.user.findUnique({
       where: { id: userId },
       select: { experienceMode: true },
     });
@@ -313,7 +327,7 @@ export class VaultEligibilityService {
       return { eligible: true, mode, source: 'USDC_OPEN', vaultId };
     }
 
-    const existingUnlock = await this.prisma.userVaultUnlock.findUnique({
+    const existingUnlock = await db.userVaultUnlock.findUnique({
       where: { userId_vaultId: { userId, vaultId } },
       select: { policyVersion: true, levelAtUnlock: true },
     });
@@ -328,7 +342,7 @@ export class VaultEligibilityService {
       };
     }
 
-    const policy = await this.prisma.vaultEligibilityPolicy.findFirst({
+    const policy = await db.vaultEligibilityPolicy.findFirst({
       where: { vaultId, isActive: true, publishedAt: { not: null } },
       orderBy: { version: 'desc' },
       select: {
@@ -358,11 +372,11 @@ export class VaultEligibilityService {
     }
 
     const [account, completed] = await Promise.all([
-      this.prisma.experienceAccount.findUnique({
+      db.experienceAccount.findUnique({
         where: { userId },
         select: { currentLevel: true },
       }),
-      this.prisma.userLearningModuleProgress.findMany({
+      db.userLearningModuleProgress.findMany({
         where: {
           userId,
           moduleId: { in: policy.requiredModules.map((item) => item.moduleId) },
@@ -380,23 +394,26 @@ export class VaultEligibilityService {
     const eligible =
       currentLevel >= policy.minimumLevel && missingModules.length === 0;
 
+    let newlyUnlocked = false;
     if (eligible && persistUnlock) {
-      await this.prisma.userVaultUnlock.upsert({
-        where: { userId_vaultId: { userId, vaultId } },
-        create: {
-          userId,
-          vaultId,
-          policyId: policy.id,
-          policyVersion: policy.version,
-          levelAtUnlock: currentLevel,
-        },
-        // A retry must not rewrite the evidence of the first acquisition.
-        update: {},
+      const inserted = await db.userVaultUnlock.createMany({
+        data: [
+          {
+            userId,
+            vaultId,
+            policyId: policy.id,
+            policyVersion: policy.version,
+            levelAtUnlock: currentLevel,
+          },
+        ],
+        skipDuplicates: true,
       });
+      newlyUnlocked = inserted.count > 0;
     }
 
     return {
       eligible,
+      newlyUnlocked,
       mode,
       source: 'POLICY',
       vaultId,

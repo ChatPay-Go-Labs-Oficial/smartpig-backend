@@ -80,8 +80,8 @@ async function main() {
       }),
     ]);
 
-    assert.equal(account.totalXp, 100, 'six answers plus one module bonus');
-    assert.equal(ledgerEntries.length, 7, 'six question credits and one bonus');
+    assert.equal(account.totalXp, 15, 'one lesson completion');
+    assert.equal(ledgerEntries.length, 1, 'one lesson credit');
     assert.ok(moduleProgress.completedAt, 'M1 must be completed');
 
     const xlmVault = await prisma.vaultCatalog.findFirstOrThrow({
@@ -99,7 +99,7 @@ async function main() {
     });
     await policyService.upsertPolicy(xlmVault.id, {
       version: policyVersion,
-      minimumLevel: 1,
+      minimumLevel: 0,
       requiredModuleKeys: ['M1'],
       publish: true,
     });
@@ -125,13 +125,13 @@ async function main() {
     await Promise.all([
       policyService.upsertPolicy(xlmVault.id, {
         version: policyVersion + 1,
-        minimumLevel: 1,
+        minimumLevel: 0,
         requiredModuleKeys: ['M1'],
         publish: true,
       }),
       policyService.upsertPolicy(xlmVault.id, {
         version: policyVersion + 2,
-        minimumLevel: 1,
+        minimumLevel: 0,
         requiredModuleKeys: ['M1'],
         publish: true,
       }),

@@ -7,6 +7,8 @@ export const LEARNING_CATALOG_VERSION = 3;
 
 type Option = { key: string; text: string };
 type Question = {
+  reviewScreenKey?: string;
+  stepOrder?: number;
   key: string;
   order: number;
   prompt: string;

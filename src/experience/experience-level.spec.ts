@@ -7,6 +7,7 @@ import {
 describe('PigFi Experience level curve', () => {
   it('matches the approved reference thresholds', () => {
     expect(xpRequiredForLevel(1)).toBe(40);
+    expect(xpRequiredForLevel(2)).toBe(139);
     expect(xpRequiredForLevel(5)).toBe(725);
     expect(xpRequiredForLevel(10)).toBe(2524);
     expect(xpRequiredForLevel(50)).toBe(45731);

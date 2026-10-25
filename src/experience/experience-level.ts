@@ -18,7 +18,7 @@ export interface ExperienceLevel {
 }
 
 /**
- * Product curve from PigFi Experience v1. `ceil` makes every threshold an
+ * Product curve from PigFi Experience v1. `round` makes every threshold an
  * integer and agrees with the reference values in the editorial review.
  */
 export function xpRequiredForLevel(level: number): number {
@@ -28,7 +28,7 @@ export function xpRequiredForLevel(level: number): number {
     );
   }
 
-  return Math.ceil(40 * level ** 1.8);
+  return Math.round(40 * level ** 1.8);
 }
 
 export function tierForLevel(level: number): ExperienceTier {
