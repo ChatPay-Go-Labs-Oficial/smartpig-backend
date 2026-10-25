@@ -5,15 +5,19 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ExperienceXpSourceType, Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 import { ExperienceLedgerService } from '../experience/experience-ledger.service';
+import { calculateExperienceLevel } from '../experience/experience-level';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { VaultEligibilityService } from '../vault-eligibility/vault-eligibility.service';
 
 const questionPublicSelect = {
   key: true,
   contentVersion: true,
+  title: true,
+  situation: true,
   prompt: true,
-  xpReward: true,
+  reviewContentItemKey: true,
   isRequired: true,
   displayOrder: true,
   options: {
@@ -21,6 +25,19 @@ const questionPublicSelect = {
     select: { key: true, text: true, displayOrder: true },
   },
 };
+
+const PRO_VOCABULARY = {
+  dollarDigital: 'USDC',
+  euroDigital: 'EURC',
+  cryptocurrency: 'XLM',
+  piggyBank: 'vault',
+  network: 'Stellar',
+  annualRate: 'APY',
+  exchange: 'Swap',
+  withdrawal: 'Resgate do vault',
+  pixRamp: 'on-ramp e off-ramp via Pix',
+};
+const INTRO_LESSON_KEYS = ['M1', 'M2', 'M3', 'M4', 'M5'];
 
 @Injectable()
 export class LearningService {
@@ -30,21 +47,34 @@ export class LearningService {
     private readonly prisma: PrismaService,
     private readonly experience: ExperienceLedgerService,
     private readonly vaultEligibility: VaultEligibilityService,
+    private readonly config: ConfigService,
   ) {}
 
-  async listStandaloneContent() {
-    return this.prisma.learningContentItem.findMany({
-      where: { moduleId: null, isActive: true },
-      orderBy: { displayOrder: 'asc' },
-      select: {
-        key: true,
-        type: true,
-        contentVersion: true,
-        title: true,
-        content: true,
-        displayOrder: true,
-      },
-    });
+  async listStandaloneContent(userId: string) {
+    const [items, mode] = await Promise.all([
+      this.prisma.learningContentItem.findMany({
+        where: { moduleId: null, isActive: true },
+        orderBy: { displayOrder: 'asc' },
+        select: {
+          key: true,
+          type: true,
+          contentVersion: true,
+          title: true,
+          content: true,
+          displayOrder: true,
+        },
+      }),
+      this.effectiveMode(userId),
+    ]);
+    return {
+      presentationMode: mode,
+      proVocabulary: mode === 'PRO' ? PRO_VOCABULARY : null,
+      introModuleCompletionXp: this.config.get<number>(
+        'LEARNING_INTRO_MODULE_COMPLETION_XP',
+        45,
+      ),
+      items,
+    };
   }
 
   async listModules(userId: string) {
@@ -54,6 +84,7 @@ export class LearningService {
       select: {
         key: true,
         title: true,
+        proTitle: true,
         description: true,
         displayOrder: true,
         contentVersion: true,
@@ -66,18 +97,24 @@ export class LearningService {
       },
     });
 
-    const progress = await this.prisma.userLearningModuleProgress.findMany({
-      where: { userId, module: { isPublished: true } },
-      select: {
-        completedAt: true,
-        lastContentItemKey: true,
-        module: { select: { key: true } },
-      },
-    });
+    const [progress, mode] = await Promise.all([
+      this.prisma.userLearningModuleProgress.findMany({
+        where: { userId, module: { isPublished: true } },
+        select: {
+          completedAt: true,
+          lastContentItemKey: true,
+          module: { select: { key: true } },
+        },
+      }),
+      this.effectiveMode(userId),
+    ]);
     const byModule = new Map(progress.map((item) => [item.module.key, item]));
 
     return modules.map((module) => ({
       ...module,
+      title: mode === 'PRO' && module.proTitle ? module.proTitle : module.title,
+      liteTitle: module.title,
+      presentationMode: mode,
       questionCount: module._count.questions,
       _count: undefined,
       completedAt: byModule.get(module.key)?.completedAt ?? null,
@@ -92,6 +129,7 @@ export class LearningService {
         id: true,
         key: true,
         title: true,
+        proTitle: true,
         description: true,
         displayOrder: true,
         contentVersion: true,
@@ -122,7 +160,7 @@ export class LearningService {
       throw new NotFoundException(`Learning module ${moduleKey} not found`);
     }
 
-    const [questionProgress, moduleProgress] = await Promise.all([
+    const [questionProgress, moduleProgress, mode] = await Promise.all([
       this.prisma.userLearningQuestionProgress.findMany({
         where: { userId, question: { moduleId: module.id } },
         select: {
@@ -140,20 +178,43 @@ export class LearningService {
           startedAt: true,
         },
       }),
+      this.effectiveMode(userId),
     ]);
 
     const progressByQuestion = new Map(
       questionProgress.map((item) => [item.question.key, item]),
     );
 
+    const questions = module.questions.map((question) => ({
+      ...question,
+      progress: progressByQuestion.get(question.key) ?? null,
+    }));
+    const steps = [
+      ...module.contentItems.map((item) => ({
+        type: item.type === 'REFLECTION' ? 'reflection' : 'screen',
+        key: item.key,
+        displayOrder: item.displayOrder,
+        content: item,
+      })),
+      ...questions.map((question) => ({
+        type: 'question',
+        key: question.key,
+        displayOrder: question.displayOrder,
+        reviewScreenKey: question.reviewContentItemKey,
+        content: question,
+      })),
+    ].sort((left, right) => left.displayOrder - right.displayOrder);
+
     return {
       ...module,
       id: undefined,
       isPublished: undefined,
-      questions: module.questions.map((question) => ({
-        ...question,
-        progress: progressByQuestion.get(question.key) ?? null,
-      })),
+      title: mode === 'PRO' && module.proTitle ? module.proTitle : module.title,
+      liteTitle: module.title,
+      presentationMode: mode,
+      proVocabulary: mode === 'PRO' ? PRO_VOCABULARY : null,
+      questions,
+      steps,
       progress: moduleProgress,
     };
   }
@@ -187,6 +248,8 @@ export class LearningService {
       resume: resume
         ? {
             moduleId: resume.module.key,
+            stepKey: resume.lastContentItemKey,
+            // Compatibility with the first mobile contract.
             contentItemId: resume.lastContentItemKey,
           }
         : null,
@@ -203,9 +266,16 @@ export class LearningService {
           where: { key: contentItemKey, isActive: true },
           select: { key: true },
         },
+        questions: {
+          where: { key: contentItemKey, isActive: true },
+          select: { key: true },
+        },
       },
     });
-    if (!module?.isPublished || module.contentItems.length === 0) {
+    if (
+      !module?.isPublished ||
+      (module.contentItems.length === 0 && module.questions.length === 0)
+    ) {
       throw new NotFoundException('Learning content not found');
     }
 
@@ -257,12 +327,14 @@ export class LearningService {
         );
       }
 
-      // Two devices can answer the last two pending questions together. The
-      // transaction-scoped lock serializes completion for this user/module so
-      // the second transaction observes the first and awards the module bonus.
+      // One user-wide lock also covers the case where two devices complete two
+      // different lessons together. The second transaction then observes the
+      // first and can award the five-lesson module exactly once.
       await tx.$queryRaw(
-        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`${userId}:${question.moduleId}`}))`,
+        Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`learning:${userId}`}))`,
       );
+
+      const profileBefore = await this.experienceProfile(tx, userId);
 
       const prior = await tx.userLearningQuestionProgress.findUnique({
         where: {
@@ -296,18 +368,6 @@ export class LearningService {
         },
       });
 
-      let questionXpGranted = 0;
-      if (correct) {
-        const grant = await this.experience.grant(tx, {
-          userId,
-          sourceType: ExperienceXpSourceType.LEARNING_QUESTION,
-          sourceRef: question.key,
-          points: question.xpReward,
-          metadata: { contentVersion: question.contentVersion },
-        });
-        questionXpGranted = grant.pointsGranted;
-      }
-
       const requiredCount = await tx.learningQuestion.count({
         where: {
           moduleId: question.moduleId,
@@ -326,9 +386,8 @@ export class LearningService {
           },
         },
       });
-      const moduleCompleted =
-        requiredCount > 0 && correctCount >= requiredCount;
-      let moduleXpGranted = 0;
+      const lessonComplete = requiredCount > 0 && correctCount >= requiredCount;
+      let lessonXpGranted = 0;
 
       const priorModule = await tx.userLearningModuleProgress.findUnique({
         where: {
@@ -336,6 +395,7 @@ export class LearningService {
         },
         select: { completedAt: true },
       });
+      const lessonCompletedNow = lessonComplete && !priorModule?.completedAt;
 
       await tx.userLearningModuleProgress.upsert({
         where: {
@@ -344,43 +404,95 @@ export class LearningService {
         create: {
           userId,
           moduleId: question.moduleId,
-          completedAt: moduleCompleted ? answeredAt : null,
+          completedAt: lessonComplete ? answeredAt : null,
         },
-        update: moduleCompleted
+        update: lessonComplete
           ? { completedAt: priorModule?.completedAt ?? answeredAt }
           : {},
       });
 
-      if (moduleCompleted) {
+      if (lessonComplete && question.module.completionXp > 0) {
         const grant = await this.experience.grant(tx, {
           userId,
           sourceType: ExperienceXpSourceType.LEARNING_MODULE,
-          sourceRef: question.module.key,
+          sourceRef: `lesson:${question.module.key}`,
           points: question.module.completionXp,
           metadata: { contentVersion: question.module.contentVersion },
         });
-        moduleXpGranted = grant.pointsGranted;
+        lessonXpGranted = grant.pointsGranted;
       }
+
+      const [publishedLessonCount, completedLessonCount] = await Promise.all([
+        tx.learningModule.count({
+          where: { key: { in: INTRO_LESSON_KEYS }, isPublished: true },
+        }),
+        tx.userLearningModuleProgress.count({
+          where: {
+            userId,
+            completedAt: { not: null },
+            module: {
+              key: { in: INTRO_LESSON_KEYS },
+              isPublished: true,
+            },
+          },
+        }),
+      ]);
+      const introModuleComplete =
+        publishedLessonCount === INTRO_LESSON_KEYS.length &&
+        completedLessonCount >= INTRO_LESSON_KEYS.length;
+      let introModuleXpGranted = 0;
+      const introModuleXp = this.config.get<number>(
+        'LEARNING_INTRO_MODULE_COMPLETION_XP',
+        45,
+      );
+      if (lessonCompletedNow && introModuleComplete && introModuleXp > 0) {
+        const grant = await this.experience.grant(tx, {
+          userId,
+          sourceType: ExperienceXpSourceType.LEARNING_MODULE,
+          sourceRef: 'module:INTRO',
+          points: introModuleXp,
+          metadata: { catalog: 'INTRODUCTION' },
+        });
+        introModuleXpGranted = grant.pointsGranted;
+      }
+
+      const profileAfter = await this.experienceProfile(tx, userId);
+      const xpAwarded = lessonXpGranted + introModuleXpGranted;
 
       return {
         correct,
         feedback: correct ? question.successFeedback : question.retryFeedback,
         firstCorrect,
-        xpGranted: questionXpGranted + moduleXpGranted,
-        questionXpGranted,
-        moduleXpGranted,
-        moduleCompleted,
+        lessonCompleted: lessonCompletedNow,
+        moduleCompleted: introModuleXpGranted > 0,
+        xpAwarded,
+        lessonXpAwarded: lessonXpGranted,
+        introModuleXpAwarded: introModuleXpGranted,
+        totalXp: profileAfter.totalXp,
+        levelBefore: profileBefore.level,
+        levelAfter: profileAfter.level,
+        tierAfter: profileAfter.tier,
+        // Compatibility aliases for the first mobile integration.
+        xpGranted: xpAwarded,
+        questionXpGranted: 0,
+        moduleXpGranted: lessonXpGranted,
         progress: { correctRequired: correctCount, required: requiredCount },
-        profile: await this.experienceProfile(tx, userId),
+        profile: profileAfter,
       };
     });
 
+    let newUnlocks: string[] = [];
     if (result.correct) {
       // The deposit boundary always re-evaluates eligibility. A projection
       // refresh must therefore never turn an already committed answer/XP grant
       // into a misleading 500 response.
       try {
-        await this.vaultEligibility.refreshUnlocksForUser(userId);
+        const refresh =
+          await this.vaultEligibility.refreshUnlocksForUser(userId);
+        newUnlocks = refresh
+          .filter((item) => item.newlyUnlocked)
+          .map((item) => item.assetSymbol)
+          .filter((symbol): symbol is string => Boolean(symbol));
       } catch (error) {
         this.logger.error(
           `Could not refresh vault unlocks for ${userId}`,
@@ -388,7 +500,7 @@ export class LearningService {
         );
       }
     }
-    return result;
+    return { ...result, newUnlocks };
   }
 
   private async experienceProfile(
@@ -399,6 +511,15 @@ export class LearningService {
       where: { userId },
       select: { totalXp: true, currentLevel: true },
     });
-    return account ?? { totalXp: 0, currentLevel: 0 };
+    return calculateExperienceLevel(account?.totalXp ?? 0);
+  }
+
+  private async effectiveMode(userId: string): Promise<'LITE' | 'PRO'> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { experienceMode: true },
+    });
+    if (!user) throw new NotFoundException(`User ${userId} not found`);
+    return user.experienceMode ?? 'PRO';
   }
 }

@@ -137,6 +137,8 @@ model User {
   avatarUrl               String?
   googleId                String?         @unique
   appleId                 String?         @unique
+  username                String?         @unique
+  usernameSetAt           DateTime?
   isOnboarded             Boolean         @default(false)
   experienceMode          ExperienceMode?
   experienceModeUpdatedAt DateTime?
@@ -198,10 +200,11 @@ model LearningModule {
   id             String    @id @default(cuid())
   key            String    @unique
   title          String
+  proTitle       String?
   description    String?   @db.Text
   displayOrder   Int       @unique
   contentVersion Int       @default(1)
-  completionXp   Int       @default(40)
+  completionXp   Int       @default(15)
   isPublished    Boolean   @default(false)
   publishedAt    DateTime?
   createdAt      DateTime  @default(now())
@@ -241,20 +244,23 @@ model LearningContentItem {
 /// A single-answer question. The correct option is stored as its stable key and
 /// is never selected by catalog queries returned to the client.
 model LearningQuestion {
-  id               String   @id @default(cuid())
-  key              String   @unique
-  moduleId         String
-  contentVersion   Int      @default(1)
-  prompt           String   @db.Text
-  correctOptionKey String
-  successFeedback  String   @db.Text
-  retryFeedback    String   @db.Text
-  xpReward         Int      @default(10)
-  isRequired       Boolean  @default(true)
-  isActive         Boolean  @default(true)
-  displayOrder     Int
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  moduleId             String
+  contentVersion       Int      @default(1)
+  title                String?
+  situation            Json?
+  prompt               String   @db.Text
+  reviewContentItemKey String?
+  correctOptionKey     String
+  successFeedback      String   @db.Text
+  retryFeedback        String   @db.Text
+  xpReward             Int      @default(0)
+  isRequired           Boolean  @default(true)
+  isActive             Boolean  @default(true)
+  displayOrder         Int
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   module       LearningModule                 @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   options      LearningQuestionOption[]

@@ -17,9 +17,9 @@ O mobile deve sincronizar a escolha persistida no AsyncStorage com `PATCH /users
 
 ## Catálogo e progresso
 
-A seed publica cinco módulos (`M1` a `M5`), 30 questões, três práticas de hábito (`H-A01` a `H-A03`), boas-vindas e glossário. IDs editoriais são estáveis. Uma alteração de texto incrementa `LEARNING_CATALOG_VERSION`/`contentVersion`, mas não cria novo crédito de XP. A seed valida seis questões por módulo, gabaritos e chaves duplicadas, e desativa itens removidos sem apagar o progresso histórico.
+A seed publica cinco lições (`M1` a `M5`) do módulo introdutório, 28 telas, 30 questões, cinco reflexões, boas-vindas e glossário. As práticas de hábito estão fora desta entrega. IDs editoriais são estáveis. Uma alteração de texto incrementa `LEARNING_CATALOG_VERSION`/`contentVersion`, mas não cria novo crédito de XP. A seed valida contagens, seis questões por lição, telas de revisão, gabaritos e chaves duplicadas, e desativa itens removidos sem apagar o progresso histórico.
 
-Cada primeiro acerto concede 10 XP. A conclusão das seis questões obrigatórias de um módulo concede 40 XP uma única vez. Tentativas erradas não retiram pontos e podem ser refeitas. O ledger usa uma chave única por usuário, tipo e origem para impedir crédito duplicado entre sessões ou dispositivos.
+Perguntas não concedem XP. A conclusão das seis questões obrigatórias de uma lição concede 15 XP; concluir as cinco lições concede outros 45 XP, totalizando 120 XP. Tentativas erradas não retiram pontos e podem ser refeitas. O ledger usa as origens únicas `lesson:M1` e `module:INTRO` para impedir crédito duplicado entre sessões ou dispositivos.
 
 O cliente deve enviar a versão exibida ao responder. Se o catálogo tiver sido atualizado, a API retorna `409` com o código `LEARNING_CONTENT_VERSION_STALE`; o app deve recarregar a questão.
 
@@ -27,7 +27,7 @@ O cliente deve enviar a versão exibida ao responder. Se o catálogo tiver sido 
 
 Políticas são versionadas por vault e configuradas pelas rotas administrativas. O desbloqueio Lite exige simultaneamente o nível mínimo e todos os módulos requeridos. Quando adquirido, ele é persistido e não é revogado por uma recalibração posterior da política.
 
-No primeiro bootstrap de um vault que ainda não possui política, a seed cria os padrões provisórios do produto: EURC exige nível 5 e M1–M3; XLM exige nível 10 e M1–M5. Se o vault já possui qualquer versão, a seed preserva integralmente a configuração administrativa. Uma versão publicada é imutável; ajustes exigem uma nova versão.
+A política Meridian v2 usa temporariamente nível mínimo 0: EURC exige M1–M3 e XLM exige M1–M5. A migration publica a regra para vaults já cadastrados e a seed faz o mesmo de forma idempotente em ambientes novos. Versões administrativas posteriores a v2 são preservadas. Uma versão publicada é imutável; ajustes exigem uma nova versão.
 
 A listagem e o detalhe dos vaults continuam retornando todos os produtos, acompanhados do objeto `access`. Isso evita esconder posições e caminhos de retirada. A propriedade `canDeposit` combina disponibilidade operacional, disclosure e elegibilidade educacional.
 
@@ -36,7 +36,7 @@ O bloqueio de novos depósitos é controlado por `ENFORCE_VAULT_EDUCATION`:
 - `false` (padrão): calcula e expõe a elegibilidade, sem bloquear o fluxo; indicado para rollout e atualização gradual dos clientes.
 - `true`: depósitos Lite inelegíveis retornam `409` com código `VAULT_EDUCATION_LOCKED`.
 
-O gate é executado antes de criar depósitos diretos ou depósitos provenientes de conversão. Ele não interfere em saques.
+O gate é executado antes de criar depósitos diretos, depósitos provenientes de conversão e trocas Lite para EURC/XLM. Ele não interfere em saques.
 
 ## Endpoints
 
@@ -50,6 +50,7 @@ Todos os endpoints abaixo exigem autenticação, salvo as regras administrativas
 - `POST /learning/questions/:questionKey/answer`
 - `GET /learning/progress`
 - `GET /experience/profile`
+- `POST /experience/daily-reward/claim`
 - `GET /admin/vaults/:vaultId/eligibility-policies`
 - `POST /admin/vaults/:vaultId/eligibility-policies`
 
@@ -58,7 +59,7 @@ Todos os endpoints abaixo exigem autenticação, salvo as regras administrativas
 1. Executar a migration e regenerar o Prisma Client.
 2. Executar `npx prisma db seed` para publicar o catálogo e as recompensas.
 3. Manter `ENFORCE_VAULT_EDUCATION=false` enquanto o mobile sincroniza os modos locais.
-4. Revisar as políticas provisórias dos vaults avançados e publicar nova versão se necessário.
+4. Confirmar a política Meridian v2 dos vaults avançados; futuras mudanças usam uma versão maior.
 5. Monitorar a projeção `access` e só então habilitar o enforcement.
 
 O disclosure continua separado da aprendizagem: aceitar riscos não concede XP, e concluir a trilha não substitui o aceite da versão vigente do disclosure.

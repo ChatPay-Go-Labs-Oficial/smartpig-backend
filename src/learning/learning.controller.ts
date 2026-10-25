@@ -17,10 +17,9 @@ export class LearningController {
   ) {}
 
   @Get('content')
-  @ApiOperation({ summary: 'Get welcome, habit practices and glossary' })
+  @ApiOperation({ summary: 'Get welcome and optional glossary content' })
   async content(@CurrentUser() user: { id: string }) {
-    await this.localUserId(user.id);
-    return this.learning.listStandaloneContent();
+    return this.learning.listStandaloneContent(await this.localUserId(user.id));
   }
 
   @Get('modules')
@@ -54,7 +53,7 @@ export class LearningController {
 
   @Post('questions/:questionKey/answer')
   @ApiOperation({
-    summary: 'Validate an answer and grant first-correct XP atomically',
+    summary: 'Validate an answer and atomically credit lesson completion',
   })
   async answer(
     @Param('questionKey') questionKey: string,

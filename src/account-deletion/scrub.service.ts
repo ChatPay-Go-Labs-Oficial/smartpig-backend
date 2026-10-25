@@ -226,6 +226,8 @@ export class ScrubService {
         avatarUrl: null,
         googleId: null,
         appleId: null,
+        username: null,
+        usernameSetAt: null,
         isOnboarded: false,
         experienceMode: null,
         experienceModeUpdatedAt: null,

@@ -11,6 +11,7 @@ Bem-vindo à documentação técnica do backend do **PigFi**, um app de finança
 | [docs/api.md](./docs/api.md) | Referência completa dos endpoints REST |
 | [docs/flows.md](./docs/flows.md) | Fluxos de operação: login, depósito, saque e jobs |
 | [docs/frontend-integration.md](./docs/frontend-integration.md) | Guia de integração do app: multi-vault, disclosure de risco e conversão |
+| [docs/integracao-learning-experience.md](./docs/integracao-learning-experience.md) | Guia da integração mobile/backend para aprendizado, XP e elegibilidade |
 | [docs/deployment.md](./docs/deployment.md) | Deploy no Railway, migrações e procedimento de baseline |
 | [docs/modules/config.md](./docs/modules/config.md) | Módulo de configuração e variáveis de ambiente |
 | [docs/modules/infra.md](./docs/modules/infra.md) | Infraestrutura: PrismaModule |

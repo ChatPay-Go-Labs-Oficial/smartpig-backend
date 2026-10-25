@@ -17,6 +17,8 @@ const userSelect = {
   name: true,
   email: true,
   avatarUrl: true,
+  username: true,
+  usernameSetAt: true,
   isOnboarded: true,
   experienceMode: true,
   experienceModeUpdatedAt: true,

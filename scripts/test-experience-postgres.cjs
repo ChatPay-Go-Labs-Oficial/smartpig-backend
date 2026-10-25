@@ -33,7 +33,8 @@ async function main() {
 
     const ledger = new ExperienceLedgerService(prisma);
     const eligibility = { refreshUnlocksForUser: async () => [] };
-    const learning = new LearningService(prisma, ledger, eligibility);
+    const config = { get: (_key, fallback) => fallback };
+    const learning = new LearningService(prisma, ledger, eligibility, config);
 
     for (const question of questions.slice(0, 4)) {
       await learning.submitAnswer(
@@ -80,8 +81,8 @@ async function main() {
       }),
     ]);
 
-    assert.equal(account.totalXp, 100, 'six answers plus one module bonus');
-    assert.equal(ledgerEntries.length, 7, 'six question credits and one bonus');
+    assert.equal(account.totalXp, 15, 'one lesson completion credit');
+    assert.equal(ledgerEntries.length, 1, 'questions do not receive XP');
     assert.ok(moduleProgress.completedAt, 'M1 must be completed');
 
     const xlmVault = await prisma.vaultCatalog.findFirstOrThrow({
@@ -99,7 +100,7 @@ async function main() {
     });
     await policyService.upsertPolicy(xlmVault.id, {
       version: policyVersion,
-      minimumLevel: 1,
+      minimumLevel: 0,
       requiredModuleKeys: ['M1'],
       publish: true,
     });
@@ -115,7 +116,7 @@ async function main() {
       () =>
         policyService.upsertPolicy(xlmVault.id, {
           version: policyVersion,
-          minimumLevel: 2,
+          minimumLevel: 1,
           requiredModuleKeys: ['M1'],
           publish: true,
         }),
@@ -125,13 +126,13 @@ async function main() {
     await Promise.all([
       policyService.upsertPolicy(xlmVault.id, {
         version: policyVersion + 1,
-        minimumLevel: 1,
+        minimumLevel: 0,
         requiredModuleKeys: ['M1'],
         publish: true,
       }),
       policyService.upsertPolicy(xlmVault.id, {
         version: policyVersion + 2,
-        minimumLevel: 1,
+        minimumLevel: 0,
         requiredModuleKeys: ['M1'],
         publish: true,
       }),

@@ -18,8 +18,8 @@ export interface ExperienceLevel {
 }
 
 /**
- * Product curve from PigFi Experience v1. `ceil` makes every threshold an
- * integer and agrees with the reference values in the editorial review.
+ * Product curve from PigFi Experience. Product decision D-103 uses ordinary
+ * rounding so the mobile and backend share the exact same level ruler.
  */
 export function xpRequiredForLevel(level: number): number {
   if (!Number.isInteger(level) || level < 1 || level > MAX_USER_LEVEL) {
@@ -28,7 +28,7 @@ export function xpRequiredForLevel(level: number): number {
     );
   }
 
-  return Math.ceil(40 * level ** 1.8);
+  return Math.round(40 * level ** 1.8);
 }
 
 export function tierForLevel(level: number): ExperienceTier {
