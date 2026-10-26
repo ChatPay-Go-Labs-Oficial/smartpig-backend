@@ -76,6 +76,22 @@ function createService(
       update: record('gift', 'update'),
     },
     apiAuditLog: { updateMany: record('apiAuditLog', 'updateMany') },
+    userVaultUnlock: { deleteMany: record('userVaultUnlock', 'deleteMany') },
+    userExperienceRewardUnlock: {
+      deleteMany: record('userExperienceRewardUnlock', 'deleteMany'),
+    },
+    experienceXpLedgerEntry: {
+      deleteMany: record('experienceXpLedgerEntry', 'deleteMany'),
+    },
+    experienceAccount: {
+      deleteMany: record('experienceAccount', 'deleteMany'),
+    },
+    userLearningQuestionProgress: {
+      deleteMany: record('userLearningQuestionProgress', 'deleteMany'),
+    },
+    userLearningModuleProgress: {
+      deleteMany: record('userLearningModuleProgress', 'deleteMany'),
+    },
     portfolioSnapshot: {
       deleteMany: record('portfolioSnapshot', 'deleteMany'),
     },
@@ -122,6 +138,8 @@ describe('ScrubService', () => {
       expect(data.googleId).toBeNull();
       expect(data.appleId).toBeNull();
       expect(data.isOnboarded).toBe(false);
+      expect(data.experienceMode).toBeNull();
+      expect(data.experienceModeUpdatedAt).toBeNull();
       expect(data.deletedAt).toBeInstanceOf(Date);
     });
 
@@ -369,7 +387,7 @@ describe('ScrubService', () => {
       expect(data).not.toHaveProperty('resource');
     });
 
-    it('deletes the derived snapshots and the refresh tokens', async () => {
+    it('deletes derived, credential and experience state', async () => {
       const { service, tx } = createService();
 
       await service.scrub(USER);
@@ -380,11 +398,23 @@ describe('ScrubService', () => {
       expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({
         where: { userId: USER },
       });
+      for (const model of [
+        tx.userVaultUnlock,
+        tx.userExperienceRewardUnlock,
+        tx.experienceXpLedgerEntry,
+        tx.experienceAccount,
+        tx.userLearningQuestionProgress,
+        tx.userLearningModuleProgress,
+      ]) {
+        expect(model.deleteMany).toHaveBeenCalledWith({
+          where: { userId: USER },
+        });
+      }
     });
   });
 
   describe('what is never deleted', () => {
-    it('deletes rows from exactly two tables, and updates the rest', async () => {
+    it('deletes rows only from derived and credential tables', async () => {
       // Every other table keeps its rows: the counts of deposits, withdrawals,
       // transactions, ramps and gifts have to survive the deletion untouched.
       const { service, calls } = createService({
@@ -395,8 +425,14 @@ describe('ScrubService', () => {
 
       const deletes = calls.filter((c) => c.op === 'deleteMany');
       expect(deletes.map((c) => c.model).sort()).toEqual([
+        'experienceAccount',
+        'experienceXpLedgerEntry',
         'portfolioSnapshot',
         'refreshToken',
+        'userExperienceRewardUnlock',
+        'userLearningModuleProgress',
+        'userLearningQuestionProgress',
+        'userVaultUnlock',
       ]);
     });
   });

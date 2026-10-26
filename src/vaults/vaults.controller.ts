@@ -11,6 +11,9 @@ import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Admin } from '../auth/privy/admin.decorator';
 import { AdminOnly } from '../auth/privy/admin-only.decorator';
 import { VaultsService } from './vaults.service';
+import { CurrentUser } from '../auth/privy/current-user.decorator';
+import { AccountOwnerService } from '../auth/privy/account-owner.service';
+import { PrivyAuthService } from '../auth/privy/privy-auth.service';
 
 /**
  * The app's api client injects `userId` into the params of every request, and the
@@ -47,7 +50,11 @@ class BalanceQuery {
 @Admin()
 @Controller('vaults')
 export class VaultsController {
-  constructor(private readonly vaultsService: VaultsService) {}
+  constructor(
+    private readonly vaultsService: VaultsService,
+    private readonly accountOwner: AccountOwnerService,
+    private readonly privyAuthService: PrivyAuthService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all available investment vaults' })
@@ -71,8 +78,12 @@ export class VaultsController {
       ],
     },
   })
-  listVaults(@Query() query: VaultListQuery) {
-    return this.vaultsService.listVaults(query.userId);
+  async listVaults(
+    @Query() query: VaultListQuery,
+    @CurrentUser() authenticated: { id: string },
+  ) {
+    const userId = await this.resolveUserId(authenticated.id, query.userId);
+    return this.vaultsService.listVaults(userId);
   }
 
   // `@AdminOnly()` sobrepõe o `@Admin()` da classe. As leituras acima são para
@@ -122,8 +133,13 @@ export class VaultsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Vault not found.' })
-  getVault(@Param('id') id: string, @Query() query: VaultListQuery) {
-    return this.vaultsService.getVault(id, query.userId);
+  async getVault(
+    @Param('id') id: string,
+    @Query() query: VaultListQuery,
+    @CurrentUser() authenticated: { id: string },
+  ) {
+    const userId = await this.resolveUserId(authenticated.id, query.userId);
+    return this.vaultsService.getVault(id, userId);
   }
 
   @Get(':id/apy')
@@ -177,5 +193,19 @@ export class VaultsController {
   @ApiResponse({ status: 404, description: 'Vault not found.' })
   getVaultBalance(@Param('id') id: string, @Query() query: BalanceQuery) {
     return this.vaultsService.getVaultBalance(id, query.walletAddress);
+  }
+
+  private async resolveUserId(
+    authenticatedId: string,
+    claimedUserId?: string,
+  ): Promise<string | undefined> {
+    // Read routes also accept the admin key. Admins may optionally request the
+    // same personalized projection as a user; without one the old neutral view
+    // remains available for operations/support.
+    if (authenticatedId === 'admin') return claimedUserId;
+
+    const addresses =
+      await this.privyAuthService.getStellarWalletAddresses(authenticatedId);
+    return this.accountOwner.assertOwnership(addresses, claimedUserId);
   }
 }

@@ -5,6 +5,7 @@ Base URL: `http://localhost:3000` (dev) | configurável via `PORT`
 > **Autenticação via Privy**: todas as rotas são protegidas por padrão pelo `PrivyAuthGuard` (guard global). O app envia `Authorization: Bearer {privyAccessToken}` nas chamadas marcadas com 🔒. Rotas marcadas com 🌐 são públicas (`@Public()`).
 >
 > O `userId` interno (cuid do `User`) continua sendo enviado no body/query das rotas de negócio — o guard valida a identidade Privy, mas os serviços resolvem o usuário pelo `userId` recebido.
+> As rotas novas de Learning, Experience e seleção de modo não recebem `userId`: elas derivam a conta local exclusivamente do token Privy e das carteiras Stellar verificadas.
 >
 > Rotas públicas: `GET /health`, `POST /auth/wallet`, `POST /webhooks/blindpay`.
 
@@ -13,9 +14,11 @@ Documentação interativa (Swagger): **`GET /api/docs`**.
 ## Formato de resposta
 
 ### Sucesso
+
 A resposta é o objeto retornado diretamente pelo serviço. Não há envelope padrão.
 
 ### Erro
+
 Todos os erros seguem o formato abaixo (via `HttpExceptionFilter`):
 
 ```json
@@ -33,6 +36,7 @@ Todos os erros seguem o formato abaixo (via `HttpExceptionFilter`):
 ## Auth
 
 ### `POST /auth/wallet` 🌐
+
 Registra ou faz login de um usuário. Público, mas **aceita** um Bearer token do Privy:
 
 - **Sem token** — cria o `User` quando a `stellarAddress` enviada ainda não está registrada. Se já estiver, responde **401**: recuperar uma conta existente exige token, já que o endereço Stellar é público e não prova posse.
@@ -41,6 +45,7 @@ Registra ou faz login de um usuário. Público, mas **aceita** um Bearer token d
 Um Bearer inválido retorna 401 mesmo sendo rota pública.
 
 **Body:**
+
 ```json
 {
   "stellarAddress": "GABC...XYZ",
@@ -49,6 +54,7 @@ Um Bearer inválido retorna 401 mesmo sendo rota pública.
 ```
 
 **Resposta 200:**
+
 ```json
 {
   "user": {
@@ -77,10 +83,36 @@ Um Bearer inválido retorna 401 mesmo sendo rota pública.
 
 ## Users
 
+### `GET /users/me` 🔒
+
+Retorna o perfil resolvido pelo token, incluindo `username` e `experienceMode`.
+
+### `PATCH /users/me/experience-mode` 🔒
+
+Sincroniza o modo salvo pelo aplicativo. Envie `LITE` para a experiência guiada ou `PRO` para preservar o fluxo avançado existente.
+
+```json
+{ "mode": "LITE" }
+```
+
+Usuários legados com modo ainda não sincronizado (`null` no banco) são tratados como `PRO`.
+
+### Usernames
+
+- `GET /usernames/:username/availability` — verifica o nome exato.
+- `POST /users/me/username` com `{ "username": "ana.lima" }` — define o nome permanente.
+- `GET /usernames/:username` — resolve nome, endereço Stellar, nome KYC verificado e moedas recebíveis.
+
+Os erros estáveis são `USERNAME_INVALID`, `USERNAME_TAKEN`, `USERNAME_ALREADY_SET` e `USERNAME_NOT_FOUND`.
+
+---
+
 ### `GET /users/:id` 🔒
+
 Retorna o perfil do usuário.
 
 **Resposta 200:**
+
 ```json
 {
   "id": "clx...",
@@ -95,9 +127,11 @@ Retorna o perfil do usuário.
 ---
 
 ### `PATCH /users/:id` 🔒
+
 Atualiza nome, email ou avatar do usuário.
 
 **Body (todos os campos opcionais):**
+
 ```json
 {
   "name": "João Silva",
@@ -107,15 +141,18 @@ Atualiza nome, email ou avatar do usuário.
 ```
 
 **Erros:**
+
 - `404` — usuário não encontrado
 - `409` — email já em uso por outro usuário
 
 ---
 
 ### `DELETE /users/:id` 🔒
+
 Remove a conta permanentemente. Todos os dados relacionados são deletados em cascade (wallets, intents, transações).
 
 **Resposta 200:**
+
 ```json
 { "id": "clx...", "deleted": true }
 ```
@@ -137,6 +174,7 @@ A conta inspecionada vem do **token**. O `userId` que o app injeta em toda chama
 A resposta é consultiva: a verificação que autoriza a exclusão é refeita na confirmação.
 
 **Resposta 200:**
+
 ```json
 {
   "eligible": false,
@@ -189,6 +227,7 @@ Valores são string decimal em unidades inteiras, sem formatação — **não** 
 Abre a solicitação. **Nada é destruído aqui**: o servidor revalida a aptidão, registra o pedido e devolve a transação que encerra a conta Stellar. Uma solicitação não confirmada simplesmente expira.
 
 **Corpo:**
+
 ```json
 { "idempotencyKey": "uuid-gerado-pelo-app" }
 ```
@@ -196,6 +235,7 @@ Abre a solicitação. **Nada é destruído aqui**: o servidor revalida a aptidã
 A chave é validada como **UUID v4**. Ela faz uma chamada repetida devolver a mesma solicitação em vez de abrir uma segunda — o app deve reusar a mesma chave nas retentativas da mesma tentativa.
 
 **Resposta 201:**
+
 ```json
 {
   "requestId": "clx...",
@@ -219,6 +259,7 @@ A chave é validada como **UUID v4**. Ela faz uma chamada repetida devolver a me
 Executa a exclusão. **A partir daqui é irreversível.**
 
 **Corpo:**
+
 ```json
 {
   "signedXdr": "AAAAAgAAAA...",
@@ -233,6 +274,7 @@ Executa a exclusão. **A partir daqui é irreversível.**
 `signedXdr` é omitido quando `closureXdr` veio `null`. Os três reconhecimentos são obrigatórios e precisam ser `true` — é isso que impede uma caixa não marcada de passar em silêncio.
 
 **Resposta 200:**
+
 ```json
 { "status": "COMPLETED", "deletedAt": "2026-09-19T17:32:10.000Z" }
 ```
@@ -246,9 +288,11 @@ Executa a exclusão. **A partir daqui é irreversível.**
 ## Wallets
 
 ### `GET /wallets?userId=...` 🔒
+
 Lista todas as wallets ativas de um usuário.
 
 **Resposta 200:**
+
 ```json
 [
   {
@@ -265,9 +309,11 @@ Lista todas as wallets ativas de um usuário.
 ---
 
 ### `POST /wallets` 🔒
+
 Adiciona uma nova wallet Stellar ao usuário. Se a carteira já existia mas estava desativada, ela é reativada.
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -277,20 +323,24 @@ Adiciona uma nova wallet Stellar ao usuário. Se a carteira já existia mas esta
 ```
 
 **Erros:**
+
 - `404` — usuário não encontrado
 - `409` — wallet já ativa para esse usuário
 
 ---
 
 ### `GET /wallets/:id` 🔒
+
 Retorna detalhes de uma wallet específica.
 
 ---
 
 ### `DELETE /wallets/:id` 🔒
+
 Desativa uma wallet (soft delete — não é removida do banco).
 
 **Resposta 200:**
+
 ```json
 { "id": "clx...", "isActive": false }
 ```
@@ -298,9 +348,11 @@ Desativa uma wallet (soft delete — não é removida do banco).
 ---
 
 ### `POST /wallets/activate` 🔒
+
 Gera o XDR de **ativação patrocinada** da conta Stellar. A transação cria a conta on-chain (`CreateAccount`), patrocina as reservas via `BeginSponsoringFutureReserves`, abre a trustline de USDC (e a de TESOURO, quando configurada para a rede ativa) e encerra o patrocínio. O XDR já vem **pré-assinado pela conta tesouraria** (`TREASURY_STELLAR_SECRET`) — o usuário só adiciona a própria assinatura.
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -316,6 +368,7 @@ Gera o XDR de **ativação patrocinada** da conta Stellar. A transação cria a 
 ---
 
 ### `POST /wallets/activate/submit` 🔒
+
 Submete o XDR de ativação com as duas assinaturas (tesouraria + usuário). Marca a wallet como ativada em caso de sucesso.
 
 **Body:** `{ "walletAccountId": "clx...", "signedXdr": "AAAA..." }`
@@ -327,6 +380,7 @@ Submete o XDR de ativação com as duas assinaturas (tesouraria + usuário). Mar
 ---
 
 ### `POST /wallets/trustline/xdr` 🔒
+
 Gera um XDR não assinado com uma operação `ChangeTrust` para o ativo USDC da rede ativa. Use quando a conta já existe e só falta a trustline (o fluxo de ativação já inclui essa etapa).
 
 **Body:** `{ "stellarAddress": "GABC...XYZ" }`
@@ -336,6 +390,7 @@ Gera um XDR não assinado com uma operação `ChangeTrust` para o ativo USDC da 
 ---
 
 ### `POST /wallets/trustline/submit` 🔒
+
 Submete o `ChangeTrust` assinado à rede Stellar.
 
 **Body:** `{ "stellarAddress": "GABC...XYZ", "signedXdr": "AAAA..." }`
@@ -345,11 +400,13 @@ Submete o `ChangeTrust` assinado à rede Stellar.
 ---
 
 ### `GET /wallets/:address/balance` 🔒
+
 Saldos da conta Stellar direto do Horizon (todos os ativos com saldo diferente de zero).
 
 **Parâmetros:** `address` — chave pública Stellar (`G...`)
 
 **Resposta 200:**
+
 ```json
 { "balances": [{ "asset": "USDC:issuer...", "balance": "1.99" }] }
 ```
@@ -357,23 +414,96 @@ Saldos da conta Stellar direto do Horizon (todos os ativos com saldo diferente d
 ---
 
 ### `GET /health` 🌐
+
 Verifica se a API está no ar.
 
 **Resposta 200:**
+
 ```json
 { "status": "ok" }
 ```
 
 ---
 
+## Learning e Experience
+
+Todas estas rotas são 🔒 e resolvem o usuário a partir do Bearer token.
+
+### `GET /learning/content`
+
+Retorna boas-vindas e glossário sem pontuação.
+
+### `GET /learning/modules`
+
+Lista os módulos publicados e o progresso do usuário autenticado.
+
+### `GET /learning/modules/:moduleKey`
+
+Retorna a lista ordenada `steps` com telas, perguntas e reflexão. Perguntas incluem `reviewScreenKey`. O gabarito nunca é enviado ao cliente.
+
+### `PATCH /learning/modules/:moduleKey/progress`
+
+Salva o ponto de retomada.
+
+```json
+{ "contentItemKey": "L1-Q01" }
+```
+
+### `POST /learning/questions/:questionKey/answer`
+
+Valida uma alternativa no servidor. Perguntas não dão XP; completar as seis questões de uma lição concede 15 XP, e completar as cinco lições concede mais 45 XP, sempre uma única vez.
+
+```json
+{
+  "optionId": "B",
+  "contentVersion": 4
+}
+```
+
+Uma versão desatualizada retorna `409 LEARNING_CONTENT_VERSION_STALE`.
+Quando a resposta conclui uma lição, o retorno inclui `lessonCompleted`, `moduleCompleted`, `xpAwarded`, `totalXp`, `levelBefore`, `levelAfter`, `tierAfter` e `newUnlocks`.
+
+### `GET /learning/progress`
+
+Retorna perfil de XP, módulos, IDs das questões concluídas e ponto de retomada do usuário autenticado.
+
+### `GET /experience/profile`
+
+Retorna XP total, nível, tier, progresso, recompensas, `levelThresholds` dos 50 níveis e disponibilidade da recompensa diária.
+
+### `POST /experience/daily-reward/claim`
+
+Concede a recompensa configurada (3 XP por padrão), uma vez por dia no fuso `America/Sao_Paulo`. Repetição retorna `409 DAILY_REWARD_ALREADY_CLAIMED`.
+
+### Políticas administrativas
+
+`GET /admin/vaults/:vaultId/eligibility-policies` lista versões. `POST` no mesmo caminho cria ou atualiza uma versão:
+
+```json
+{
+  "version": 2,
+  "minimumLevel": 0,
+  "requiredModuleKeys": ["M1", "M2", "M3"],
+  "publish": true
+}
+```
+
+Publicar uma versão desativa a política ativa anterior daquele vault. O disclosure continua sendo uma verificação separada.
+
+---
+
 ## Vaults
 
 > **Vaults são descobertos automaticamente** pelo `VaultSyncJob` a cada 6 horas via `GET /vault/discover` na API DeFindex. Não é necessário seed manual em operação normal.
+>
+> A resposta inclui `access`, uma projeção individual de disponibilidade operacional, disclosure e elegibilidade educacional. Vaults bloqueados para novo depósito continuam visíveis para não ocultar posições ou retiradas. Usuários `PRO` têm bypass educacional; usuários `LITE` seguem a política publicada. O bloqueio só é efetivo quando `ENFORCE_VAULT_EDUCATION=true`.
 
 ### `GET /vaults`
+
 Lista todos os vaults ativos (dados do banco local).
 
 **Resposta 200:**
+
 ```json
 [
   {
@@ -392,12 +522,15 @@ Lista todos os vaults ativos (dados do banco local).
 ---
 
 ### `GET /vaults/:id`
+
 Retorna detalhes de um vault + informações live do DeFindex (se disponível).
 
 **Parâmetros:**
+
 - `id` — ID interno do vault (não o endereço Stellar)
 
 **Resposta 200:**
+
 ```json
 {
   "id": "clx...",
@@ -417,9 +550,11 @@ Retorna detalhes de um vault + informações live do DeFindex (se disponível).
 ---
 
 ### `GET /vaults/:id/apy`
+
 APY live do vault (cache em memória de 5 minutos, fallback para valor do banco).
 
 **Resposta 200:**
+
 ```json
 {
   "vaultId": "clx...",
@@ -431,9 +566,11 @@ APY live do vault (cache em memória de 5 minutos, fallback para valor do banco)
 ---
 
 ### `POST /vaults/sync`
+
 Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`). Útil para forçar re-sync sem esperar o cron de 6 horas.
 
 **Resposta 200:**
+
 ```json
 { "upserted": 9, "total": 9 }
 ```
@@ -441,12 +578,15 @@ Dispara manualmente a sincronização de vaults (equivalente ao `VaultSyncJob`).
 ---
 
 ### `GET /vaults/:id/balance?walletAddress=G...`
+
 Saldo do usuário em um vault específico.
 
 **Query params:**
-- `walletAddress` *(obrigatório)* — endereço público Stellar
+
+- `walletAddress` _(obrigatório)_ — endereço público Stellar
 
 **Resposta 200:**
+
 ```json
 {
   "vaultId": "clx...",
@@ -461,9 +601,11 @@ Saldo do usuário em um vault específico.
 ## Deposits
 
 ### `POST /deposits` 🔒
+
 Cria uma intenção de depósito e gera um XDR não assinado.
 
 **Body:**
+
 ```json
 {
   "idempotencyKey": "unique-client-key-123",
@@ -476,6 +618,7 @@ Cria uma intenção de depósito e gera um XDR não assinado.
 ```
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -493,9 +636,11 @@ Cria uma intenção de depósito e gera um XDR não assinado.
 ---
 
 ### `POST /deposits/:id/signed-xdr` 🔒
+
 Envia o XDR assinado pelo cliente para broadcast na rede Stellar.
 
 **Body:**
+
 ```json
 {
   "signedXdr": "AAAAAgAAAA...assinado..."
@@ -503,6 +648,7 @@ Envia o XDR assinado pelo cliente para broadcast na rede Stellar.
 ```
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -512,15 +658,18 @@ Envia o XDR assinado pelo cliente para broadcast na rede Stellar.
 ```
 
 **Erros:**
+
 - `400` — intent sem XDR, expirada, ou em estado FAILED
 - `409` — intent já submetida ou confirmada
 
 ---
 
 ### `GET /deposits/:id` 🔒
+
 Status atual de uma intent de depósito.
 
 **Resposta 200:**
+
 ```json
 {
   "id": "clx...",
@@ -535,10 +684,12 @@ Status atual de uma intent de depósito.
 ---
 
 ### `GET /deposits?userId=...` 🔒
+
 Lista todas as intents de depósito de um usuário.
 
 **Query params:**
-- `userId` *(obrigatório)* — será substituído por extração do JWT
+
+- `userId` _(obrigatório)_ — será substituído por extração do JWT
 
 **Resposta 200:** array de intents (sem XDR fields)
 
@@ -547,9 +698,11 @@ Lista todas as intents de depósito de um usuário.
 ## Withdrawals
 
 ### `POST /withdrawals` 🔒
+
 Cria uma intenção de saque e gera um XDR não assinado.
 
 **Body:**
+
 ```json
 {
   "idempotencyKey": "unique-client-key-456",
@@ -562,6 +715,7 @@ Cria uma intenção de saque e gera um XDR não assinado.
 ```
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -581,6 +735,7 @@ publicados compatíveis; novos clientes devem sempre enviá-lo.
 ---
 
 ### `POST /withdrawals/:id/signed-xdr` 🔒
+
 Envia o XDR assinado pelo cliente para broadcast.
 
 **Body / Resposta:** idênticos ao endpoint de depósito.
@@ -588,11 +743,13 @@ Envia o XDR assinado pelo cliente para broadcast.
 ---
 
 ### `GET /withdrawals/:id` 🔒
+
 Status atual de uma intent de saque.
 
 ---
 
 ### `GET /withdrawals?userId=...` 🔒
+
 Lista todas as intents de saque de um usuário.
 
 ---
@@ -605,9 +762,11 @@ Lista todas as intents de saque de um usuário.
 > Ver [modules/gifts.md](./modules/gifts.md).
 
 ### `POST /gifts` 🔒
+
 Cria o gift intent e devolve o código de compartilhamento, o endereço do agente de claim e o memo que o app deve anexar à transação de funding.
 
 **Body:**
+
 ```json
 {
   "idempotencyKey": "uuid-v4",
@@ -618,6 +777,7 @@ Cria o gift intent e devolve o código de compartilhamento, o endereço do agent
 ```
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -639,19 +799,23 @@ Cria o gift intent e devolve o código de compartilhamento, o endereço do agent
 ---
 
 ### `GET /gifts?userId=...` 🔒
+
 Lista os presentes enviados e recebidos pelo usuário.
 
 ---
 
 ### `GET /gifts/eligibility?userId=...` 🔒
+
 Indica se o usuário pode presentear: `{ "canGift": true }`. Enquanto `GIFT_ALLOWED_EMAILS` estiver preenchida, só os e-mails da lista podem; vazia/ausente libera para todos.
 
 ---
 
 ### `GET /gifts/:code` 🔒
+
 Preview do presente. Retorna apenas dados não sensíveis — nada de IDs internos, endereços ou `balanceId`.
 
 **Resposta 200:**
+
 ```json
 {
   "amount": "50.00",
@@ -665,6 +829,7 @@ Preview do presente. Retorna apenas dados não sensíveis — nada de IDs intern
 ---
 
 ### `POST /gifts/:code/claim` 🔒
+
 Resgata a claimable balance e paga a carteira do destinatário em uma transação atômica. Só contas criadas **depois** do presente qualificam.
 
 **Body:** `{ "userId": "clx...", "walletAccountId": "clx...", "stellarAddress": "GABC..." }`
@@ -681,9 +846,11 @@ Resgata a claimable balance e paga a carteira do destinatário em uma transaçã
 > Requer que o usuário assine o XDR gerado com sua carteira Stellar e o submeta de volta.
 
 ### `POST /vault-manager/vaults` 🔒
+
 Cria um novo vault DeFindex gerenciado pelo SmartPig. Gera um XDR não assinado que deve ser assinado pelo operador (via Stellar Laboratory ou carteira).
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -698,16 +865,20 @@ Cria um novo vault DeFindex gerenciado pelo SmartPig. Gera um XDR não assinado 
     "feeReceiver": "GADS4...",
     "rebalanceManager": "GADS4..."
   },
-  "assets": [{
-    "address": "CDLZFC3...",
-    "symbol": "XLM",
-    "amount": 100000000,
-    "strategies": [{
-      "address": "CDVLOSP...",
-      "name": "xlm_blend_autocompound",
-      "amount": 100000000
-    }]
-  }]
+  "assets": [
+    {
+      "address": "CDLZFC3...",
+      "symbol": "XLM",
+      "amount": 100000000,
+      "strategies": [
+        {
+          "address": "CDVLOSP...",
+          "name": "xlm_blend_autocompound",
+          "amount": 100000000
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -716,6 +887,7 @@ Cria um novo vault DeFindex gerenciado pelo SmartPig. Gera um XDR não assinado 
 > **`feeReceiver`**: carteira do SmartPig que recebe as taxas de gestão.
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -730,14 +902,17 @@ Cria um novo vault DeFindex gerenciado pelo SmartPig. Gera um XDR não assinado 
 ---
 
 ### `POST /vault-manager/vaults/:id/submit` 🔒
+
 Submete o XDR assinado pelo operador para broadcast na rede Stellar. Ao confirmar, o vault é registrado automaticamente no `VaultCatalog`.
 
 **Body:**
+
 ```json
 { "signedXdr": "AAAAAgAAAA...assinado..." }
 ```
 
 **Resposta 200:**
+
 ```json
 {
   "id": "clx...",
@@ -748,37 +923,41 @@ Submete o XDR assinado pelo operador para broadcast na rede Stellar. Ao confirma
 ```
 
 **Erros:**
+
 - `404` — ManagedVault não encontrado
 - `400` — Vault já submetido ou em estado inválido
 
 ---
 
 ### `GET /vault-manager/vaults?userId=...` 🔒
+
 Lista todos os vaults gerenciados criados por um usuário.
 
 **Query params:**
-- `userId` *(obrigatório)* — será substituído por extração do JWT
+
+- `userId` _(obrigatório)_ — será substituído por extração do JWT
 
 **Resposta 200:** array de `ManagedVault` com dados do `VaultCatalog` vinculado (APY, TVL).
 
 ---
 
 ### `GET /vault-manager/vaults/:id` 🔒
+
 Detalhes de um vault gerenciado específico, incluindo status e o `VaultCatalog` vinculado.
 
 ---
 
 ## Códigos de status HTTP utilizados
 
-| Código | Situação |
-|--------|---------|
-| 200 | Sucesso em GET |
-| 201 | Recurso criado (POST) |
-| 400 | Bad Request (validação, estado inválido) |
-| 404 | Recurso não encontrado |
-| 409 | Conflito (operação duplicada) |
-| 422 | Entidade não processável |
-| 500 | Erro interno |
+| Código | Situação                                 |
+| ------ | ---------------------------------------- |
+| 200    | Sucesso em GET                           |
+| 201    | Recurso criado (POST)                    |
+| 400    | Bad Request (validação, estado inválido) |
+| 404    | Recurso não encontrado                   |
+| 409    | Conflito (operação duplicada)            |
+| 422    | Entidade não processável                 |
+| 500    | Erro interno                             |
 
 ---
 
@@ -790,9 +969,11 @@ Detalhes de um vault gerenciado específico, incluindo status e o `VaultCatalog`
 ### Setup do usuário
 
 #### `POST /ramp/receiver` 🔒
+
 Cria um Receiver BlindPay para o usuário (uma vez por usuário).
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -806,6 +987,7 @@ Cria um Receiver BlindPay para o usuário (uma vez por usuário).
 ---
 
 #### `GET /ramp/receiver` 🔒
+
 Retorna o receiver do usuário com suas contas bancárias e carteiras blockchain registradas.
 
 **Body:** `{ "userId": "clx..." }`
@@ -813,9 +995,11 @@ Retorna o receiver do usuário com suas contas bancárias e carteiras blockchain
 ---
 
 #### `POST /ramp/receiver/bank-accounts` 🔒
+
 Adiciona uma chave PIX ao receiver do usuário.
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -829,6 +1013,7 @@ Adiciona uma chave PIX ao receiver do usuário.
 ---
 
 #### `GET /ramp/receiver/bank-accounts` 🔒
+
 Lista as contas bancárias (chaves PIX) do receiver do usuário.
 
 **Body:** `{ "userId": "clx..." }`
@@ -836,9 +1021,11 @@ Lista as contas bancárias (chaves PIX) do receiver do usuário.
 ---
 
 #### `POST /ramp/receiver/wallets` 🔒
+
 Registra o endereço Stellar do usuário no BlindPay (necessário para on-ramp).
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -851,6 +1038,7 @@ Registra o endereço Stellar do usuário no BlindPay (necessário para on-ramp).
 ### On-ramp (BRL → USDC)
 
 **Fluxo:**
+
 1. `POST /ramp/onramp/quote` → obter cotação
 2. `POST /ramp/onramp` → criar on-ramp (retorna código PIX)
 3. Usuário paga o PIX no app bancário
@@ -858,9 +1046,11 @@ Registra o endereço Stellar do usuário no BlindPay (necessário para on-ramp).
 5. Webhook atualiza status para `COMPLETED`
 
 #### `POST /ramp/onramp/quote` 🔒
+
 Cotação de on-ramp (quanto USDC receberá por X BRL).
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -876,11 +1066,13 @@ Cotação de on-ramp (quanto USDC receberá por X BRL).
 ---
 
 #### `POST /ramp/onramp` 🔒
+
 Inicia o on-ramp. Retorna código PIX para pagamento.
 
 **Body:** igual ao de quote.
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -897,6 +1089,7 @@ Inicia o on-ramp. Retorna código PIX para pagamento.
 ---
 
 #### `GET /ramp/onramp/:id` 🔒
+
 Status de uma transação de on-ramp.
 
 **Body:** `{ "userId": "clx..." }`
@@ -906,6 +1099,7 @@ Status de uma transação de on-ramp.
 ---
 
 #### `GET /ramp/transactions` 🔒
+
 Lista o histórico Pix da conta autenticada, reunindo on-ramps e off-ramps em
 ordem decrescente de criação. O usuário é derivado das carteiras verificadas no
 Privy; a rota não aceita outro usuário informado pelo cliente.
@@ -914,6 +1108,7 @@ Os valores são retornados como strings decimais em BRL e USDC. Código Pix,
 XDRs, conta bancária e identificadores internos do provedor não são expostos.
 
 **Resposta 200:**
+
 ```json
 [
   {
@@ -933,6 +1128,7 @@ XDRs, conta bancária e identificadores internos do provedor não são expostos.
 ### Off-ramp (USDC → BRL)
 
 **Fluxo:**
+
 1. `POST /ramp/offramp/quote` → obter cotação
 2. `POST /ramp/offramp` → criar off-ramp (retorna XDR de delegação não assinado)
 3. Usuário assina o XDR com a carteira Stellar (delega USDC ao BlindPay)
@@ -941,9 +1137,11 @@ XDRs, conta bancária e identificadores internos do provedor não são expostos.
 6. Webhook atualiza status para `COMPLETED`
 
 #### `POST /ramp/offramp/quote` 🔒
+
 Cotação de off-ramp (quanto BRL receberá por X USDC).
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -960,9 +1158,11 @@ Cotação de off-ramp (quanto BRL receberá por X USDC).
 ---
 
 #### `POST /ramp/offramp` 🔒
+
 Inicia o off-ramp. Retorna XDR não assinado para delegação.
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -974,6 +1174,7 @@ Inicia o off-ramp. Retorna XDR não assinado para delegação.
 ```
 
 **Resposta 201:**
+
 ```json
 {
   "id": "clx...",
@@ -989,9 +1190,11 @@ Inicia o off-ramp. Retorna XDR não assinado para delegação.
 ---
 
 #### `POST /ramp/offramp/:id/submit` 🔒
+
 Envia o hash da transação de delegação assinada.
 
 **Body:**
+
 ```json
 {
   "userId": "clx...",
@@ -1004,6 +1207,7 @@ Envia o hash da transação de delegação assinada.
 ---
 
 #### `GET /ramp/offramp/:id` 🔒
+
 Status de uma transação de off-ramp.
 
 **Body:** `{ "userId": "clx..." }`
@@ -1013,31 +1217,32 @@ Status de uma transação de off-ramp.
 ### Webhooks
 
 #### `POST /webhooks/blindpay` 🌐
+
 Recebe notificações do BlindPay sobre status de pagamentos. Endpoint público (`@Public()`), verificado pelo esquema **Svix** — headers `svix-id`, `svix-timestamp` e `svix-signature`, HMAC-SHA256 sobre `{svix-id}.{svix-timestamp}.{rawBody}` com a parte após o `_` do `BLINDPAY_WEBHOOK_SECRET` decodificada em base64, com janela de tolerância de 5 minutos.
 
 > Não existe header `blindpay-signature` — não troque essa verificação por um HMAC genérico. Se `BLINDPAY_WEBHOOK_SECRET` não estiver configurado, a verificação é pulada (desenvolvimento).
 
 O tipo do evento vem no campo `webhook_event` do body. Atualiza automaticamente os status de `OnrampTransaction` e `OfframpTransaction`.
 
-| Evento BlindPay | Novo status interno |
-|---|---|
-| `payin.completed` | `COMPLETED` |
-| `payin.failed` | `FAILED` |
-| `payin.refunded` | `REFUNDED` |
-| `payout.completed` | `COMPLETED` |
-| `payout.failed` | `FAILED` |
+| Evento BlindPay    | Novo status interno |
+| ------------------ | ------------------- |
+| `payin.completed`  | `COMPLETED`         |
+| `payin.failed`     | `FAILED`            |
+| `payin.refunded`   | `REFUNDED`          |
+| `payout.completed` | `COMPLETED`         |
+| `payout.failed`    | `FAILED`            |
 
 ---
 
 ### Rotas auxiliares do ramp BlindPay
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| `POST` | `/ramp/tos` 🔒 | Aceite dos termos de serviço da instância BlindPay |
-| `POST` | `/ramp/upload` 🔒 | Upload de documento (KYC) para o BlindPay |
-| `POST` | `/ramp/offramp/:id/delegation` 🔒 | Regenera o XDR de delegação de um off-ramp existente |
-| `POST` | `/ramp/onramp/:id/sync` 🔒 | Busca o status do payin direto no BlindPay e atualiza o banco |
-| `POST` | `/ramp/offramp/:id/sync` 🔒 | Idem para payout |
+| Método | Rota                              | Descrição                                                     |
+| ------ | --------------------------------- | ------------------------------------------------------------- |
+| `POST` | `/ramp/tos` 🔒                    | Aceite dos termos de serviço da instância BlindPay            |
+| `POST` | `/ramp/upload` 🔒                 | Upload de documento (KYC) para o BlindPay                     |
+| `POST` | `/ramp/offramp/:id/delegation` 🔒 | Regenera o XDR de delegação de um off-ramp existente          |
+| `POST` | `/ramp/onramp/:id/sync` 🔒        | Busca o status do payin direto no BlindPay e atualiza o banco |
+| `POST` | `/ramp/offramp/:id/sync` 🔒       | Idem para payout                                              |
 
 > Os endpoints `/sync` existem para ambientes sem webhook configurado ou para reconciliação manual.
 

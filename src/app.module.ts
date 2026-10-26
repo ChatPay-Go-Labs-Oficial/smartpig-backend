@@ -23,6 +23,7 @@ import { VaultRegistryModule } from './vault-registry/vault-registry.module';
 import { ConversionsModule } from './conversions/conversions.module';
 import { PricingModule } from './pricing/pricing.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
+import { LearningModule } from './learning/learning.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { PortfolioModule } from './portfolio/portfolio.module';
     ConversionsModule,
     PricingModule,
     PortfolioModule,
+    LearningModule,
     WithdrawalsModule,
     GiftsModule,
     JobsModule,
