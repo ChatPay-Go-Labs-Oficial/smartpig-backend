@@ -4,6 +4,7 @@ import { WalletsModule } from '../wallets/wallets.module';
 import { ConversionsService } from './conversions.service';
 import { ConversionsController } from './conversions.controller';
 import { QuoteService } from './quote.service';
+import { VaultEligibilityModule } from '../vault-eligibility/vault-eligibility.module';
 
 /**
  * Converting the funding asset into a vault's asset on the Stellar DEX.
@@ -15,7 +16,7 @@ import { QuoteService } from './quote.service';
  * route we would not use.
  */
 @Module({
-  imports: [AuthModule, WalletsModule],
+  imports: [AuthModule, WalletsModule, VaultEligibilityModule],
   providers: [ConversionsService, QuoteService],
   controllers: [ConversionsController],
   exports: [ConversionsService],

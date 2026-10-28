@@ -46,6 +46,8 @@ export class AuthService {
             name: true,
             email: true,
             avatarUrl: true,
+            experienceMode: true,
+            experienceModeUpdatedAt: true,
             createdAt: true,
           },
         },
@@ -66,7 +68,11 @@ export class AuthService {
 
       this.logger.log(`Wallet login: existing user ${existingWallet.userId}`);
       return {
-        user: existingWallet.user,
+        user: {
+          ...existingWallet.user,
+          // Legacy rows are intentionally PRO until the person opts into Lite.
+          experienceMode: existingWallet.user.experienceMode ?? 'PRO',
+        },
         wallet: {
           id: existingWallet.id,
           stellarAddress: existingWallet.stellarAddress,
@@ -80,7 +86,14 @@ export class AuthService {
 
     // Create new user + wallet in a single transaction
     const result = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({ data: {} });
+      // Existing rows use null => effective PRO for compatibility. Writing LITE
+      // explicitly here makes only genuinely new accounts enter the new journey.
+      const user = await tx.user.create({
+        data: {
+          experienceMode: 'LITE',
+          experienceModeUpdatedAt: new Date(),
+        },
+      });
 
       const wallet = await tx.walletAccount.create({
         data: {
@@ -100,6 +113,8 @@ export class AuthService {
         name: result.user.name,
         email: result.user.email,
         avatarUrl: result.user.avatarUrl,
+        experienceMode: result.user.experienceMode ?? 'LITE',
+        experienceModeUpdatedAt: result.user.experienceModeUpdatedAt,
         createdAt: result.user.createdAt,
       },
       wallet: {

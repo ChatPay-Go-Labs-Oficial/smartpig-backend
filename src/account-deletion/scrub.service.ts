@@ -198,8 +198,17 @@ export class ScrubService {
     });
   }
 
-  /** Derived analytics and credentials. Neither has AML value. */
+  /** Derived analytics, credentials and gamification state. None has AML value. */
   private async deleteDerived(tx: Prisma.TransactionClient, userId: string) {
+    // The User row is tombstoned rather than deleted, so relation cascades never
+    // run. Remove the educational history explicitly; a later account created
+    // with the same public wallet must not inherit answers or product unlocks.
+    await tx.userVaultUnlock.deleteMany({ where: { userId } });
+    await tx.userExperienceRewardUnlock.deleteMany({ where: { userId } });
+    await tx.experienceXpLedgerEntry.deleteMany({ where: { userId } });
+    await tx.experienceAccount.deleteMany({ where: { userId } });
+    await tx.userLearningQuestionProgress.deleteMany({ where: { userId } });
+    await tx.userLearningModuleProgress.deleteMany({ where: { userId } });
     await tx.portfolioSnapshot.deleteMany({ where: { userId } });
     await tx.refreshToken.deleteMany({ where: { userId } });
   }
@@ -217,7 +226,11 @@ export class ScrubService {
         avatarUrl: null,
         googleId: null,
         appleId: null,
+        username: null,
+        usernameSetAt: null,
         isOnboarded: false,
+        experienceMode: null,
+        experienceModeUpdatedAt: null,
         deletedAt: new Date(),
       },
     });
