@@ -1,7 +1,7 @@
 import { PushReceiptsJob } from './push-receipts.job';
 
 function createJob(
-  sent: { id: string; tickets: unknown }[],
+  sent: { id: string; tickets: unknown; sentAt?: Date }[],
   receipts: Record<string, unknown>,
 ) {
   const prisma = {
@@ -99,6 +99,47 @@ describe('PushReceiptsJob', () => {
     expect(prisma.notification.update).toHaveBeenCalledWith({
       where: { id: 'n1' },
       data: { error: expect.stringContaining('InvalidCredentials') },
+    });
+  });
+
+  it('não marca como conferido enquanto o Expo não devolveu todos os receipts', async () => {
+    const { job, prisma } = createJob(
+      [
+        {
+          id: 'n1',
+          sentAt: new Date(Date.now() - 60 * 60_000),
+          tickets: [
+            { ticketId: 't1', deviceId: 'd1' },
+            { ticketId: 't2', deviceId: 'd2' },
+          ],
+        },
+      ],
+      // t2 ainda não está pronto no Expo.
+      { t1: { status: 'ok' } },
+    );
+
+    await job.checkReceipts();
+
+    expect(prisma.notification.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('perto do fim da janela de 24 h, encerra mesmo com receipt faltando', async () => {
+    const { job, prisma } = createJob(
+      [
+        {
+          id: 'n1',
+          sentAt: new Date(Date.now() - 23.5 * 60 * 60_000),
+          tickets: [{ ticketId: 't1', deviceId: 'd1' }],
+        },
+      ],
+      {},
+    );
+
+    await job.checkReceipts();
+
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['n1'] } },
+      data: { receiptCheckedAt: expect.any(Date) },
     });
   });
 

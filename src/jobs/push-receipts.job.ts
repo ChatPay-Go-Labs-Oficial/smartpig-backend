@@ -13,6 +13,11 @@ import { isPushEnabled } from './push-dispatch.job';
 const MIN_AGE_MS = 15 * 60_000;
 /** Receipts somem em ~24 h; depois disso não adianta perguntar. */
 const MAX_AGE_MS = 24 * 60 * 60_000;
+/**
+ * Depois disso a notificação é encerrada mesmo com receipt faltando: falta
+ * pouco para o Expo descartá-los, e ela não pode ficar sendo reconsultada.
+ */
+const CLOSE_AFTER_MS = 23 * 60 * 60_000;
 /** Notificações por rodada. Cada uma tem até MAX_DEVICES_PER_USER tickets. */
 const BATCH_SIZE = 500;
 
@@ -68,7 +73,7 @@ export class PushReceiptsJob {
       },
       orderBy: { sentAt: 'asc' },
       take: BATCH_SIZE,
-      select: { id: true, tickets: true },
+      select: { id: true, tickets: true, sentAt: true },
     });
     if (rows.length === 0) return;
 
@@ -87,6 +92,8 @@ export class PushReceiptsJob {
 
     const checked = new Set<string>();
     const failedLookup = new Set<string>();
+    /** Notificações com algum receipt que o Expo ainda não devolveu. */
+    const awaiting = new Set<string>();
     const notRegistered = new Set<string>();
     const errorsByNotification = new Map<string, string[]>();
 
@@ -110,8 +117,13 @@ export class PushReceiptsJob {
         const owner = ticketOwner.get(id)!;
         checked.add(owner.notificationId);
         const receipt = receipts[id];
-        // Receipt ainda não disponível ou ok: nada a fazer.
-        if (!receipt || receipt.status === 'ok') continue;
+        if (!receipt) {
+          // Ainda não processado no Expo: reconsulta na próxima rodada, para um
+          // DeviceNotRegistered tardio não se perder.
+          awaiting.add(owner.notificationId);
+          continue;
+        }
+        if (receipt.status === 'ok') continue;
 
         const code = receipt.details?.error ?? 'erro';
         const message = redactPushTokens(receipt.message);
@@ -147,16 +159,21 @@ export class PushReceiptsJob {
       });
     }
 
-    // Uma notificação com algum chunk que falhou fica para a próxima rodada
-    // inteira; reconferir um receipt é inofensivo.
-    const done = [...checked].filter((id) => !failedLookup.has(id));
-    // Notificação SENT sem ticket nenhum (dado antigo/corrompido) também encerra.
+    // Só encerra quando todos os receipts vieram. Chunk que falhou ou receipt
+    // ainda pendente deixa a notificação inteira para a próxima rodada
+    // (reconferir é inofensivo), até a janela de ~23 h.
+    const closeBefore = now - CLOSE_AFTER_MS;
+    const done = new Set(
+      [...checked].filter((id) => !failedLookup.has(id) && !awaiting.has(id)),
+    );
     for (const row of rows) {
-      if (parseTickets(row.tickets).length === 0) done.push(row.id);
+      const tooOld = row.sentAt ? row.sentAt.getTime() < closeBefore : false;
+      // Sem ticket nenhum (dado antigo/corrompido) também encerra.
+      if (tooOld || parseTickets(row.tickets).length === 0) done.add(row.id);
     }
-    if (done.length > 0) {
+    if (done.size > 0) {
       await this.prisma.notification.updateMany({
-        where: { id: { in: done } },
+        where: { id: { in: [...done] } },
         data: { receiptCheckedAt: new Date() },
       });
     }
