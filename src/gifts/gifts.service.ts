@@ -14,6 +14,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { GiftStatus } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { GiftStellarService } from './gift-stellar.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateGiftDto } from './dto/create-gift.dto';
 import { ClaimGiftDto } from './dto/claim-gift.dto';
 
@@ -49,6 +50,7 @@ export class GiftsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly stellar: GiftStellarService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async createGift(dto: CreateGiftDto) {
@@ -211,7 +213,7 @@ export class GiftsService {
     // Gifts are an acquisition tool: only accounts created AFTER the gift qualify
     const recipient = await this.prisma.user.findUnique({
       where: { id: dto.userId },
-      select: { createdAt: true },
+      select: { createdAt: true, username: true },
     });
     if (!recipient) throw new NotFoundException(`User ${dto.userId} not found`);
     if (recipient.createdAt <= gift.createdAt) {
@@ -247,19 +249,15 @@ export class GiftsService {
       throw new ConflictException('Gift is already being claimed');
     }
 
+    let claimed: Awaited<ReturnType<typeof this.markClaimed>>;
     try {
       const { hash } = await this.stellar.claimAndPay(
         gift.balanceId,
         wallet.stellarAddress,
         gift.amount.toString(),
       );
-      const claimed = await this.prisma.gift.update({
-        where: { id: gift.id },
-        data: { status: GiftStatus.CLAIMED, claimTxHash: hash },
-        select: giftSelect,
-      });
+      claimed = await this.markClaimed(gift.id, hash);
       this.logger.log(`Gift ${gift.id} claimed by ${dto.userId} → tx ${hash}`);
-      return claimed;
     } catch (err) {
       // Revert the lock so the recipient can retry
       await this.prisma.gift.updateMany({
@@ -278,6 +276,29 @@ export class GiftsService {
         'Failed to deliver the gift on-chain; please try again',
       );
     }
+
+    // Fora do try: o push nunca pode reverter um resgate que já foi pago.
+    // O lock FUNDED → CLAIMING garante que só um resgate chega aqui.
+    await this.notifications.notify({
+      userId: gift.senderUserId,
+      type: 'GIFT_CLAIMED',
+      dedupeKey: `gift:${gift.id}:CLAIMED`,
+      data: { giftId: gift.id },
+      details: {
+        amount: gift.amount,
+        asset: gift.assetSymbol,
+        username: recipient.username,
+      },
+    });
+    return claimed;
+  }
+
+  private markClaimed(giftId: string, claimTxHash: string) {
+    return this.prisma.gift.update({
+      where: { id: giftId },
+      data: { status: GiftStatus.CLAIMED, claimTxHash },
+      select: giftSelect,
+    });
   }
 
   async listGifts(userId: string) {
