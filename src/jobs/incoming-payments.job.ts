@@ -71,6 +71,12 @@ interface PigfiSender {
  *   que já tem o próprio push. As contas dos parceiros, quando conhecidas,
  *   entram em INCOMING_PAYMENTS_IGNORED_SENDERS e cortam o caso de vez.
  *
+ * Linha de base (limite aceito do MVP): na primeira vez que uma carteira é
+ * vista, o cursor é gravado no pagamento mais recente, sem notificar. Um
+ * pagamento recebido entre a criação da carteira e essa primeira leitura (até
+ * a carteira entrar no rodízio) fica antes da linha de base e não gera push.
+ * O app mostra o pagamento no histórico normalmente.
+ *
  * Robustez: lock em processo contra sobreposição, limite de carteiras e de
  * páginas, erro isolado por carteira, e o cursor só avança depois de a
  * notificação estar gravada, com update condicional (outra instância que já
@@ -160,7 +166,8 @@ export class IncomingPaymentsJob {
     usdc: { code: string; issuer: string },
   ): Promise<void> {
     if (wallet.lastPaymentCursor === null) {
-      // Linha de base: o histórico anterior ao watcher não vira push.
+      // Linha de base: o histórico anterior ao watcher não vira push, e um
+      // pagamento que chegou antes desta leitura também não (limite do MVP).
       const cursor = await this.horizon.latestCursor(wallet.stellarAddress);
       await this.prisma.walletAccount.updateMany({
         where: { id: wallet.id, lastPaymentCursor: null },
