@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EtherfuseService } from '../etherfuse/etherfuse.service';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -27,6 +28,7 @@ import {
   EtherfuseKycStatus,
   EtherfuseOrderDirection,
   EtherfuseOrderStatus,
+  Prisma,
 } from '@prisma/client';
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -79,6 +81,7 @@ export class EtherfuseRampService {
     private readonly prisma: PrismaService,
     private readonly etherfuse: EtherfuseService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ─── Onboarding: Create Customer Org ───────────────────────────────────────
@@ -641,6 +644,7 @@ export class EtherfuseRampService {
         },
       });
       this.logger.log(`Order ${order.id} synced: ${order.status} → ${mapped}`);
+      await this.notifyOrderTransition(order, mapped, customer.userId);
     }
 
     return this.prisma.etherfuseOrder.findUnique({ where: { id: order.id } });
@@ -670,6 +674,70 @@ export class EtherfuseRampService {
       },
     });
     this.logger.log(`EtherfuseOrder ${order.id} updated to ${mapped}`);
+    await this.notifyOrderTransition(order, mapped);
+  }
+
+  /**
+   * Push de conclusão/falha da ordem, só na transição para um status final e
+   * depois de gravar. Direção ONRAMP/OFFRAMP decide o tipo. REFUNDED conta como
+   * falha para o usuário. Webhook e sync podem ver a mesma transição: o
+   * dedupeKey segura a duplicata.
+   */
+  private async notifyOrderTransition(
+    order: {
+      id: string;
+      customerId: string;
+      direction: EtherfuseOrderDirection;
+      status: EtherfuseOrderStatus;
+      sourceAsset?: string;
+      targetAsset?: string;
+      sourceAmount?: Prisma.Decimal | string | null;
+      destinationAmount?: Prisma.Decimal | string | null;
+    },
+    next: EtherfuseOrderStatus,
+    knownUserId?: string,
+  ): Promise<void> {
+    if (next === order.status) return;
+    const outcome =
+      next === EtherfuseOrderStatus.COMPLETED
+        ? 'COMPLETED'
+        : next === EtherfuseOrderStatus.FAILED ||
+            next === EtherfuseOrderStatus.REFUNDED
+          ? 'FAILED'
+          : null;
+    if (!outcome) return;
+
+    try {
+      const userId =
+        knownUserId ??
+        (
+          await this.prisma.etherfuseCustomer.findUnique({
+            where: { id: order.customerId },
+            select: { userId: true },
+          })
+        )?.userId;
+      if (!userId) return;
+
+      const onramp = order.direction === EtherfuseOrderDirection.ONRAMP;
+      // No onramp o usuário recebe o ativo de destino; no offramp ele entrega o
+      // de origem. O ativo vem como "CODE:ISSUER"; o texto só usa o código.
+      const asset = onramp ? order.targetAsset : order.sourceAsset;
+      await this.notifications.notify({
+        userId,
+        type: onramp ? `ONRAMP_${outcome}` : `OFFRAMP_${outcome}`,
+        dedupeKey: `etherfuse:${order.id}:${outcome}`,
+        data: { etherfuseOrderId: order.id },
+        details: {
+          amount: onramp ? order.destinationAmount : order.sourceAmount,
+          asset: asset?.split(':')[0],
+        },
+      });
+    } catch (error) {
+      // O status já está gravado; o push é acessório.
+      this.logger.error(
+        `Push da ordem ${order.id} falhou: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async handleKycUpdated(customerId: string, approved: boolean) {

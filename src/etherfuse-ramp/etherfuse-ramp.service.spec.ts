@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EtherfuseRampService } from './etherfuse-ramp.service';
 import { EtherfuseService } from '../etherfuse/etherfuse.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
@@ -69,6 +70,8 @@ const baseBankAccount = {
   updatedAt: new Date(),
 };
 
+const mockNotifications = { notify: jest.fn().mockResolvedValue(undefined) };
+
 describe('EtherfuseRampService', () => {
   let service: EtherfuseRampService;
 
@@ -84,6 +87,7 @@ describe('EtherfuseRampService', () => {
           provide: ConfigService,
           useValue: { get: jest.fn(), getOrThrow: jest.fn() },
         },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
 
@@ -391,11 +395,82 @@ describe('EtherfuseRampService', () => {
       );
     });
 
+    it('notifica OFFRAMP_COMPLETED na transição de uma ordem de saída', async () => {
+      mockPrisma.etherfuseOrder.findUnique.mockResolvedValue({
+        id: 'ord-1',
+        customerId: 'cust-1',
+        direction: 'OFFRAMP',
+        etherfuseOrderId: 'ef-ord-1',
+        status: EtherfuseOrderStatus.PROCESSING,
+        sourceAsset:
+          'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+        sourceAmount: '25',
+      });
+      mockPrisma.etherfuseOrder.update.mockResolvedValue({});
+      mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue({
+        userId: 'user-1',
+      });
+
+      await service.handleOrderUpdated('ef-ord-1', 'completed');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          type: 'OFFRAMP_COMPLETED',
+          dedupeKey: 'etherfuse:ord-1:COMPLETED',
+          details: expect.objectContaining({ amount: '25', asset: 'USDC' }),
+        }),
+      );
+    });
+
+    it('não notifica quando a ordem já estava no status final', async () => {
+      mockPrisma.etherfuseOrder.findUnique.mockResolvedValue({
+        id: 'ord-1',
+        customerId: 'cust-1',
+        direction: 'ONRAMP',
+        status: EtherfuseOrderStatus.COMPLETED,
+      });
+      mockPrisma.etherfuseOrder.update.mockResolvedValue({});
+
+      await service.handleOrderUpdated('ef-ord-1', 'completed');
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
+
     it('should not throw if order not found', async () => {
       mockPrisma.etherfuseOrder.findUnique.mockResolvedValue(null);
       await expect(
         service.handleOrderUpdated('unknown', 'completed'),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('syncOrderFromEtherfuse', () => {
+    it('notifica ONRAMP_FAILED quando o sync vê a falha', async () => {
+      mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue({
+        id: 'cust-1',
+        userId: 'user-1',
+      });
+      mockPrisma.etherfuseOrder.findFirst.mockResolvedValue({
+        id: 'ord-2',
+        customerId: 'cust-1',
+        direction: 'ONRAMP',
+        etherfuseOrderId: 'ef-ord-2',
+        status: EtherfuseOrderStatus.PROCESSING,
+      });
+      mockEtherfuse.getOrder.mockResolvedValue({ status: 'failed' });
+      mockPrisma.etherfuseOrder.update.mockResolvedValue({});
+      mockPrisma.etherfuseOrder.findUnique.mockResolvedValue({ id: 'ord-2' });
+
+      await service.syncOrderFromEtherfuse('ord-2', 'user-1');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          type: 'ONRAMP_FAILED',
+          dedupeKey: 'etherfuse:ord-2:FAILED',
+        }),
+      );
     });
   });
 
