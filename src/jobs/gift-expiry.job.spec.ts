@@ -2,11 +2,19 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { GiftStatus } from '@prisma/client';
 import { GiftExpiryJob } from './gift-expiry.job';
 
-function createJob(expiring: Record<string, unknown>[]) {
+function createJob(
+  expiring: Record<string, unknown>[],
+  alreadyWarned: string[] = [],
+) {
   const prisma = {
     gift: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      findMany: jest.fn().mockResolvedValue(expiring),
+      findMany: jest.fn().mockResolvedValueOnce(expiring).mockResolvedValue([]),
+    },
+    notification: {
+      findMany: jest
+        .fn()
+        .mockResolvedValue(alreadyWarned.map((dedupeKey) => ({ dedupeKey }))),
     },
   };
   const notifications = { notify: jest.fn().mockResolvedValue(undefined) };
@@ -42,6 +50,37 @@ describe('GiftExpiryJob', () => {
         dedupeKey: 'gift:g1:EXPIRING',
         details: { amount: new Decimal('15'), asset: 'USDC' },
       }),
+    );
+  });
+
+  it('pula presentes que já foram avisados, sem tentar inserir de novo', async () => {
+    const { job, prisma, notifications } = createJob(
+      [
+        {
+          id: 'g1',
+          senderUserId: 's1',
+          amount: new Decimal('1'),
+          assetSymbol: 'USDC',
+        },
+        {
+          id: 'g2',
+          senderUserId: 's2',
+          amount: new Decimal('2'),
+          assetSymbol: 'USDC',
+        },
+      ],
+      ['gift:g1:EXPIRING'],
+    );
+
+    await job.warnExpiringGifts();
+
+    expect(prisma.notification.findMany).toHaveBeenCalledWith({
+      where: { dedupeKey: { in: ['gift:g1:EXPIRING', 'gift:g2:EXPIRING'] } },
+      select: { dedupeKey: true },
+    });
+    expect(notifications.notify).toHaveBeenCalledTimes(1);
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ dedupeKey: 'gift:g2:EXPIRING' }),
     );
   });
 

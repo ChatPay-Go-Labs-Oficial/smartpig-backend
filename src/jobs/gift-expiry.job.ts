@@ -6,6 +6,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 /** Antecedência do aviso de presente prestes a expirar. */
 const EXPIRING_WINDOW_MS = 24 * 60 * 60_000;
+const EXPIRING_PAGE = 500;
+
+function expiringKey(giftId: string): string {
+  return `gift:${giftId}:EXPIRING`;
+}
 
 /**
  * Marks gifts past their expiry as EXPIRED. The sender reclaims the
@@ -48,27 +53,53 @@ export class GiftExpiryJob {
   @Cron(CronExpression.EVERY_HOUR)
   async warnExpiringGifts() {
     const now = Date.now();
-    const expiring = await this.prisma.gift.findMany({
-      where: {
-        status: GiftStatus.FUNDED,
-        expiresAt: {
-          gt: new Date(now),
-          lte: new Date(now + EXPIRING_WINDOW_MS),
-        },
-      },
-      select: { id: true, senderUserId: true, amount: true, assetSymbol: true },
-      orderBy: { expiresAt: 'asc' },
-      take: 500,
-    });
+    let cursor: string | undefined;
 
-    for (const gift of expiring) {
-      await this.notifications.notify({
-        userId: gift.senderUserId,
-        type: 'GIFT_EXPIRING',
-        dedupeKey: `gift:${gift.id}:EXPIRING`,
-        data: { giftId: gift.id },
-        details: { amount: gift.amount, asset: gift.assetSymbol },
+    // Paginado: os já avisados são filtrados depois da consulta, então um teto
+    // fixo sem cursor poderia ficar preso nos mesmos presentes para sempre.
+    for (;;) {
+      const page = await this.prisma.gift.findMany({
+        where: {
+          status: GiftStatus.FUNDED,
+          expiresAt: {
+            gt: new Date(now),
+            lte: new Date(now + EXPIRING_WINDOW_MS),
+          },
+        },
+        select: {
+          id: true,
+          senderUserId: true,
+          amount: true,
+          assetSymbol: true,
+        },
+        orderBy: [{ expiresAt: 'asc' }, { id: 'asc' }],
+        take: EXPIRING_PAGE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       });
+      if (page.length === 0) return;
+
+      // Pula quem já tem o aviso na outbox: sem isso, cada hora tentaria
+      // inserir de novo e só o índice único (P2002) seguraria.
+      const keys = page.map((gift) => expiringKey(gift.id));
+      const warned = await this.prisma.notification.findMany({
+        where: { dedupeKey: { in: keys } },
+        select: { dedupeKey: true },
+      });
+      const already = new Set(warned.map((n) => n.dedupeKey));
+
+      for (const gift of page) {
+        if (already.has(expiringKey(gift.id))) continue;
+        await this.notifications.notify({
+          userId: gift.senderUserId,
+          type: 'GIFT_EXPIRING',
+          dedupeKey: expiringKey(gift.id),
+          data: { giftId: gift.id },
+          details: { amount: gift.amount, asset: gift.assetSymbol },
+        });
+      }
+
+      if (page.length < EXPIRING_PAGE) return;
+      cursor = page[page.length - 1].id;
     }
   }
 }
