@@ -45,7 +45,14 @@ export class ExpoPushClient {
   }
 }
 
-/** Mostra só o começo do token: o token inteiro nunca vai para log. */
-export function maskToken(token: string): string {
-  return `${token.slice(0, 22)}…`;
+/**
+ * Mascara tokens Expo dentro de um texto. As mensagens de erro do Expo citam o
+ * token inteiro (ex.: DeviceNotRegistered), e elas vão para log e para a
+ * coluna `error`: o token nunca deve aparecer inteiro em nenhum dos dois.
+ */
+export function redactPushTokens(text: string): string {
+  return text.replace(
+    /(Expo(?:nent)?PushToken\[)([^\]]*)\]/g,
+    (_m, prefix: string, secret: string) => `${prefix}${secret.slice(0, 4)}…]`,
+  );
 }

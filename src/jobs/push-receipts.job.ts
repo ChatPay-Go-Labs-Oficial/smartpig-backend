@@ -3,7 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { NotificationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { ExpoPushClient } from '../notifications/expo-push.client';
+import {
+  ExpoPushClient,
+  redactPushTokens,
+} from '../notifications/expo-push.client';
 import { isPushEnabled } from './push-dispatch.job';
 
 /** O Expo recomenda esperar ~15 min antes de pedir o receipt. */
@@ -111,19 +114,18 @@ export class PushReceiptsJob {
         if (!receipt || receipt.status === 'ok') continue;
 
         const code = receipt.details?.error ?? 'erro';
+        const message = redactPushTokens(receipt.message);
         if (code === 'DeviceNotRegistered') {
           notRegistered.add(owner.deviceId);
         } else if (CREDENTIAL_ERRORS.has(code)) {
           this.logger.error(
-            `Expo recusou credencial do projeto (${code}) no ticket ${id}: ${receipt.message}`,
+            `Expo recusou credencial do projeto (${code}) no ticket ${id}: ${message}`,
           );
         } else {
-          this.logger.warn(
-            `Receipt ${id} com erro ${code}: ${receipt.message}`,
-          );
+          this.logger.warn(`Receipt ${id} com erro ${code}: ${message}`);
         }
         const list = errorsByNotification.get(owner.notificationId) ?? [];
-        list.push(`receipt ${code}: ${receipt.message}`);
+        list.push(`receipt ${code}: ${message}`);
         errorsByNotification.set(owner.notificationId, list);
       }
     }

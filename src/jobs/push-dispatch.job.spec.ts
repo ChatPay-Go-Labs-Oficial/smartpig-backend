@@ -213,6 +213,29 @@ describe('PushDispatchJob', () => {
     });
   });
 
+  it('não grava o token inteiro na coluna error', async () => {
+    const { job, prisma, expo } = createJob({
+      pending: [row('n1')],
+      devices: [
+        { id: 'd1', userId: 'u1', token: 'ExponentPushToken[secretsecret]' },
+      ],
+    });
+    expo.send.mockResolvedValueOnce([
+      {
+        status: 'error',
+        message:
+          '"ExponentPushToken[secretsecret]" is not a registered push notification recipient',
+        details: { error: 'DeviceNotRegistered' },
+      },
+    ] as never);
+
+    await job.dispatch();
+
+    const error = updateFor(prisma, 'n1')?.data.error as string;
+    expect(error).toContain('DeviceNotRegistered');
+    expect(error).not.toContain('secretsecret');
+  });
+
   it('erro HTTP 5xx ou de rede devolve para PENDING enquanto houver tentativas', async () => {
     const { job, prisma, expo } = createJob({
       pending: [row('n1')],

@@ -8,7 +8,10 @@ import {
 } from '@prisma/client';
 import type { ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 import { PrismaService } from '../infra/prisma/prisma.service';
-import { ExpoPushClient } from '../notifications/expo-push.client';
+import {
+  ExpoPushClient,
+  redactPushTokens,
+} from '../notifications/expo-push.client';
 import { notificationUrl } from '../notifications/notification-copy';
 
 /** Linhas PENDING por rodada. Com 10 s de intervalo, ~600/min no máximo. */
@@ -77,7 +80,7 @@ export class PushDispatchJob {
       if (claimed.length > 0) await this.send(claimed);
     } catch (error) {
       this.logger.error(
-        `Dispatch de push falhou: ${error instanceof Error ? error.message : String(error)}`,
+        `Dispatch de push falhou: ${redactPushTokens(error instanceof Error ? error.message : String(error))}`,
       );
     } finally {
       this.running = false;
@@ -224,7 +227,9 @@ export class PushDispatchJob {
       const o = outcomes.get(row.id);
       if (!o) continue;
       const error =
-        o.errors.length > 0 ? o.errors.join('; ').slice(0, 1000) : null;
+        o.errors.length > 0
+          ? redactPushTokens(o.errors.join('; ')).slice(0, 1000)
+          : null;
 
       if (o.tickets.length > 0) {
         // Chegou a pelo menos um aparelho: não reenviar para não duplicar nos
