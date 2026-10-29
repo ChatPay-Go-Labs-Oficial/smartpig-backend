@@ -45,14 +45,5 @@ export class ExpoPushClient {
   }
 }
 
-/**
- * Mascara tokens Expo dentro de um texto. As mensagens de erro do Expo citam o
- * token inteiro (ex.: DeviceNotRegistered), e elas vão para log e para a
- * coluna `error`: o token nunca deve aparecer inteiro em nenhum dos dois.
- */
-export function redactPushTokens(text: string): string {
-  return text.replace(
-    /(Expo(?:nent)?PushToken\[)([^\]]*)\]/g,
-    (_m, prefix: string, secret: string) => `${prefix}${secret.slice(0, 4)}…]`,
-  );
-}
+// Vive em common para o filtro e o interceptor HTTP usarem sem puxar o SDK.
+export { redactPushTokens } from '../common/redact-url';

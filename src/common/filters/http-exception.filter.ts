@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { redactRequestUrl } from '../redact-url';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -31,7 +32,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       typeof message === 'object' && message !== null
         ? (message as Record<string, unknown>)
         : null;
-    const safePath = request.url.split('?')[0];
+    const safePath = redactRequestUrl(request.url.split('?')[0]);
     const responseCode =
       body && typeof body['code'] === 'string' ? body['code'] : undefined;
     const responseMessage =
@@ -59,7 +60,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: redactRequestUrl(request.url),
       message: body && 'message' in body ? body['message'] : message,
       ...(body && typeof body['code'] === 'string'
         ? { code: body['code'] }
