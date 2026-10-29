@@ -487,6 +487,52 @@ describe('EtherfuseRampService', () => {
         }),
       );
     });
+
+    it('notifica KYC_APPROVED na transição, depois de gravar', async () => {
+      mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
+      mockPrisma.etherfuseCustomer.update.mockResolvedValue({});
+
+      await service.handleKycUpdated('ef-org-1', true);
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          type: 'KYC_APPROVED',
+          dedupeKey: 'etherfuse-kyc:cust-1:APPROVED',
+        }),
+      );
+      expect(
+        mockNotifications.notify.mock.invocationCallOrder[0],
+      ).toBeGreaterThan(
+        mockPrisma.etherfuseCustomer.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('notifica KYC_REJECTED quando recusado', async () => {
+      mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue(baseCustomer);
+      mockPrisma.etherfuseCustomer.update.mockResolvedValue({});
+
+      await service.handleKycUpdated('ef-org-1', false);
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'KYC_REJECTED',
+          dedupeKey: 'etherfuse-kyc:cust-1:REJECTED',
+        }),
+      );
+    });
+
+    it('não notifica quando o status já era o mesmo', async () => {
+      mockPrisma.etherfuseCustomer.findUnique.mockResolvedValue({
+        ...baseCustomer,
+        kycStatus: EtherfuseKycStatus.APPROVED,
+      });
+      mockPrisma.etherfuseCustomer.update.mockResolvedValue({});
+
+      await service.handleKycUpdated('ef-org-1', true);
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleBankAccountUpdated', () => {

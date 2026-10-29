@@ -224,6 +224,7 @@ export class EtherfuseRampService {
         where: { id: customer.id },
         data: { kycStatus: mappedStatus },
       });
+      await this.notifyKycTransition(customer, mappedStatus);
     }
 
     return status;
@@ -760,6 +761,33 @@ export class EtherfuseRampService {
       data: { kycStatus },
     });
     this.logger.log(`EtherfuseCustomer ${customer.id} KYC → ${kycStatus}`);
+    await this.notifyKycTransition(customer, kycStatus);
+  }
+
+  /**
+   * Push de KYC aprovado/recusado, só na transição e depois de gravar. Webhook
+   * e poll do app podem ver a mesma mudança; o dedupeKey segura a duplicata.
+   * APPROVED_CHAIN_DEPLOYING não avisa: o cadastro só fica usável no APPROVED.
+   */
+  private async notifyKycTransition(
+    customer: { id: string; userId: string; kycStatus: EtherfuseKycStatus },
+    next: EtherfuseKycStatus,
+  ): Promise<void> {
+    if (customer.kycStatus === next) return;
+    const type =
+      next === EtherfuseKycStatus.APPROVED
+        ? 'KYC_APPROVED'
+        : next === EtherfuseKycStatus.REJECTED
+          ? 'KYC_REJECTED'
+          : null;
+    if (!type) return;
+
+    await this.notifications.notify({
+      userId: customer.userId,
+      type,
+      dedupeKey: `etherfuse-kyc:${customer.id}:${next}`,
+      data: { etherfuseCustomerId: customer.id },
+    });
   }
 
   async handleBankAccountUpdated(bankAccountId: string, compliant: boolean) {
