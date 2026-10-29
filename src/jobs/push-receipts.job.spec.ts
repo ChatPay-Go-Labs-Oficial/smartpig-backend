@@ -116,9 +116,9 @@ describe('PushReceiptsJob', () => {
 
   it('não roda com PUSH_DISPATCH_ENABLED=false', async () => {
     const { job, prisma } = createJob([], {});
-    (job as unknown as { config: { get: jest.Mock } }).config.get.mockReturnValue(
-      false,
-    );
+    (
+      job as unknown as { config: { get: jest.Mock } }
+    ).config.get.mockReturnValue(false);
 
     await job.checkReceipts();
 

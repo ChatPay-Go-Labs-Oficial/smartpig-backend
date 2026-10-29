@@ -121,4 +121,11 @@ export const envSchema = Joi.object({
     .integer()
     .min(1)
     .default(10),
+
+  // Push notifications (Expo Push Service). Opcional: sem token o Expo aceita o
+  // envio; com "Enhanced Push Security" ligado no projeto Expo ele passa a ser
+  // obrigatório.
+  EXPO_ACCESS_TOKEN: Joi.string().optional(),
+  // Liga/desliga os jobs de envio e de receipts sem precisar de deploy.
+  PUSH_DISPATCH_ENABLED: Joi.boolean().default(true),
 });

@@ -186,8 +186,16 @@ describe('NotificationsService.notify', () => {
       userWith(null, new Date() as never),
     );
 
-    await service.notify({ userId: 'u1', type: 'KYC_APPROVED', dedupeKey: 'a' });
-    await service.notify({ userId: 'u2', type: 'KYC_APPROVED', dedupeKey: 'b' });
+    await service.notify({
+      userId: 'u1',
+      type: 'KYC_APPROVED',
+      dedupeKey: 'a',
+    });
+    await service.notify({
+      userId: 'u2',
+      type: 'KYC_APPROVED',
+      dedupeKey: 'b',
+    });
 
     expect(prisma.notification.create).not.toHaveBeenCalled();
   });

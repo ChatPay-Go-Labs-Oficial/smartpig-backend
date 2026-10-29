@@ -1,5 +1,8 @@
 import { Prisma } from '@prisma/client';
-import { MAX_DEVICES_PER_USER, PushDevicesService } from './push-devices.service';
+import {
+  MAX_DEVICES_PER_USER,
+  PushDevicesService,
+} from './push-devices.service';
 
 const TOKEN = 'ExponentPushToken[aaaaaaaaaaaaaaaaaaaaaa]';
 
@@ -66,7 +69,10 @@ describe('PushDevicesService.register', () => {
 
   it('mantém no máximo MAX_DEVICES_PER_USER, apagando os mais antigos', async () => {
     const { service, prisma } = createService();
-    prisma.pushDevice.findMany.mockResolvedValue([{ id: 'old1' }, { id: 'old2' }]);
+    prisma.pushDevice.findMany.mockResolvedValue([
+      { id: 'old1' },
+      { id: 'old2' },
+    ]);
 
     await service.register('user-a', { token: TOKEN, platform: 'ios' });
 

@@ -102,7 +102,7 @@ describe('PushDispatchJob', () => {
         attempts: { increment: 1 },
       }),
     });
-    const sent = expo.send.mock.calls.flat(2) as {
+    const sent = expo.send.mock.calls.flat(2) as unknown as {
       data: { notificationId: string };
     }[];
     expect(sent.map((m) => m.data.notificationId)).toEqual(['n1']);
@@ -272,9 +272,9 @@ describe('PushDispatchJob', () => {
 
   it('não roda com PUSH_DISPATCH_ENABLED=false', async () => {
     const { job, prisma } = createJob({ pending: [row('n1')], devices: [] });
-    (job as unknown as { config: { get: jest.Mock } }).config.get.mockReturnValue(
-      false,
-    );
+    (
+      job as unknown as { config: { get: jest.Mock } }
+    ).config.get.mockReturnValue(false);
 
     await job.dispatch();
 
