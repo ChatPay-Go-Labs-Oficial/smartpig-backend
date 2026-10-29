@@ -211,6 +211,11 @@ export class ScrubService {
     await tx.userLearningModuleProgress.deleteMany({ where: { userId } });
     await tx.portfolioSnapshot.deleteMany({ where: { userId } });
     await tx.refreshToken.deleteMany({ where: { userId } });
+    // O token de push identifica o aparelho e o texto das notificações pode
+    // citar valor e @username. Sem os devices, nenhum push sai depois da exclusão.
+    await tx.pushDevice.deleteMany({ where: { userId } });
+    await tx.notification.deleteMany({ where: { userId } });
+    await tx.notificationPreference.deleteMany({ where: { userId } });
   }
 
   /**
