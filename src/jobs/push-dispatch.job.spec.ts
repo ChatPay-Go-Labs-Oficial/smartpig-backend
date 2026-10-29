@@ -8,6 +8,7 @@ type Row = {
   title: string;
   body: string;
   attempts: number;
+  data?: unknown;
 };
 
 function row(id: string, userId = 'u1', overrides: Partial<Row> = {}): Row {
@@ -25,7 +26,13 @@ function row(id: string, userId = 'u1', overrides: Partial<Row> = {}): Row {
 
 function createJob(opts: {
   pending: Row[];
-  devices: { id: string; userId: string; token: string }[];
+  devices: {
+    id: string;
+    userId: string;
+    token: string;
+    platform?: string;
+    appVersion?: string | null;
+  }[];
   claimed?: (id: string) => boolean;
   chunkSize?: number;
 }) {
@@ -150,6 +157,90 @@ describe('PushDispatchJob', () => {
         ],
         sentAt: expect.any(Date),
       }),
+    );
+  });
+
+  it('broadcast: envia só aos devices do alvo e usa a url gravada', async () => {
+    const { job, prisma, expo } = createJob({
+      pending: [
+        row('n1', 'u1', {
+          type: 'APP_UPDATE_AVAILABLE',
+          category: 'updates',
+          data: {
+            broadcastId: 'b1',
+            url: '/settings',
+            target: { platform: 'ios', maxAppVersion: '1.0.12' },
+          },
+        }),
+      ],
+      devices: [
+        {
+          id: 'd1',
+          userId: 'u1',
+          token: 'ExponentPushToken[ios-old]',
+          platform: 'IOS',
+          appVersion: '1.0.11',
+        },
+        {
+          id: 'd2',
+          userId: 'u1',
+          token: 'ExponentPushToken[android]',
+          platform: 'ANDROID',
+          appVersion: '1.0.11',
+        },
+        {
+          id: 'd3',
+          userId: 'u1',
+          token: 'ExponentPushToken[ios-new]',
+          platform: 'IOS',
+          appVersion: '1.0.12',
+        },
+      ],
+    });
+
+    await job.dispatch();
+
+    expect(expo.send).toHaveBeenCalledWith([
+      expect.objectContaining({
+        to: 'ExponentPushToken[ios-old]',
+        channelId: 'updates',
+        data: {
+          type: 'APP_UPDATE_AVAILABLE',
+          url: '/settings',
+          notificationId: 'n1',
+        },
+      }),
+    ]);
+    expect(updateFor(prisma, 'n1')?.data).toEqual(
+      expect.objectContaining({ status: 'SENT' }),
+    );
+  });
+
+  it('broadcast sem device no alvo vira SKIPPED', async () => {
+    const { job, prisma, expo } = createJob({
+      pending: [
+        row('n1', 'u1', {
+          type: 'APP_UPDATE_AVAILABLE',
+          category: 'updates',
+          data: { broadcastId: 'b1', target: { platform: 'android' } },
+        }),
+      ],
+      devices: [
+        {
+          id: 'd1',
+          userId: 'u1',
+          token: 'ExponentPushToken[ios]',
+          platform: 'IOS',
+          appVersion: '1.0.11',
+        },
+      ],
+    });
+
+    await job.dispatch();
+
+    expect(expo.send).not.toHaveBeenCalled();
+    expect(updateFor(prisma, 'n1')?.data).toEqual(
+      expect.objectContaining({ status: 'SKIPPED' }),
     );
   });
 

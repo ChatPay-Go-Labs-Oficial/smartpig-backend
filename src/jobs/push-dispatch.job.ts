@@ -13,6 +13,10 @@ import {
   redactPushTokens,
 } from '../notifications/expo-push.client';
 import { notificationUrl } from '../notifications/notification-copy';
+import {
+  deviceMatchesTarget,
+  readPushData,
+} from '../notifications/push-target';
 
 /** Linhas PENDING por rodada. Com 10 s de intervalo, ~600/min no máximo. */
 const BATCH_SIZE = 100;
@@ -29,7 +33,7 @@ const RATE_LIMIT_BACKOFF_MS = 60_000;
 
 type ClaimedRow = Pick<
   Notification,
-  'id' | 'userId' | 'type' | 'category' | 'title' | 'body' | 'attempts'
+  'id' | 'userId' | 'type' | 'category' | 'title' | 'body' | 'attempts' | 'data'
 >;
 
 interface Target {
@@ -119,6 +123,7 @@ export class PushDispatchJob {
         title: true,
         body: true,
         attempts: true,
+        data: true,
       },
     });
 
@@ -146,7 +151,13 @@ export class PushDispatchJob {
         userId: { in: [...new Set(rows.map((r) => r.userId))] },
         disabledAt: null,
       },
-      select: { id: true, userId: true, token: true },
+      select: {
+        id: true,
+        userId: true,
+        token: true,
+        platform: true,
+        appVersion: true,
+      },
     });
 
     const messages: ExpoPushMessage[] = [];
@@ -154,17 +165,24 @@ export class PushDispatchJob {
     const outcomes = new Map<string, Outcome>();
 
     for (const row of rows) {
-      const own = devices.filter((d) => d.userId === row.userId);
+      // Broadcast grava o alvo (plataforma/versão) em data.target; evento
+      // comum não tem alvo e vai para todos os devices ativos do usuário.
+      const { url, target } = readPushData(row.data);
+      const own = devices.filter(
+        (d) => d.userId === row.userId && deviceMatchesTarget(d, target),
+      );
       if (own.length === 0) {
         await this.finish(row.id, {
           status: NotificationStatus.SKIPPED,
-          error: 'Nenhum device ativo',
+          error: 'Nenhum device ativo no alvo',
         });
         continue;
       }
       outcomes.set(row.id, { tickets: [], errors: [], retryable: false });
       for (const device of own) {
-        messages.push(buildMessage(row, device.token));
+        messages.push(
+          buildMessage(row, device.token, url ?? notificationUrl(row.category)),
+        );
         targets.push({ notificationId: row.id, deviceId: device.id });
       }
     }
@@ -270,7 +288,11 @@ export class PushDispatchJob {
   }
 }
 
-function buildMessage(row: ClaimedRow, token: string): ExpoPushMessage {
+function buildMessage(
+  row: ClaimedRow,
+  token: string,
+  url: string,
+): ExpoPushMessage {
   return {
     to: token,
     title: row.title,
@@ -281,7 +303,7 @@ function buildMessage(row: ClaimedRow, token: string): ExpoPushMessage {
       row.category === NotificationCategory.transactions ? 'high' : 'default',
     data: {
       type: row.type,
-      url: notificationUrl(row.category),
+      url,
       notificationId: row.id,
     },
   };

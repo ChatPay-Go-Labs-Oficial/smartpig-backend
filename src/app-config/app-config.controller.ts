@@ -70,6 +70,10 @@ export class AppConfigController {
   @ApiOperation({
     summary:
       'Update min/recommended version and store URL for a platform (admin only)',
+    description:
+      'Não dispara push. Para avisar quem está numa versão antiga, use ' +
+      'POST /admin/notifications/broadcast com type APP_UPDATE_AVAILABLE e ' +
+      'maxAppVersion igual ao novo latestVersion.',
   })
   async updateVersion(
     @Param('platform') platform: string,
