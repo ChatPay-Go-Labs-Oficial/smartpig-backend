@@ -56,6 +56,19 @@ describe('NotificationsService.notify', () => {
     });
   });
 
+  it('devolve true quando gravou (o watcher só avança o cursor assim)', async () => {
+    const { service, prisma } = createService();
+    prisma.user.findUnique.mockResolvedValue(userWith(null));
+
+    await expect(
+      service.notify({
+        userId: 'u1',
+        type: 'TRANSFER_RECEIVED',
+        dedupeKey: 'payment:9',
+      }),
+    ).resolves.toBe(true);
+  });
+
   it('usa o texto detalhado quando showDetails está ligado', async () => {
     const { service, prisma } = createService();
     prisma.user.findUnique.mockResolvedValue(
@@ -161,7 +174,7 @@ describe('NotificationsService.notify', () => {
         type: 'KYC_APPROVED',
         dedupeKey: 'kyc:r1:APPROVED',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(true);
     expect(logger.error).not.toHaveBeenCalled();
   });
 
@@ -175,7 +188,7 @@ describe('NotificationsService.notify', () => {
         type: 'KYC_APPROVED',
         dedupeKey: 'kyc:r1:APPROVED',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(logger.error).toHaveBeenCalled();
   });
 

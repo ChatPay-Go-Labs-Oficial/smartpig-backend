@@ -51,7 +51,13 @@ export class NotificationsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async notify(input: NotifyInput): Promise<void> {
+  /**
+   * Devolve true quando o evento está resolvido (gravado, duplicado ou
+   * descartado de propósito) e false quando um erro impediu gravar. Quem não
+   * precisa saber ignora o retorno; o IncomingPaymentsJob usa para só avançar o
+   * cursor depois de a notificação estar na outbox.
+   */
+  async notify(input: NotifyInput): Promise<boolean> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: input.userId },
@@ -59,7 +65,7 @@ export class NotificationsService {
       });
       // Conta excluída não recebe nada: o scrub já apagou os devices, e a
       // outbox não deve voltar a acumular dados dela.
-      if (!user || user.deletedAt) return;
+      if (!user || user.deletedAt) return true;
 
       const prefs = toPreferences(user.notificationPrefs);
       const category = NOTIFICATION_CATEGORY[input.type];
@@ -84,6 +90,7 @@ export class NotificationsService {
           error: enabled ? null : `Categoria ${category} desligada`,
         },
       });
+      return true;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -92,13 +99,14 @@ export class NotificationsService {
         // Mesmo evento visto de novo (webhook repetido, sync manual depois do
         // webhook): o dedupeKey já garantiu um único push.
         this.logger.debug(`notify ignorado: ${input.dedupeKey} já existe`);
-        return;
+        return true;
       }
       this.logger.error(
         `notify falhou (${input.type}, ${input.dedupeKey}): ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return false;
     }
   }
 

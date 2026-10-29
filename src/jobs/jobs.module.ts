@@ -16,6 +16,8 @@ import { AccountDeletionModule } from '../account-deletion/account-deletion.modu
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PushDispatchJob } from './push-dispatch.job';
 import { PushReceiptsJob } from './push-receipts.job';
+import { IncomingPaymentsJob } from './incoming-payments.job';
+import { HorizonPaymentsClient } from './horizon-payments.client';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { PushReceiptsJob } from './push-receipts.job';
     ConversionRecoveryJob,
     PushDispatchJob,
     PushReceiptsJob,
+    IncomingPaymentsJob,
+    HorizonPaymentsClient,
   ],
 })
 export class JobsModule {}
