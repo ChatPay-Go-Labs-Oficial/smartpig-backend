@@ -3,6 +3,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import { TransactionStatus, IntentStatus, IntentType } from '@prisma/client';
 import { DefindexService } from '../defindex/defindex.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import type { NotificationDetails } from '../notifications/notification-copy';
 
 /**
  * Reconciles SUBMITTED intents that haven't been confirmed yet.
@@ -15,6 +17,7 @@ export class ReconciliationJob {
   constructor(
     private readonly prisma: PrismaService,
     private readonly defindex: DefindexService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -23,6 +26,7 @@ export class ReconciliationJob {
       where: { status: TransactionStatus.PENDING },
       select: {
         id: true,
+        userId: true,
         txHash: true,
         intentType: true,
         depositIntentId: true,
@@ -40,7 +44,8 @@ export class ReconciliationJob {
       try {
         // Re-submit the stored signed XDR to check status.
         // DeFindex SDK sendTransaction is idempotent for already-confirmed txs.
-        const signedXdr = await this.getSignedXdr(tx);
+        const intent = await this.getIntent(tx);
+        const signedXdr = intent?.signedXdr;
         if (!signedXdr) continue;
 
         const result = await this.defindex.submitSignedTransaction({
@@ -68,6 +73,17 @@ export class ReconciliationJob {
                 : this.prisma.$executeRaw`SELECT 1`,
           ]);
           this.logger.log(`Tx ${tx.txHash} confirmed`);
+          // Só linhas PENDING entram aqui, então isto é sempre a transição.
+          await this.notifications.notify({
+            userId: tx.userId,
+            type:
+              tx.intentType === IntentType.DEPOSIT
+                ? 'VAULT_DEPOSIT_CONFIRMED'
+                : 'VAULT_WITHDRAWAL_CONFIRMED',
+            dedupeKey: `vault-tx:${tx.id}:CONFIRMED`,
+            data: { transactionRecordId: tx.id },
+            details: intent.details,
+          });
         }
       } catch (err) {
         this.logger.warn(
@@ -77,24 +93,43 @@ export class ReconciliationJob {
     }
   }
 
-  private async getSignedXdr(tx: {
+  /** XDR assinado para reenviar, e valor/ativo para o texto do push. */
+  private async getIntent(tx: {
     intentType: IntentType;
     depositIntentId: string | null;
     withdrawalIntentId: string | null;
-  }): Promise<string | null> {
+  }): Promise<{
+    signedXdr: string | null;
+    details: NotificationDetails;
+  } | null> {
     if (tx.intentType === IntentType.DEPOSIT && tx.depositIntentId) {
       const intent = await this.prisma.depositIntent.findUnique({
         where: { id: tx.depositIntentId },
-        select: { signedXdr: true },
+        select: { signedXdr: true, amount: true, assetSymbol: true },
       });
-      return intent?.signedXdr ?? null;
+      if (!intent) return null;
+      return {
+        signedXdr: intent.signedXdr,
+        details: { amount: intent.amount, asset: intent.assetSymbol },
+      };
     }
     if (tx.withdrawalIntentId) {
       const intent = await this.prisma.withdrawalIntent.findUnique({
         where: { id: tx.withdrawalIntentId },
-        select: { signedXdr: true },
+        select: {
+          signedXdr: true,
+          requestedAmount: true,
+          vault: { select: { assetSymbol: true } },
+        },
       });
-      return intent?.signedXdr ?? null;
+      if (!intent) return null;
+      return {
+        signedXdr: intent.signedXdr,
+        details: {
+          amount: intent.requestedAmount,
+          asset: intent.vault.assetSymbol,
+        },
+      };
     }
     return null;
   }

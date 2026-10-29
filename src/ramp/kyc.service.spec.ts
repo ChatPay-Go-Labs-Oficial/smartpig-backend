@@ -5,6 +5,9 @@ import { BlindPayKycStatus } from '@prisma/client';
 import { RampKycService } from './kyc.service';
 import { BlindPayService } from '../blindpay/blindpay.service';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+const mockNotifications = { notify: jest.fn().mockResolvedValue(undefined) };
 
 const mockBlindPay = {
   getReceiver: jest.fn(),
@@ -70,6 +73,7 @@ describe('RampKycService', () => {
         { provide: BlindPayService, useValue: mockBlindPay },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: { get: () => 'testnet' } },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
 
@@ -77,6 +81,26 @@ describe('RampKycService', () => {
   });
 
   describe('getKycStatus', () => {
+    it('notifica KYC_REJECTED quando o poll vê a recusa pela primeira vez', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'loc_1',
+        userId: 'user_1',
+        blindpayReceiverId: 're_1',
+        kycStatus: BlindPayKycStatus.VERIFYING,
+      });
+      mockBlindPay.getReceiver.mockResolvedValue({ kyc_status: 'rejected' });
+
+      await service.getKycStatus('user_1');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user_1',
+          type: 'KYC_REJECTED',
+          dedupeKey: 'kyc:re_1:REJECTED',
+        }),
+      );
+    });
+
     it('marks the user as onboarded only once BlindPay approves', async () => {
       mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
         id: 'loc_1',
@@ -360,6 +384,51 @@ describe('RampKycService', () => {
         where: { id: 'user_1' },
         data: { isOnboarded: true },
       });
+    });
+
+    it('notifica KYC_APPROVED na transição, depois de gravar', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'loc_1',
+        userId: 'user_1',
+        kycStatus: BlindPayKycStatus.VERIFYING,
+      });
+
+      await service.applyWebhookStatus('re_1', 'approved', null);
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user_1',
+          type: 'KYC_APPROVED',
+          dedupeKey: 'kyc:re_1:APPROVED',
+        }),
+      );
+      const persistedAt = mockPrisma.$transaction.mock.invocationCallOrder[0];
+      const notifiedAt = mockNotifications.notify.mock.invocationCallOrder[0];
+      expect(notifiedAt).toBeGreaterThan(persistedAt);
+    });
+
+    it('não notifica quando o status já era APPROVED', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'loc_1',
+        userId: 'user_1',
+        kycStatus: BlindPayKycStatus.APPROVED,
+      });
+
+      await service.applyWebhookStatus('re_1', 'approved', null);
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('não notifica status intermediário', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'loc_1',
+        userId: 'user_1',
+        kycStatus: BlindPayKycStatus.VERIFYING,
+      });
+
+      await service.applyWebhookStatus('re_1', 'compliance_request', null);
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
     });
 
     it('ignores webhooks for customers it does not know', async () => {

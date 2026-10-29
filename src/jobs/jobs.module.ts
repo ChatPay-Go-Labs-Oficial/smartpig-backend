@@ -13,6 +13,11 @@ import { AccountDeletionCleanupJob } from './account-deletion-cleanup.job';
 import { ConversionRecoveryJob } from './conversion-recovery.job';
 import { PricingModule } from '../pricing/pricing.module';
 import { AccountDeletionModule } from '../account-deletion/account-deletion.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { PushDispatchJob } from './push-dispatch.job';
+import { PushReceiptsJob } from './push-receipts.job';
+import { IncomingPaymentsJob } from './incoming-payments.job';
+import { HorizonPaymentsClient } from './horizon-payments.client';
 
 @Module({
   imports: [
@@ -21,6 +26,7 @@ import { AccountDeletionModule } from '../account-deletion/account-deletion.modu
     DefindexModule,
     GiftsModule,
     PricingModule,
+    NotificationsModule,
   ],
   providers: [
     ReconciliationJob,
@@ -32,6 +38,10 @@ import { AccountDeletionModule } from '../account-deletion/account-deletion.modu
     GiftExpiryJob,
     AccountDeletionCleanupJob,
     ConversionRecoveryJob,
+    PushDispatchJob,
+    PushReceiptsJob,
+    IncomingPaymentsJob,
+    HorizonPaymentsClient,
   ],
 })
 export class JobsModule {}

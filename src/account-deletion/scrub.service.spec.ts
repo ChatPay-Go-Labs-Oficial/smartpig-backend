@@ -96,6 +96,11 @@ function createService(
       deleteMany: record('portfolioSnapshot', 'deleteMany'),
     },
     refreshToken: { deleteMany: record('refreshToken', 'deleteMany') },
+    pushDevice: { deleteMany: record('pushDevice', 'deleteMany') },
+    notification: { deleteMany: record('notification', 'deleteMany') },
+    notificationPreference: {
+      deleteMany: record('notificationPreference', 'deleteMany'),
+    },
     user: { update: record('user', 'update') },
   };
 
@@ -411,6 +416,24 @@ describe('ScrubService', () => {
         });
       }
     });
+
+    it('deletes push devices, notifications and notification preferences', async () => {
+      // O token de push identifica o aparelho, e o texto das notificações pode
+      // citar valor e @username. Nada disso tem valor de trilha financeira.
+      const { service, tx } = createService();
+
+      await service.scrub(USER);
+
+      for (const model of [
+        tx.pushDevice,
+        tx.notification,
+        tx.notificationPreference,
+      ]) {
+        expect(model.deleteMany).toHaveBeenCalledWith({
+          where: { userId: USER },
+        });
+      }
+    });
   });
 
   describe('what is never deleted', () => {
@@ -427,7 +450,10 @@ describe('ScrubService', () => {
       expect(deletes.map((c) => c.model).sort()).toEqual([
         'experienceAccount',
         'experienceXpLedgerEntry',
+        'notification',
+        'notificationPreference',
         'portfolioSnapshot',
+        'pushDevice',
         'refreshToken',
         'userExperienceRewardUnlock',
         'userLearningModuleProgress',
