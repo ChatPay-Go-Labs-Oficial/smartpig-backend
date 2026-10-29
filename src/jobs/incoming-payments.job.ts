@@ -107,6 +107,10 @@ export class IncomingPaymentsJob {
     try {
       const wallets = await this.nextWallets();
       for (const wallet of wallets) {
+        // O /auth/wallet ainda aceita qualquer string como endereço, e há
+        // carteiras assim no banco. Sem chave G válida não há o que consultar
+        // no Horizon; avisar a cada minuto só enche o log.
+        if (!StrKey.isValidEd25519PublicKey(wallet.stellarAddress)) continue;
         try {
           await this.processWallet(wallet, usdc);
         } catch (error) {

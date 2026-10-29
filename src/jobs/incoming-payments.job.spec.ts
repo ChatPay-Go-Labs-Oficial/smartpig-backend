@@ -339,6 +339,28 @@ describe('IncomingPaymentsJob', () => {
     );
   });
 
+  it('pula carteira com endereço inválido sem consultar o Horizon nem logar warn', async () => {
+    // O /auth/wallet aceita qualquer string: staging tem carteiras como "n..." (9 chars).
+    const broken: Wallet = { ...WALLET, id: 'w0', stellarAddress: 'nonsense1' };
+    const { job, horizon, logger, notifications } = createJob({
+      wallets: [broken, WALLET],
+      pages: [[payment('p1', { from: STRANGER, to: ME })]],
+    });
+
+    await job.watch();
+
+    expect(horizon.paymentsAfter).toHaveBeenCalledTimes(1);
+    expect(horizon.paymentsAfter).toHaveBeenCalledWith(
+      ME,
+      ...([expect.anything(), expect.anything()] as unknown[]),
+    );
+    expect(horizon.latestCursor).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', dedupeKey: 'payment:p1' }),
+    );
+  });
+
   it('não roda com INCOMING_PAYMENTS_WATCHER_ENABLED=false', async () => {
     const { job, prisma } = createJob({
       wallets: [WALLET],
