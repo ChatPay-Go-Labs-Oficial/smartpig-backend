@@ -24,6 +24,7 @@ import { ConversionsModule } from './conversions/conversions.module';
 import { PricingModule } from './pricing/pricing.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { LearningModule } from './learning/learning.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { LearningModule } from './learning/learning.module';
     EtherfuseRampModule,
     AppConfigModule,
     AccountDeletionModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

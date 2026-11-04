@@ -6,6 +6,9 @@ import { PrismaService } from '../infra/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, RampStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
+
+const mockNotifications = { notify: jest.fn().mockResolvedValue(undefined) };
 
 const mockBlindPayService = {
   createReceiver: jest.fn(),
@@ -90,6 +93,7 @@ describe('RampService', () => {
         { provide: StellarService, useValue: mockStellarService },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfig },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
 
@@ -515,6 +519,80 @@ describe('RampService', () => {
       );
     });
 
+    it('notifica ONRAMP_COMPLETED depois de persistir a transição', async () => {
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.AWAITING_PAYMENT,
+        amountUsdc: new Prisma.Decimal('50'),
+      });
+      const order: string[] = [];
+      mockPrisma.onrampTransaction.update.mockImplementation(() => {
+        order.push('update');
+        return Promise.resolve({});
+      });
+      mockNotifications.notify.mockImplementation(() => {
+        order.push('notify');
+        return Promise.resolve();
+      });
+
+      await service.handlePayinWebhook('pi_1', 'completed');
+
+      expect(order).toEqual(['update', 'notify']);
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          type: 'ONRAMP_COMPLETED',
+          dedupeKey: 'onramp:or1:COMPLETED',
+          details: expect.objectContaining({ asset: 'USDC' }),
+        }),
+      );
+    });
+
+    it('não notifica quando o status já era o final', async () => {
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.COMPLETED,
+      });
+      mockPrisma.onrampTransaction.update.mockResolvedValue({});
+
+      await service.handlePayinWebhook('pi_1', 'completed');
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('não notifica status intermediário', async () => {
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.AWAITING_PAYMENT,
+      });
+      mockPrisma.onrampTransaction.update.mockResolvedValue({});
+
+      await service.handlePayinWebhook('pi_1', 'processing');
+
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('refunded vira ONRAMP_FAILED', async () => {
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.PROCESSING,
+      });
+      mockPrisma.onrampTransaction.update.mockResolvedValue({});
+
+      await service.handlePayinWebhook('pi_1', 'refunded');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ONRAMP_FAILED',
+          dedupeKey: 'onramp:or1:FAILED',
+        }),
+      );
+    });
+
     it('does nothing if payin not found in DB', async () => {
       mockPrisma.onrampTransaction.findUnique.mockResolvedValue(null);
       await service.handlePayinWebhook('pi_unknown', 'completed');
@@ -532,6 +610,70 @@ describe('RampService', () => {
       expect(mockPrisma.offrampTransaction.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ status: RampStatus.FAILED }),
+        }),
+      );
+    });
+
+    it('notifica OFFRAMP_COMPLETED na transição', async () => {
+      mockPrisma.offrampTransaction.findUnique.mockResolvedValue({
+        id: 'of1',
+        userId: 'u1',
+        status: RampStatus.PROCESSING,
+        amountUsdc: new Prisma.Decimal('10'),
+      });
+      mockPrisma.offrampTransaction.update.mockResolvedValue({});
+
+      await service.handlePayoutWebhook('po_1', 'completed');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          type: 'OFFRAMP_COMPLETED',
+          dedupeKey: 'offramp:of1:COMPLETED',
+        }),
+      );
+    });
+  });
+
+  describe('sync manual', () => {
+    it('syncOfframpFromBlindPay notifica a transição para FAILED', async () => {
+      mockPrisma.offrampTransaction.findFirst.mockResolvedValue({
+        id: 'of1',
+        userId: 'u1',
+        status: RampStatus.PROCESSING,
+        blindpayPayoutId: 'po_1',
+      });
+      mockBlindPayService.getPayout.mockResolvedValue({ status: 'failed' });
+      mockPrisma.offrampTransaction.update.mockResolvedValue({});
+      mockPrisma.offrampTransaction.findUnique.mockResolvedValue({ id: 'of1' });
+
+      await service.syncOfframpFromBlindPay('of1', 'u1');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'OFFRAMP_FAILED',
+          dedupeKey: 'offramp:of1:FAILED',
+        }),
+      );
+    });
+
+    it('syncOnrampFromBlindPay notifica a transição para COMPLETED', async () => {
+      mockPrisma.onrampTransaction.findFirst.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.AWAITING_PAYMENT,
+        blindpayPayinId: 'pi_1',
+      });
+      mockBlindPayService.getPayin.mockResolvedValue({ status: 'completed' });
+      mockPrisma.onrampTransaction.update.mockResolvedValue({});
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({ id: 'or1' });
+
+      await service.syncOnrampFromBlindPay('or1', 'u1');
+
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ONRAMP_COMPLETED',
+          dedupeKey: 'onramp:or1:COMPLETED',
         }),
       );
     });

@@ -24,7 +24,8 @@ import type {
   BlindPayPayinQuote,
   CreatePayinQuoteParams,
 } from '../blindpay/dto/blindpay.dto';
-import { RampStatus } from '@prisma/client';
+import { Prisma, RampStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { stellarNetwork } from './ramp-network';
 
 @Injectable()
@@ -36,6 +37,7 @@ export class RampService {
     private readonly blindpay: BlindPayService,
     private readonly stellarService: StellarService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private get network(): 'stellar' | 'stellar_testnet' {
@@ -525,6 +527,7 @@ export class RampService {
         },
       });
       this.logger.log(`Onramp ${txn.id} synced: ${txn.status} → ${status}`);
+      await this.notifyRampTransition('onramp', txn, status);
     }
 
     return this.prisma.onrampTransaction.findUnique({ where: { id: txn.id } });
@@ -757,6 +760,7 @@ export class RampService {
         },
       });
       this.logger.log(`Offramp ${txn.id} synced: ${txn.status} → ${status}`);
+      await this.notifyRampTransition('offramp', txn, status);
     }
 
     return this.prisma.offrampTransaction.findUnique({ where: { id: txn.id } });
@@ -784,6 +788,7 @@ export class RampService {
       },
     });
     this.logger.log(`Onramp ${txn.id} updated to ${status}`);
+    await this.notifyRampTransition('onramp', txn, status);
   }
 
   async handlePayoutWebhook(payoutId: string, bpStatus: string) {
@@ -806,6 +811,42 @@ export class RampService {
       },
     });
     this.logger.log(`Offramp ${txn.id} updated to ${status}`);
+    await this.notifyRampTransition('offramp', txn, status);
+  }
+
+  /**
+   * Push de conclusão/falha, só na transição para um status final e sempre
+   * depois de o status estar gravado. O webhook e o sync manual podem ver a
+   * mesma transição; o dedupeKey garante um único push. REFUNDED conta como
+   * falha para o usuário: o dinheiro voltou e o depósito não aconteceu.
+   */
+  private async notifyRampTransition(
+    kind: 'onramp' | 'offramp',
+    txn: {
+      id: string;
+      userId: string;
+      status: RampStatus;
+      amountUsdc?: Prisma.Decimal | null;
+    },
+    next: RampStatus,
+  ): Promise<void> {
+    if (next === txn.status) return;
+    const outcome =
+      next === RampStatus.COMPLETED
+        ? 'COMPLETED'
+        : next === RampStatus.FAILED || next === RampStatus.REFUNDED
+          ? 'FAILED'
+          : null;
+    if (!outcome) return;
+
+    const prefix = kind === 'onramp' ? 'ONRAMP' : 'OFFRAMP';
+    await this.notifications.notify({
+      userId: txn.userId,
+      type: `${prefix}_${outcome}`,
+      dedupeKey: `${kind}:${txn.id}:${outcome}`,
+      data: { [`${kind}Id`]: txn.id },
+      details: { amount: txn.amountUsdc, asset: 'USDC' },
+    });
   }
 
   private mapPayinStatus(bpStatus: string): RampStatus {

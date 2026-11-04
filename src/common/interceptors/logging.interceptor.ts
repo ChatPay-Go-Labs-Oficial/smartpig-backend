@@ -8,6 +8,7 @@ import {
 import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { redactRequestUrl } from '../redact-url';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -21,7 +22,7 @@ export class LoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         const ms = Date.now() - start;
-        this.logger.log(`${method} ${url} — ${ms}ms`);
+        this.logger.log(`${method} ${redactRequestUrl(url)} — ${ms}ms`);
       }),
     );
   }

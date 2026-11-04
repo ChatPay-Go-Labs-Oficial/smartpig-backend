@@ -3,10 +3,11 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
 
-function run(exception: unknown) {
+function run(exception: unknown, url = '/deposits') {
   const json = jest.fn<void, [Record<string, unknown>]>();
   const status = jest
     .fn<{ json: typeof json }, [number]>()
@@ -14,7 +15,7 @@ function run(exception: unknown) {
   const host = {
     switchToHttp: () => ({
       getResponse: () => ({ status }),
-      getRequest: () => ({ method: 'POST', url: '/deposits' }),
+      getRequest: () => ({ method: 'POST', url }),
     }),
   };
 
@@ -27,6 +28,22 @@ function run(exception: unknown) {
 }
 
 describe('HttpExceptionFilter', () => {
+  it('não devolve nem loga o token Expo do path', () => {
+    const token = encodeURIComponent('ExponentPushToken[abcdefghijklmnop]');
+    const warn = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+
+    const { body } = run(
+      new BadRequestException('bad'),
+      `/notifications/devices/${token}`,
+    );
+
+    expect(body.path).toBe('/notifications/devices/[token]');
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain('abcdefghijklmnop');
+    warn.mockRestore();
+  });
+
   it('shapes a plain HttpException', () => {
     const { status, body } = run(new BadRequestException('bad input'));
 

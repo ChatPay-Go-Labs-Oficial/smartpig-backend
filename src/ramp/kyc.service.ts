@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { BlindPayKycStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../infra/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BlindPayService } from '../blindpay/blindpay.service';
 import type {
   BlindPayRfi,
@@ -56,6 +57,7 @@ export class RampKycService {
     private readonly prisma: PrismaService,
     private readonly blindpay: BlindPayService,
     private readonly config: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ─── Status ────────────────────────────────────────────────────────────────
@@ -85,6 +87,12 @@ export class RampKycService {
       warnings,
       rejectionReason,
     });
+    await this.notifyKycTransition(
+      userId,
+      receiver.blindpayReceiverId,
+      receiver.kycStatus,
+      kycStatus,
+    );
 
     // Só vale gastar a chamada extra quando o status indica RFI aberto.
     const rfi = RFI_STATUSES.includes(kycStatus)
@@ -147,7 +155,7 @@ export class RampKycService {
   ): Promise<void> {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
       where: { blindpayReceiverId },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, kycStatus: true },
     });
     if (!receiver) {
       // Customer criado fora do app, ou já arquivado por um reenvio. Nada a fazer.
@@ -165,6 +173,40 @@ export class RampKycService {
         kycStatus === BlindPayKycStatus.REJECTED
           ? this.extractReason(warnings)
           : null,
+    });
+    await this.notifyKycTransition(
+      receiver.userId,
+      blindpayReceiverId,
+      receiver.kycStatus,
+      kycStatus,
+    );
+  }
+
+  /**
+   * Push de aprovação/recusa, só na transição e depois de gravar. O webhook e o
+   * poll do app podem ver a mesma mudança; o dedupeKey leva o id do customer
+   * na BlindPay, então um reenvio (customer novo) recusado de novo também avisa.
+   */
+  private async notifyKycTransition(
+    userId: string,
+    blindpayReceiverId: string,
+    previous: BlindPayKycStatus | undefined,
+    next: BlindPayKycStatus,
+  ): Promise<void> {
+    if (previous === next) return;
+    const type =
+      next === BlindPayKycStatus.APPROVED
+        ? 'KYC_APPROVED'
+        : next === BlindPayKycStatus.REJECTED
+          ? 'KYC_REJECTED'
+          : null;
+    if (!type) return;
+
+    await this.notifications.notify({
+      userId,
+      type,
+      dedupeKey: `kyc:${blindpayReceiverId}:${next}`,
+      data: { blindpayReceiverId },
     });
   }
 
