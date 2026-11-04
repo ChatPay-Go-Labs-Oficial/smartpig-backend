@@ -138,7 +138,8 @@ describe('PushDispatchJob', () => {
         title: 'Saque concluído',
         body: 'Seu saque foi enviado para a sua conta.',
         sound: 'default',
-        channelId: 'transactions',
+        channelId: 'movimentacoes',
+        priority: 'high',
         data: {
           type: 'OFFRAMP_COMPLETED',
           url: '/wallet/history',
@@ -203,7 +204,8 @@ describe('PushDispatchJob', () => {
     expect(expo.send).toHaveBeenCalledWith([
       expect.objectContaining({
         to: 'ExponentPushToken[ios-old]',
-        channelId: 'updates',
+        channelId: 'novidades',
+        priority: 'default',
         data: {
           type: 'APP_UPDATE_AVAILABLE',
           url: '/settings',

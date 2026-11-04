@@ -42,6 +42,37 @@ export const NOTIFICATION_CATEGORY: Record<
   ANNOUNCEMENT: NotificationCategory.marketing,
 };
 
+/**
+ * Canais do Android que o app cria (`lib/notifications/config.ts` no app).
+ * Separado da categoria: a categoria é a preferência que a pessoa liga e
+ * desliga; o canal é onde o Android mostra e silencia. Canal que o app não
+ * criou faz o push cair num canal genérico, então os ids precisam bater.
+ */
+export const ANDROID_CHANNEL = {
+  movimentacoes: 'movimentacoes',
+  conta: 'conta',
+  chamaTrilha: 'chama-trilha',
+  novidades: 'novidades',
+} as const;
+export type AndroidChannel =
+  (typeof ANDROID_CHANNEL)[keyof typeof ANDROID_CHANNEL];
+
+export const NOTIFICATION_CHANNEL: Record<NotificationType, AndroidChannel> = {
+  TRANSFER_RECEIVED: ANDROID_CHANNEL.movimentacoes,
+  ONRAMP_COMPLETED: ANDROID_CHANNEL.movimentacoes,
+  ONRAMP_FAILED: ANDROID_CHANNEL.movimentacoes,
+  OFFRAMP_COMPLETED: ANDROID_CHANNEL.movimentacoes,
+  OFFRAMP_FAILED: ANDROID_CHANNEL.movimentacoes,
+  VAULT_DEPOSIT_CONFIRMED: ANDROID_CHANNEL.movimentacoes,
+  VAULT_WITHDRAWAL_CONFIRMED: ANDROID_CHANNEL.movimentacoes,
+  GIFT_CLAIMED: ANDROID_CHANNEL.movimentacoes,
+  GIFT_EXPIRING: ANDROID_CHANNEL.movimentacoes,
+  KYC_APPROVED: ANDROID_CHANNEL.conta,
+  KYC_REJECTED: ANDROID_CHANNEL.conta,
+  APP_UPDATE_AVAILABLE: ANDROID_CHANNEL.novidades,
+  ANNOUNCEMENT: ANDROID_CHANNEL.novidades,
+};
+
 /** Rota do expo-router que o app abre ao tocar no push. */
 export function notificationUrl(category: NotificationCategory): string {
   return category === NotificationCategory.transactions

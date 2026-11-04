@@ -1,6 +1,8 @@
 import { NotificationCategory, NotificationType } from '@prisma/client';
 import {
+  ANDROID_CHANNEL,
   NOTIFICATION_CATEGORY,
+  NOTIFICATION_CHANNEL,
   buildNotificationCopy,
   formatAmount,
   notificationUrl,
@@ -29,6 +31,16 @@ describe('notification copy', () => {
     expect(NOTIFICATION_CATEGORY.ANNOUNCEMENT).toBe(
       NotificationCategory.marketing,
     );
+  });
+
+  it('manda cada tipo para um canal que o app cria', () => {
+    const channels = new Set(Object.values(ANDROID_CHANNEL));
+    for (const type of Object.values(NotificationType)) {
+      expect(channels.has(NOTIFICATION_CHANNEL[type])).toBe(true);
+    }
+    expect(NOTIFICATION_CHANNEL.OFFRAMP_COMPLETED).toBe('movimentacoes');
+    expect(NOTIFICATION_CHANNEL.KYC_REJECTED).toBe('conta');
+    expect(NOTIFICATION_CHANNEL.ANNOUNCEMENT).toBe('novidades');
   });
 
   it('usa o texto genérico quando não há detalhes', () => {
