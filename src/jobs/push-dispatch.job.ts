@@ -1,18 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
-import {
-  NotificationCategory,
-  NotificationStatus,
-  type Notification,
-} from '@prisma/client';
+import { NotificationStatus, type Notification } from '@prisma/client';
 import type { ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 import { PrismaService } from '../infra/prisma/prisma.service';
 import {
   ExpoPushClient,
   redactPushTokens,
 } from '../notifications/expo-push.client';
-import { notificationUrl } from '../notifications/notification-copy';
+import {
+  ANDROID_CHANNEL,
+  NOTIFICATION_CHANNEL,
+  notificationUrl,
+} from '../notifications/notification-copy';
 import {
   deviceMatchesTarget,
   readPushData,
@@ -293,14 +293,18 @@ function buildMessage(
   token: string,
   url: string,
 ): ExpoPushMessage {
+  const channel = NOTIFICATION_CHANNEL[row.type];
   return {
     to: token,
     title: row.title,
     body: row.body,
     sound: 'default',
-    channelId: row.category,
+    channelId: channel,
     priority:
-      row.category === NotificationCategory.transactions ? 'high' : 'default',
+      channel === ANDROID_CHANNEL.movimentacoes ||
+      channel === ANDROID_CHANNEL.conta
+        ? 'high'
+        : 'default',
     data: {
       type: row.type,
       url,
