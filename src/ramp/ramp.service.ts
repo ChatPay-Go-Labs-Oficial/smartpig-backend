@@ -28,6 +28,14 @@ import { Prisma, RampStatus } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { stellarNetwork } from './ramp-network';
 
+/**
+ * Unidade do `amountUsdc` gravado em cada direção. O onramp guarda o
+ * `receiver_amount` da cotação da BlindPay, em centavos; o offramp guarda o
+ * valor do DTO, em micro-USDC. Quem mostra o valor divide por estas escalas.
+ */
+const ONRAMP_USDC_SCALE = 100;
+const OFFRAMP_USDC_SCALE = 1_000_000;
+
 @Injectable()
 export class RampService {
   private readonly logger = new Logger(RampService.name);
@@ -474,7 +482,8 @@ export class RampService {
         id: transaction.id,
         direction: 'ONRAMP' as const,
         amountBrl: transaction.amountBrl.div(100).toFixed(2),
-        amountUsdc: transaction.amountUsdc?.div(100).toFixed(2) ?? null,
+        amountUsdc:
+          transaction.amountUsdc?.div(ONRAMP_USDC_SCALE).toFixed(2) ?? null,
         status: transaction.status,
         completedAt: transaction.completedAt,
         createdAt: transaction.createdAt,
@@ -483,7 +492,7 @@ export class RampService {
         id: transaction.id,
         direction: 'OFFRAMP' as const,
         amountBrl: transaction.amountBrl?.div(100).toFixed(2) ?? null,
-        amountUsdc: transaction.amountUsdc.div(1_000_000).toFixed(6),
+        amountUsdc: transaction.amountUsdc.div(OFFRAMP_USDC_SCALE).toFixed(6),
         status: transaction.status,
         completedAt: transaction.completedAt,
         createdAt: transaction.createdAt,
@@ -840,12 +849,13 @@ export class RampService {
     if (!outcome) return;
 
     const prefix = kind === 'onramp' ? 'ONRAMP' : 'OFFRAMP';
+    const scale = kind === 'onramp' ? ONRAMP_USDC_SCALE : OFFRAMP_USDC_SCALE;
     await this.notifications.notify({
       userId: txn.userId,
       type: `${prefix}_${outcome}`,
       dedupeKey: `${kind}:${txn.id}:${outcome}`,
       data: { [`${kind}Id`]: txn.id },
-      details: { amount: txn.amountUsdc, asset: 'USDC' },
+      details: { amount: txn.amountUsdc?.div(scale), asset: 'USDC' },
     });
   }
 
