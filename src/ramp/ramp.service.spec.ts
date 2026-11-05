@@ -524,7 +524,8 @@ describe('RampService', () => {
         id: 'or1',
         userId: 'u1',
         status: RampStatus.AWAITING_PAYMENT,
-        amountUsdc: new Prisma.Decimal('50'),
+        // Centavos, como o receiver_amount da cotação: 50 USDC.
+        amountUsdc: new Prisma.Decimal('5000'),
       });
       const order: string[] = [];
       mockPrisma.onrampTransaction.update.mockImplementation(() => {
@@ -544,7 +545,7 @@ describe('RampService', () => {
           userId: 'u1',
           type: 'ONRAMP_COMPLETED',
           dedupeKey: 'onramp:or1:COMPLETED',
-          details: expect.objectContaining({ asset: 'USDC' }),
+          details: { amount: new Prisma.Decimal('50'), asset: 'USDC' },
         }),
       );
     });
@@ -619,7 +620,8 @@ describe('RampService', () => {
         id: 'of1',
         userId: 'u1',
         status: RampStatus.PROCESSING,
-        amountUsdc: new Prisma.Decimal('10'),
+        // Micro-USDC, como o DTO do saque: 10 USDC.
+        amountUsdc: new Prisma.Decimal('10000000'),
       });
       mockPrisma.offrampTransaction.update.mockResolvedValue({});
 
@@ -630,6 +632,7 @@ describe('RampService', () => {
           userId: 'u1',
           type: 'OFFRAMP_COMPLETED',
           dedupeKey: 'offramp:of1:COMPLETED',
+          details: { amount: new Prisma.Decimal('10'), asset: 'USDC' },
         }),
       );
     });
