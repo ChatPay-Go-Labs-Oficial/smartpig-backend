@@ -24,6 +24,13 @@ export interface CreateReceiverParams {
   id_doc_back_file?: string;
   /** Accepted Terms of Service ID — obtain via POST /ramp/tos */
   tos_id?: string;
+  // Enhanced KYC fields. Os enums desses campos não são documentados pela
+  // BlindPay — seguem como string e a própria API valida.
+  source_of_funds_doc_type?: string;
+  source_of_funds_doc_file?: string;
+  purpose_of_transactions?: string;
+  /** Obrigatório quando purpose_of_transactions = 'other'. */
+  purpose_of_transactions_explanation?: string;
 }
 
 /** Valores de kyc_status devolvidos pela BlindPay. */
@@ -97,12 +104,52 @@ export type BlindPayRfiResponseBody = Record<string, string | string[]>;
 
 // ─── Bank Accounts ────────────────────────────────────────────────────────────
 
-/** receiver_id is passed in the URL path, not in the body */
-export interface CreateBankAccountParams {
+export interface CreatePixBankAccountParams {
   type: 'pix';
   name: string;
   pix_key?: string;
 }
+
+/** MX (MXN). spei_institution_code só é exigido para debitcard/phonenum. */
+export interface CreateSpeiBankAccountParams {
+  type: 'spei_bitso';
+  name: string;
+  beneficiary_name: string;
+  /** Enum não documentado; valores conhecidos: clabe, debitcard, phonenum. */
+  spei_protocol: string;
+  spei_clabe: string;
+  spei_institution_code?: string;
+}
+
+/** AR (ARS). */
+export interface CreateTransfersBankAccountParams {
+  type: 'transfers_bitso';
+  name: string;
+  beneficiary_name: string;
+  transfers_type: 'CVU' | 'CBU' | 'ALIAS';
+  transfers_account: string;
+}
+
+/** CO (COP). */
+export interface CreateAchCopBankAccountParams {
+  type: 'ach_cop_bitso';
+  name: string;
+  ach_cop_beneficiary_first_name: string;
+  ach_cop_beneficiary_last_name: string;
+  ach_cop_document_id: string;
+  ach_cop_document_type: 'CC' | 'CE' | 'NIT' | 'PASS' | 'PEP';
+  ach_cop_email: string;
+  ach_cop_bank_code: string;
+  ach_cop_bank_account: string;
+  account_type: 'checking' | 'saving';
+}
+
+/** receiver_id is passed in the URL path, not in the body */
+export type CreateBankAccountParams =
+  | CreatePixBankAccountParams
+  | CreateSpeiBankAccountParams
+  | CreateTransfersBankAccountParams
+  | CreateAchCopBankAccountParams;
 
 export interface BlindPayBankAccount {
   id: string;
@@ -110,6 +157,20 @@ export interface BlindPayBankAccount {
   type: string;
   name: string;
   pix_key: string | null;
+  beneficiary_name?: string | null;
+  spei_protocol?: string | null;
+  spei_clabe?: string | null;
+  spei_institution_code?: string | null;
+  transfers_type?: string | null;
+  transfers_account?: string | null;
+  ach_cop_beneficiary_first_name?: string | null;
+  ach_cop_beneficiary_last_name?: string | null;
+  ach_cop_document_id?: string | null;
+  ach_cop_document_type?: string | null;
+  ach_cop_email?: string | null;
+  ach_cop_bank_code?: string | null;
+  ach_cop_bank_account?: string | null;
+  account_type?: string | null;
   created_at: string;
 }
 
@@ -225,12 +286,31 @@ export interface CreatePayinQuoteParams {
   /** currency_type: 'sender' means request_amount is the BRL amount sender pays */
   currency_type: 'sender' | 'receiver';
   token: 'USDC' | 'USDT' | 'USDB';
-  payment_method: 'pix';
+  /** BR pix · MX spei · AR transfers · CO pse. A moeda é inferida pelo método. */
+  payment_method: 'pix' | 'spei' | 'transfers' | 'pse';
   /** Amount in fiat cents (e.g. R$10.00 = 1000) */
   request_amount: number;
   /** Partner fee ID from the BlindPay dashboard. Omit/null uses the instance default. */
   partner_fee_id?: string | null;
+  /** Exigido por transfers (AR) e pse (CO); omitido nos demais métodos. */
+  payer_rules?: BlindPayPayerRules;
 }
+
+export interface TransfersPayerRules {
+  /** CUIT/CUIL de quem pode pagar, ex.: 20-12345678-6. */
+  transfers_allowed_tax_id: string;
+}
+
+export interface PsePayerRules {
+  pse_full_name: string;
+  pse_document_type: 'CC' | 'NIT';
+  pse_document_number: string;
+  pse_email: string;
+  pse_phone: string;
+  pse_bank_code: string;
+}
+
+export type BlindPayPayerRules = TransfersPayerRules | PsePayerRules;
 
 export interface BlindPayPayinQuote {
   id: string;
@@ -258,6 +338,14 @@ export interface BlindPayPayin {
   payin_quote_id: string;
   pix_code: string | null;
   memo_code: string | null;
+  /** SPEI (MX): CLABE para onde o usuário transfere. */
+  clabe?: string | null;
+  /** PSE (CO): link de pagamento do banco. */
+  pse_payment_link?: string | null;
+  tracking_transaction?: {
+    transfers_instruction?: { account?: string | null; type?: string | null };
+    pse_instruction?: { payment_link?: string | null };
+  } | null;
   created_at: string;
 }
 
