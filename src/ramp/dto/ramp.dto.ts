@@ -17,6 +17,12 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { RAMP_COUNTRIES } from '../ramp-rails';
+import {
+  PURPOSES_OF_TRANSACTIONS,
+  SOURCE_OF_FUNDS_DOC_TYPES,
+  type PurposeOfTransactions,
+  type SourceOfFundsDocType,
+} from '../../blindpay/dto/blindpay.dto';
 
 /**
  * Código de país normalizado (trim + upper). Só mexe em string: qualquer
@@ -188,16 +194,16 @@ export class CreateReceiverDto {
   tosId?: string;
 
   // ─── Enhanced KYC (obrigatório em CO para pessoa física) ─────────────────
-  // Os enums desses campos não são documentados pela BlindPay: aceitamos
-  // string e deixamos a validação de valor para a API.
+  // Enums conforme o SDK oficial da BlindPay (a doc pública não os lista).
 
   @ApiProperty({
     description: 'Tipo do comprovante de origem dos recursos (enhanced)',
+    enum: SOURCE_OF_FUNDS_DOC_TYPES,
     required: false,
   })
   @IsOptional()
-  @IsString()
-  sourceOfFundsDocType?: string;
+  @IsIn(SOURCE_OF_FUNDS_DOC_TYPES)
+  sourceOfFundsDocType?: SourceOfFundsDocType;
 
   /** URL do comprovante — obtain via POST /ramp/upload */
   @ApiProperty({
@@ -210,11 +216,12 @@ export class CreateReceiverDto {
 
   @ApiProperty({
     description: 'Finalidade das transações (enhanced)',
+    enum: PURPOSES_OF_TRANSACTIONS,
     required: false,
   })
   @IsOptional()
-  @IsString()
-  purposeOfTransactions?: string;
+  @IsIn(PURPOSES_OF_TRANSACTIONS)
+  purposeOfTransactions?: PurposeOfTransactions;
 
   @ApiProperty({
     description: "Explicação da finalidade — obrigatória quando for 'other'",

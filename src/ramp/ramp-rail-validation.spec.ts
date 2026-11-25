@@ -126,9 +126,9 @@ describe('ramp-rail-validation', () => {
     it('purpose "other" exige explicação', () => {
       const dto = {
         email: 'a@b.co',
-        sourceOfFundsDocType: 'salary',
+        sourceOfFundsDocType: 'salary' as const,
         sourceOfFundsDocFile: 'https://files/doc.pdf',
-        purposeOfTransactions: 'other',
+        purposeOfTransactions: 'other' as const,
       };
       expect(
         errorOf(() => assertEnhancedFields(dto, 'enhanced')).fields,
@@ -176,9 +176,9 @@ describe('ramp-rail-validation', () => {
           firstName: 'Andrés',
           idDocCountry: ' co ',
           idDocType: 'PASSPORT',
-          sourceOfFundsDocType: 'salary',
+          sourceOfFundsDocType: 'salary' as const,
           sourceOfFundsDocFile: 'https://files/doc.pdf',
-          purposeOfTransactions: 'other',
+          purposeOfTransactions: 'other' as const,
           purposeOfTransactionsExplanation: 'Poupança',
           tosId: 'to_1',
         },
@@ -225,12 +225,14 @@ describe('ramp-rail-validation', () => {
         beneficiary_name: 'Juan Pérez',
         spei_protocol: 'clabe',
         spei_clabe: '012345678901234567',
+        spei_institution_code: null,
       });
       expect(built.pixKey).toBeNull();
       expect(built.details).toEqual({
         beneficiary_name: 'Juan Pérez',
         spei_protocol: 'clabe',
         spei_clabe: '012345678901234567',
+        spei_institution_code: null,
       });
     });
 
@@ -399,6 +401,24 @@ describe('ramp-rail-validation', () => {
         spei_clabe: '5512345678',
         spei_institution_code: '40012',
       });
+    });
+
+    it('SPEI clabe manda spei_institution_code null (chave sempre presente, como no SDK)', () => {
+      const { params, details } = buildBankAccountParams(MX, 'Conta', {
+        spei: SPEI,
+      });
+      expect(params).toHaveProperty('spei_institution_code', null);
+      expect(details).toHaveProperty('spei_institution_code', null);
+    });
+
+    it('SPEI recusa protocolo fora de clabe/debitcard/phonenum', () => {
+      const body = errorOf(() =>
+        buildBankAccountParams(MX, 'Conta', {
+          spei: { ...SPEI, speiProtocol: 'iban' },
+        }),
+      );
+      expect(body.code).toBe('BANK_ACCOUNT_DETAILS_INVALID');
+      expect(body.fields).toHaveProperty(['spei.speiProtocol']);
     });
 
     it.each([

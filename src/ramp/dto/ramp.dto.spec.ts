@@ -87,6 +87,16 @@ describe('CreateReceiverDto', () => {
     expect(paths).toEqual([]);
   });
 
+  it.each([
+    ['sourceOfFundsDocType', 'paycheck'],
+    // 'savings' é valor de source_of_funds_doc_type, não de purpose.
+    ['purposeOfTransactions', 'savings'],
+  ])('recusa %s fora do enum da BlindPay (%s)', async (field, value) => {
+    expect(
+      (await check(CreateReceiverDto, { ...base, [field]: value })).paths,
+    ).toContain(field);
+  });
+
   it('exige URL em sourceOfFundsDocFile', async () => {
     expect(
       (

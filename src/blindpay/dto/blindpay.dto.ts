@@ -1,3 +1,39 @@
+// ─── Enums confirmados nos tipos do SDK oficial (@blindpay/node 6.2.1) ───────
+
+export const SPEI_PROTOCOLS = ['clabe', 'debitcard', 'phonenum'] as const;
+export type SpeiProtocol = (typeof SPEI_PROTOCOLS)[number];
+
+export const SOURCE_OF_FUNDS_DOC_TYPES = [
+  'business_income',
+  'esops',
+  'gambling_proceeds',
+  'gifts',
+  'government_benefits',
+  'inheritance',
+  'investment_loans',
+  'investment_proceeds',
+  'pension_retirement',
+  'salary',
+  'sale_of_assets_real_estate',
+  'savings',
+  'someone_else_funds',
+] as const;
+export type SourceOfFundsDocType = (typeof SOURCE_OF_FUNDS_DOC_TYPES)[number];
+
+export const PURPOSES_OF_TRANSACTIONS = [
+  'business_transactions',
+  'charitable_donations',
+  'investment_purposes',
+  'payments_to_friends_or_family_abroad',
+  'personal_or_living_expenses',
+  'protect_wealth',
+  'purchase_good_and_services',
+  'receive_payment_for_freelancing',
+  'receive_salary',
+  'other',
+] as const;
+export type PurposeOfTransactions = (typeof PURPOSES_OF_TRANSACTIONS)[number];
+
 // ─── Receivers ───────────────────────────────────────────────────────────────
 
 export interface CreateReceiverParams {
@@ -25,11 +61,11 @@ export interface CreateReceiverParams {
   id_doc_back_file?: string;
   /** Accepted Terms of Service ID — obtain via POST /ramp/tos */
   tos_id?: string;
-  // Enhanced KYC fields. Os enums desses campos não são documentados pela
-  // BlindPay — seguem como string e a própria API valida.
-  source_of_funds_doc_type?: string;
+  // Enhanced KYC fields. Enums conforme os tipos do SDK oficial
+  // (@blindpay/node 6.2.1), já que a doc pública não os lista.
+  source_of_funds_doc_type?: SourceOfFundsDocType;
   source_of_funds_doc_file?: string;
-  purpose_of_transactions?: string;
+  purpose_of_transactions?: PurposeOfTransactions;
   /** Obrigatório quando purpose_of_transactions = 'other'. */
   purpose_of_transactions_explanation?: string;
 }
@@ -116,10 +152,10 @@ export interface CreateSpeiBankAccountParams {
   type: 'spei_bitso';
   name: string;
   beneficiary_name: string;
-  /** Enum não documentado; valores conhecidos: clabe, debitcard, phonenum. */
-  spei_protocol: string;
+  spei_protocol: SpeiProtocol;
   spei_clabe: string;
-  spei_institution_code?: string;
+  /** `null` quando o protocolo não exige (o SDK oficial manda a chave sempre). */
+  spei_institution_code: string | null;
 }
 
 /** AR (ARS). */

@@ -544,7 +544,7 @@ describe('RampKycService', () => {
         ...RESUBMIT_DTO,
         sourceOfFundsDocType: 'salary',
         sourceOfFundsDocFile: 'https://files.example.com/doc.pdf',
-        purposeOfTransactions: 'savings',
+        purposeOfTransactions: 'personal_or_living_expenses',
       });
       expect(mockBlindPay.createReceiver).toHaveBeenCalledTimes(1);
       expect(mockBlindPay.createReceiver).toHaveBeenCalledWith(

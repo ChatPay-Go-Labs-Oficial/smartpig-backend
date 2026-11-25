@@ -1,9 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
-import type {
-  BlindPayPayerRules,
-  BlindPayPayin,
-  CreateBankAccountParams,
-  CreateReceiverParams,
+import {
+  SPEI_PROTOCOLS,
+  type BlindPayPayerRules,
+  type BlindPayPayin,
+  type CreateBankAccountParams,
+  type CreateReceiverParams,
+  type SpeiProtocol,
+  type SourceOfFundsDocType,
+  type PurposeOfTransactions,
 } from '../blindpay/dto/blindpay.dto';
 import {
   DEFAULT_RAMP_COUNTRY,
@@ -120,9 +124,9 @@ export interface ReceiverInput {
   idDocFrontUrl?: string;
   idDocBackUrl?: string;
   tosId?: string;
-  sourceOfFundsDocType?: string;
+  sourceOfFundsDocType?: SourceOfFundsDocType;
   sourceOfFundsDocFile?: string;
-  purposeOfTransactions?: string;
+  purposeOfTransactions?: PurposeOfTransactions;
   purposeOfTransactionsExplanation?: string;
 }
 
@@ -265,7 +269,7 @@ export interface BankAccountInput {
 }
 
 /** Campos BlindPay (snake_case) da conta, menos type/name. `null` em BR. */
-export type BankAccountDetails = Record<string, string>;
+export type BankAccountDetails = Record<string, string | null>;
 
 export interface BuiltBankAccount {
   params: CreateBankAccountParams;
@@ -282,7 +286,14 @@ const BANK_DETAILS_KEYS: readonly BankDetailsKey[] = [
 ];
 
 /** Protocolos SPEI que identificam o destino pela instituição, não pela CLABE. */
-const SPEI_PROTOCOLS_NEEDING_INSTITUTION = ['debitcard', 'phonenum'];
+const SPEI_PROTOCOLS_NEEDING_INSTITUTION: readonly string[] = [
+  'debitcard',
+  'phonenum',
+];
+
+function isSpeiProtocol(value: string): value is SpeiProtocol {
+  return (SPEI_PROTOCOLS as readonly string[]).includes(value);
+}
 
 /** Regras de documento do ach_cop_bitso, conforme a doc da BlindPay. */
 const ACH_COP_DOCUMENT_RULES: Record<
@@ -319,6 +330,9 @@ function speiDetails(spei: SpeiDetailsInput): BankAccountDetails {
   if (isBlank(spei.beneficiaryName)) {
     fields['spei.beneficiaryName'] = 'Informe o nome do beneficiário.';
   }
+  if (!isSpeiProtocol(protocol)) {
+    fields['spei.speiProtocol'] = `Use ${SPEI_PROTOCOLS.join(', ')}.`;
+  }
   if (!/^\d+$/.test(clabe)) {
     fields['spei.speiClabe'] = 'Use apenas dígitos.';
   } else if (protocol === 'clabe' && clabe.length !== 18) {
@@ -328,13 +342,15 @@ function speiDetails(spei: SpeiDetailsInput): BankAccountDetails {
     fields['spei.speiInstitutionCode'] =
       'Obrigatório para este protocolo SPEI.';
   }
-  if (Object.keys(fields).length > 0) throw invalidDetails(fields);
+  if (Object.keys(fields).length > 0 || !isSpeiProtocol(protocol)) {
+    throw invalidDetails(fields);
+  }
 
   return {
     beneficiary_name: spei.beneficiaryName.trim(),
     spei_protocol: protocol,
     spei_clabe: clabe,
-    ...(institution ? { spei_institution_code: institution } : {}),
+    spei_institution_code: institution || null,
   };
 }
 

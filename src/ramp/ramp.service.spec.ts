@@ -686,9 +686,9 @@ describe('RampService', () => {
 
   describe('createReceiver multi-rail', () => {
     const ENHANCED = {
-      sourceOfFundsDocType: 'salary',
+      sourceOfFundsDocType: 'salary' as const,
       sourceOfFundsDocFile: 'https://files.example.com/doc.pdf',
-      purposeOfTransactions: 'savings',
+      purposeOfTransactions: 'personal_or_living_expenses' as const,
     };
 
     beforeEach(() => {
@@ -751,7 +751,7 @@ describe('RampService', () => {
           kyc_type: 'enhanced',
           source_of_funds_doc_type: 'salary',
           source_of_funds_doc_file: 'https://files.example.com/doc.pdf',
-          purpose_of_transactions: 'savings',
+          purpose_of_transactions: 'personal_or_living_expenses',
         }),
       );
     });
@@ -815,6 +815,7 @@ describe('RampService', () => {
           beneficiary_name: 'Juan',
           spei_protocol: 'clabe',
           spei_clabe: '012345678901234567',
+          spei_institution_code: null,
         },
       ],
       [
