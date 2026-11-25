@@ -867,6 +867,9 @@ model BlindPayReceiver {
   taxId              String?
   /// ToS aceito na criação do customer. Guardado para reaproveitar no reenvio.
   tosId              String?
+  /// País do rail de ramp (BR/MX/AR/CO — ver src/ramp/ramp-rails.ts). String
+  /// e não enum: o registry de rails é a fonte de verdade.
+  country            String  @default("BR")
 
   kycStatus       BlindPayKycStatus @default(VERIFYING)
   /// kyc_warnings / fraud_warnings crus da BlindPay — o formato não é
@@ -919,6 +922,10 @@ model BlindPayBankAccount {
   blindpayBankAccountId String  @unique
   type                  String
   pixKey                String?
+  /// Campos BlindPay da conta (snake_case, menos type/name) para rails não-Pix.
+  /// Null em contas Pix, que seguem usando pixKey. Usado para recriar a conta
+  /// no reenvio de KYC.
+  details               Json?
   isDefault             Boolean @default(false)
 
   createdAt DateTime @default(now())
@@ -947,21 +954,26 @@ model BlindPayBlockchainWallet {
 }
 
 model OnrampTransaction {
-  id                 String     @id @default(cuid())
-  idempotencyKey     String     @unique
-  userId             String
-  receiverId         String
-  blockchainWalletId String
-  blindpayPayinId    String?    @unique
-  blindpayQuoteId    String?
-  amountBrl          Decimal    @db.Decimal(20, 2)
-  amountUsdc         Decimal?   @db.Decimal(20, 6)
-  pixCode            String?    @db.Text
-  status             RampStatus @default(PENDING)
-  errorMessage       String?
-  completedAt        DateTime?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  id                  String     @id @default(cuid())
+  idempotencyKey      String     @unique
+  userId              String
+  receiverId          String
+  blockchainWalletId  String
+  blindpayPayinId     String?    @unique
+  blindpayQuoteId     String?
+  /// Moeda fiat do payin (BRL/MXN/ARS/COP).
+  fiatCurrency        String     @default("BRL")
+  /// Valor em unidades menores de fiatCurrency; nome histórico.
+  amountBrl           Decimal    @db.Decimal(20, 2)
+  amountUsdc          Decimal?   @db.Decimal(20, 6)
+  pixCode             String?    @db.Text
+  /// Instrução de pagamento normalizada por método (pix/spei/transfers/pse).
+  paymentInstructions Json?
+  status              RampStatus @default(PENDING)
+  errorMessage        String?
+  completedAt         DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
   user             User                     @relation(fields: [userId], references: [id])
   receiver         BlindPayReceiver         @relation(fields: [receiverId], references: [id])
@@ -981,6 +993,9 @@ model OfframpTransaction {
   blindpayPayoutId      String?    @unique
   blindpayQuoteId       String?
   amountUsdc            Decimal    @db.Decimal(20, 6)
+  /// Moeda fiat recebida na conta de destino (BRL/MXN/ARS/COP).
+  fiatCurrency          String     @default("BRL")
+  /// Valor em unidades menores de fiatCurrency; nome histórico.
   amountBrl             Decimal?   @db.Decimal(20, 2)
   senderWalletAddress   String
   unsignedDelegationXdr String?    @db.Text

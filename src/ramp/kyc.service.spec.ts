@@ -440,4 +440,116 @@ describe('RampKycService', () => {
       expect(mockPrisma.blindPayReceiver.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('resubmitReceiver multi-rail', () => {
+    const SPEI_DETAILS = {
+      beneficiary_name: 'Juan Pérez',
+      spei_protocol: 'clabe',
+      spei_clabe: '012345678901234567',
+    };
+    const MX_RECEIVER = {
+      ...REJECTED_RECEIVER,
+      country: 'MX',
+      bankAccounts: [
+        { id: 'ba_1', type: 'spei_bitso', pixKey: null, details: SPEI_DETAILS },
+      ],
+    };
+
+    beforeEach(() => {
+      mockBlindPay.createReceiver.mockResolvedValue({ id: 're_new' });
+      mockBlindPay.createBankAccount.mockResolvedValue({ id: 'bp_ba_new' });
+      mockBlindPay.createBlockchainWallet.mockResolvedValue({
+        id: 'bp_bw_new',
+      });
+    });
+
+    it('recria o customer no país salvo e a conta SPEI a partir de details', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(MX_RECEIVER);
+
+      await service.resubmitReceiver(RESUBMIT_DTO);
+
+      expect(mockBlindPay.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({ country: 'MX', kyc_type: 'standard' }),
+      );
+      expect(mockBlindPay.createBankAccount).toHaveBeenCalledWith('re_new', {
+        ...SPEI_DETAILS,
+        type: 'spei_bitso',
+        name: 'Maria Silva',
+      });
+      expect(mockPrisma.blindPayBankAccount.update).toHaveBeenCalledWith({
+        where: { id: 'ba_1' },
+        data: { blindpayBankAccountId: 'bp_ba_new' },
+      });
+    });
+
+    it('recusa trocar de país no reenvio', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(MX_RECEIVER);
+
+      await expect(
+        service.resubmitReceiver({ ...RESUBMIT_DTO, country: 'BR' }),
+      ).rejects.toMatchObject({
+        response: { code: 'RECEIVER_COUNTRY_MISMATCH' },
+      });
+      expect(mockBlindPay.createReceiver).not.toHaveBeenCalled();
+    });
+
+    it('não cria customer novo quando uma conta não-Pix não é reconstruível', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        ...MX_RECEIVER,
+        bankAccounts: [
+          { id: 'ba_1', type: 'spei_bitso', pixKey: null, details: null },
+        ],
+      });
+
+      await expect(
+        service.resubmitReceiver(RESUBMIT_DTO),
+      ).rejects.toMatchObject({
+        response: { code: 'BANK_ACCOUNT_NOT_REBUILDABLE' },
+      });
+      expect(mockBlindPay.createReceiver).not.toHaveBeenCalled();
+    });
+
+    it('conta Pix sem chave continua reconstruível', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        ...REJECTED_RECEIVER,
+        country: 'BR',
+        bankAccounts: [
+          { id: 'ba_1', type: 'pix', pixKey: null, details: null },
+        ],
+      });
+
+      await service.resubmitReceiver(RESUBMIT_DTO);
+
+      expect(mockBlindPay.createBankAccount).toHaveBeenCalledWith('re_new', {
+        type: 'pix',
+        name: 'Maria Silva',
+        pix_key: undefined,
+      });
+    });
+
+    it('CO exige KYC enhanced também no reenvio', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        ...REJECTED_RECEIVER,
+        country: 'CO',
+        bankAccounts: [],
+      });
+
+      await expect(
+        service.resubmitReceiver(RESUBMIT_DTO),
+      ).rejects.toMatchObject({
+        response: { code: 'KYC_ENHANCED_FIELDS_REQUIRED' },
+      });
+
+      await service.resubmitReceiver({
+        ...RESUBMIT_DTO,
+        sourceOfFundsDocType: 'salary',
+        sourceOfFundsDocFile: 'https://files.example.com/doc.pdf',
+        purposeOfTransactions: 'personal_or_living_expenses',
+      });
+      expect(mockBlindPay.createReceiver).toHaveBeenCalledTimes(1);
+      expect(mockBlindPay.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({ country: 'CO', kyc_type: 'enhanced' }),
+      );
+    });
+  });
 });

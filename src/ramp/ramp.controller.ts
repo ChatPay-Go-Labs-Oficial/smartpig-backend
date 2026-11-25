@@ -150,7 +150,11 @@ export class RampController {
   // ─── Receiver ───────────────────────────────────────────────────────────────
 
   @Post('ramp/receiver')
-  @ApiOperation({ summary: 'Create a BlindPay receiver' })
+  @ApiOperation({
+    summary: 'Create a BlindPay receiver',
+    description:
+      'country (BR, MX, AR ou CO; default BR) define o rail do receiver: moeda, método de payin e tipo de conta. CO pessoa física exige KYC enhanced.',
+  })
   async createReceiver(
     @Body() dto: CreateReceiverDto,
     @CurrentUser() user: { id: string },
@@ -160,7 +164,11 @@ export class RampController {
   }
 
   @Get('ramp/receiver')
-  @ApiOperation({ summary: 'Get receiver details' })
+  @ApiOperation({
+    summary: 'Get receiver details',
+    description:
+      'Inclui as contas bancárias com `details` (dados bancários do próprio usuário, no formato da BlindPay) e as wallets.',
+  })
   async getReceiver(
     @Query('userId') userId: string,
     @CurrentUser() user: { id: string },
@@ -189,7 +197,7 @@ export class RampController {
   @ApiOperation({
     summary: 'Redo KYC after a rejection',
     description:
-      'BlindPay does not allow editing a rejected customer, so this creates a new one and re-registers the Pix account and blockchain wallet against it. Only allowed while kycStatus is REJECTED.',
+      'BlindPay does not allow editing a rejected customer, so this creates a new one and re-registers the bank accounts (Pix, SPEI, Transfers or ACH COP) and blockchain wallet against it. The country cannot change. Only allowed while kycStatus is REJECTED.',
   })
   async resubmitReceiver(
     @Body() dto: ResubmitReceiverDto,
@@ -229,7 +237,11 @@ export class RampController {
   // ─── Bank Accounts ──────────────────────────────────────────────────────────
 
   @Post('ramp/receiver/bank-accounts')
-  @ApiOperation({ summary: 'Add a bank account to a receiver' })
+  @ApiOperation({
+    summary: 'Add a bank account to a receiver',
+    description:
+      'Envie só o objeto do país do receiver: pixKey (BR), spei (MX), transfers (AR) ou achCop (CO).',
+  })
   async createBankAccount(
     @Body() dto: CreateBankAccountDto,
     @CurrentUser() user: { id: string },
@@ -239,7 +251,11 @@ export class RampController {
   }
 
   @Get('ramp/receiver/bank-accounts')
-  @ApiOperation({ summary: 'List bank accounts for a receiver' })
+  @ApiOperation({
+    summary: 'List bank accounts for a receiver',
+    description:
+      'Contas não-Pix trazem `details` com os dados bancários do próprio usuário, no formato da BlindPay.',
+  })
   async listBankAccounts(
     @Query('userId') userId: string,
     @CurrentUser() user: { id: string },
@@ -263,7 +279,11 @@ export class RampController {
   // ─── On-ramp ────────────────────────────────────────────────────────────────
 
   @Post('ramp/onramp/quote')
-  @ApiOperation({ summary: 'Get an on-ramp quote' })
+  @ApiOperation({
+    summary: 'Get an on-ramp quote',
+    description:
+      'Valor em amountFiat (moeda do receiver; MXN/ARS/COP em múltiplos de 100) ou amountUsd. AR exige transfersPayer; CO exige psePayer.',
+  })
   async getOnrampQuote(
     @Body() dto: OnrampQuoteDto,
     @CurrentUser() user: { id: string },
@@ -273,7 +293,11 @@ export class RampController {
   }
 
   @Post('ramp/onramp')
-  @ApiOperation({ summary: 'Create an on-ramp transaction' })
+  @ApiOperation({
+    summary: 'Create an on-ramp transaction',
+    description:
+      'Devolve paymentInstructions conforme o método do país (pix, spei, transfers ou pse). pixCode segue preenchido só em BR.',
+  })
   async createOnramp(
     @Body() dto: CreateOnrampDto,
     @CurrentUser() user: { id: string },
@@ -284,9 +308,9 @@ export class RampController {
 
   @Get('ramp/transactions')
   @ApiOperation({
-    summary: 'List Pix ramp transactions for a user',
+    summary: 'List ramp transactions for a user',
     description:
-      'Returns a sanitized, newest-first history of Pix deposits and withdrawals. Sensitive ramp payloads are not exposed.',
+      'Returns a sanitized, newest-first history of deposits and withdrawals (Pix, SPEI, Transfers, PSE). amountFiat is in fiatCurrency; amountBrl is only filled for BRL. Sensitive ramp payloads are not exposed.',
   })
   async listTransactions(@CurrentUser() user: { id: string }) {
     const userId = await this.assertOwner(user.id);

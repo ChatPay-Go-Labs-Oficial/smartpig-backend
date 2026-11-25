@@ -27,6 +27,23 @@ import type {
 import { Prisma, RampStatus } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { stellarNetwork } from './ramp-network';
+import {
+  assertEnhancedFields,
+  assertIdDocAllowed,
+  buildBankAccountParams,
+  buildPayerRules,
+  buildReceiverParams,
+  extractPaymentInstructions,
+  findRailForRowCurrency,
+  getRampRail,
+  railForBankAccountType,
+  resolveFiatAmount,
+  resolveKycType,
+  rowCurrency,
+  type FiatAmountInput,
+  type PayerRulesInput,
+} from './ramp-rail-validation';
+import type { RampRail } from './ramp-rails';
 
 /**
  * Unidade do `amountUsdc` gravado em cada direção. O onramp guarda o
@@ -121,33 +138,51 @@ export class RampService {
   }
 
   /**
-   * Onramp aceita valor alvo em duas direções: amountBrl (quanto o usuário
-   * paga via Pix) ou amountUsd (quanto ele quer RECEBER líquido em USDC,
-   * já compensando a taxa) — os chips de valor rápido do app usam amountUsd
-   * porque o mínimo da BlindPay ($10) é em dólar, e o usuário não tem como
-   * saber quantos reais digitar pra bater nesse mínimo sem consultar o
-   * câmbio primeiro.
+   * Onramp aceita valor alvo em duas direções: amountFiat/amountBrl (quanto o
+   * usuário paga na moeda do rail) ou amountUsd (quanto ele quer RECEBER
+   * líquido em USDC, já compensando a taxa) — os chips de valor rápido do app
+   * usam amountUsd porque o mínimo da BlindPay ($10) é em dólar, e o usuário
+   * não tem como saber quanto digitar na moeda local pra bater nesse mínimo
+   * sem consultar o câmbio primeiro.
+   *
+   * Método de pagamento e payer_rules vêm do rail do receiver. payer_rules vai
+   * em toda tentativa de cotação e nunca é persistido.
    */
   private async createPayinQuoteForDto(
-    dto: { amountBrl?: number; amountUsd?: number },
-    base: Omit<CreatePayinQuoteParams, 'request_amount' | 'currency_type'>,
+    rail: RampRail,
+    dto: FiatAmountInput & PayerRulesInput,
+    base: Pick<
+      CreatePayinQuoteParams,
+      'blockchain_wallet_id' | 'token' | 'partner_fee_id'
+    >,
   ): Promise<BlindPayPayinQuote> {
-    if (dto.amountUsd != null) {
-      return this.quotePayinForTarget(dto.amountUsd, base);
+    const amount = resolveFiatAmount(rail, dto);
+    const payerRules = buildPayerRules(rail, dto);
+    const params = {
+      ...base,
+      payment_method: rail.payinMethod,
+      ...(payerRules ? { payer_rules: payerRules } : {}),
+    };
+    if (amount.kind === 'usd') {
+      return this.quotePayinForTarget(amount.amount, params);
     }
-    if (dto.amountBrl != null) {
-      return this.blindpay.createPayinQuote({
-        ...base,
-        currency_type: 'sender',
-        request_amount: dto.amountBrl,
-      });
-    }
-    throw new BadRequestException('Informe amountBrl ou amountUsd');
+    return this.blindpay.createPayinQuote({
+      ...params,
+      currency_type: 'sender',
+      request_amount: amount.amount,
+    });
   }
 
   // ─── Receiver ──────────────────────────────────────────────────────────────
 
   async createReceiver(dto: CreateReceiverDto) {
+    // Toda regra de país roda antes de qualquer chamada à BlindPay: um customer
+    // criado lá não pode ser corrigido depois, só substituído.
+    const rail = getRampRail(dto.country);
+    const kycType = resolveKycType(rail, dto);
+    assertEnhancedFields(dto, kycType);
+    assertIdDocAllowed(rail, dto);
+
     const existing = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
     });
@@ -155,27 +190,9 @@ export class RampService {
       throw new BadRequestException('User already has a BlindPay receiver');
     }
 
-    const bpReceiver = await this.blindpay.createReceiver({
-      type: dto.type ?? 'individual',
-      kyc_type: dto.kycType ?? 'standard',
-      email: dto.email,
-      country: dto.country ?? 'BR',
-      first_name: dto.firstName,
-      last_name: dto.lastName,
-      tax_id: dto.taxId,
-      address_line_1: dto.addressLine1,
-      address_line_2: dto.addressLine2,
-      city: dto.city,
-      state_province_region: dto.stateProvinceRegion,
-      postal_code: dto.postalCode,
-      date_of_birth: dto.dateOfBirth,
-      id_doc_country: dto.idDocCountry,
-      id_doc_type: dto.idDocType,
-      selfie_file: dto.selfieFileUrl,
-      id_doc_front_file: dto.idDocFrontUrl,
-      id_doc_back_file: dto.idDocBackUrl,
-      tos_id: dto.tosId,
-    });
+    const bpReceiver = await this.blindpay.createReceiver(
+      buildReceiverParams(dto, rail, kycType),
+    );
 
     const name =
       [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email;
@@ -199,6 +216,9 @@ export class RampService {
           // Guardado para auditoria: cada `tos_id` fica ligado a exatamente um
           // customer, então este registra qual aceitação vale para este.
           tosId: dto.tosId,
+          // Fixa o rail do receiver: contas, payins e reenvio de KYC seguem
+          // este país.
+          country: rail.country,
         },
       });
 
@@ -297,21 +317,24 @@ export class RampService {
     if (!receiver)
       throw new NotFoundException('Receiver not found — create it first');
 
+    // O tipo de conta vem do país do receiver, nunca do cliente.
+    const rail = getRampRail(receiver.country);
+    const built = buildBankAccountParams(rail, dto.name, dto);
+
     const bpAccount = await this.blindpay.createBankAccount(
       receiver.blindpayReceiverId,
-      {
-        type: 'pix',
-        name: dto.name,
-        pix_key: dto.pixKey,
-      },
+      built.params,
     );
 
     return this.prisma.blindPayBankAccount.create({
       data: {
         receiverId: receiver.id,
         blindpayBankAccountId: bpAccount.id,
-        type: 'pix',
-        pixKey: dto.pixKey,
+        type: rail.bankAccountType,
+        pixKey: built.pixKey,
+        // Guardado para recriar a conta no reenvio de KYC. Pix não precisa:
+        // a chave já está em pixKey.
+        ...(built.details ? { details: built.details } : {}),
         isDefault: false,
       },
     });
@@ -371,7 +394,7 @@ export class RampService {
   async getOnrampQuote(dto: OnrampQuoteDto) {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
-      select: { id: true },
+      select: { id: true, country: true },
     });
     if (!receiver) throw new NotFoundException('Receiver not found');
 
@@ -382,10 +405,9 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
-    return this.createPayinQuoteForDto(dto, {
+    return this.createPayinQuoteForDto(getRampRail(receiver.country), dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
       token: this.rampToken,
-      payment_method: 'pix',
       partner_fee_id: this.partnerFeeId,
     });
   }
@@ -403,11 +425,12 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
+    const rail = getRampRail(receiver.country);
+
     // Create quote
-    const quote = await this.createPayinQuoteForDto(dto, {
+    const quote = await this.createPayinQuoteForDto(rail, dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
       token: this.rampToken,
-      payment_method: 'pix',
       partner_fee_id: this.partnerFeeId,
     });
 
@@ -415,6 +438,17 @@ export class RampService {
     const payin = await this.blindpay.createPayinStellar({
       payin_quote_id: quote.id,
     });
+
+    // A instrução pode ainda não ter vindo na criação; o sync preenche depois.
+    const paymentInstructions = extractPaymentInstructions(
+      rail.payinMethod,
+      payin,
+    );
+    if (!paymentInstructions) {
+      this.logger.warn(
+        `Payin ${payin.id} sem instrução de pagamento (${rail.payinMethod}) na criação`,
+      );
+    }
 
     // TESTNET ONLY: simulate USDB delivery — BlindPay dev env never auto-completes
     // tracking_complete for Stellar. Remove when going to mainnet.
@@ -433,21 +467,29 @@ export class RampService {
         blockchainWalletId: wallet.id,
         blindpayPayinId: payin.id,
         blindpayQuoteId: quote.id,
-        // quote.sender_amount (não dto.amountBrl) porque dto.amountBrl fica
-        // undefined no fluxo de amountUsd — e mesmo no fluxo BRL é o valor
-        // que a BlindPay efetivamente cobrou, não o que o cliente mandou.
+        fiatCurrency: rail.currency,
+        // quote.sender_amount (não o valor do DTO) porque ele fica undefined
+        // no fluxo de amountUsd — e mesmo no fluxo fiat é o valor que a
+        // BlindPay efetivamente cobrou, não o que o cliente mandou. Unidades
+        // menores de fiatCurrency, apesar do nome.
         amountBrl: quote.sender_amount,
         amountUsdc: quote.receiver_amount,
-        pixCode: payin.pix_code,
+        // pixCode segue existindo para o app atual; fora do Pix fica null.
+        pixCode: rail.payinMethod === 'pix' ? payin.pix_code : null,
+        paymentInstructions: paymentInstructions ?? Prisma.DbNull,
         status: RampStatus.AWAITING_PAYMENT,
       },
     });
   }
 
   /**
-   * Client-facing Pix history. Keep the projection explicit: QR codes, XDRs,
-   * bank-account references and provider identifiers must never reach the
-   * general transaction history endpoint.
+   * Client-facing ramp history (Pix/SPEI/Transfers/PSE). Keep the projection
+   * explicit: QR codes, payment instructions, XDRs, bank-account references
+   * and provider identifiers must never reach the general transaction history
+   * endpoint.
+   *
+   * `amountFiat` vem na moeda de `fiatCurrency`; `amountBrl` continua para o
+   * app atual e só é preenchido quando a moeda é BRL.
    */
   async listTransactions(userId: string) {
     const [onramps, offramps] = await Promise.all([
@@ -455,6 +497,7 @@ export class RampService {
         where: { userId },
         select: {
           id: true,
+          fiatCurrency: true,
           amountBrl: true,
           amountUsdc: true,
           status: true,
@@ -467,6 +510,7 @@ export class RampService {
         where: { userId },
         select: {
           id: true,
+          fiatCurrency: true,
           amountBrl: true,
           amountUsdc: true,
           status: true,
@@ -477,11 +521,25 @@ export class RampService {
       }),
     ]);
 
+    // Valor salvo em unidades menores da moeda; null segue null.
+    const fiat = (
+      row: { fiatCurrency?: string | null },
+      amount: Prisma.Decimal | null | undefined,
+    ) => {
+      const fiatCurrency = rowCurrency(row);
+      const amountFiat = amount?.div(100).toFixed(2) ?? null;
+      return {
+        fiatCurrency,
+        amountFiat,
+        amountBrl: fiatCurrency === 'BRL' ? amountFiat : null,
+      };
+    };
+
     return [
       ...onramps.map((transaction) => ({
         id: transaction.id,
         direction: 'ONRAMP' as const,
-        amountBrl: transaction.amountBrl.div(100).toFixed(2),
+        ...fiat(transaction, transaction.amountBrl),
         amountUsdc:
           transaction.amountUsdc?.div(ONRAMP_USDC_SCALE).toFixed(2) ?? null,
         status: transaction.status,
@@ -491,7 +549,7 @@ export class RampService {
       ...offramps.map((transaction) => ({
         id: transaction.id,
         direction: 'OFFRAMP' as const,
-        amountBrl: transaction.amountBrl?.div(100).toFixed(2) ?? null,
+        ...fiat(transaction, transaction.amountBrl),
         amountUsdc: transaction.amountUsdc.div(OFFRAMP_USDC_SCALE).toFixed(6),
         status: transaction.status,
         completedAt: transaction.completedAt,
@@ -524,6 +582,20 @@ export class RampService {
 
     const payin = await this.blindpay.getPayin(txn.blindpayPayinId);
     const status = this.mapPayinStatus(payin.status);
+
+    // SPEI/Transfers/PSE podem devolver a instrução só depois da criação.
+    // Sem utilidade depois que o payin fechou, então só preenche enquanto
+    // ainda dá para pagar.
+    const rail = findRailForRowCurrency(txn);
+    if (txn.paymentInstructions == null && rail && !this.isFinal(status)) {
+      const instructions = extractPaymentInstructions(rail.payinMethod, payin);
+      if (instructions) {
+        await this.prisma.onrampTransaction.update({
+          where: { id: txn.id },
+          data: { paymentInstructions: instructions },
+        });
+      }
+    }
 
     if (status !== txn.status) {
       await this.prisma.onrampTransaction.update({
@@ -582,6 +654,9 @@ export class RampService {
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
 
+    // A moeda do payout é a da conta de destino (a BlindPay infere pela conta).
+    const fiatCurrency = railForBankAccountType(bankAccount.type).currency;
+
     // Create quote
     const quote = await this.blindpay.createPayoutQuote({
       bank_account_id: bankAccount.blindpayBankAccountId,
@@ -613,6 +688,8 @@ export class RampService {
         bankAccountId: bankAccount.id,
         blindpayQuoteId: quote.id,
         amountUsdc: dto.amountUsdc,
+        fiatCurrency,
+        // Unidades menores de fiatCurrency, apesar do nome.
         amountBrl: quote.receiver_amount,
         senderWalletAddress: dto.senderWalletAddress,
         unsignedDelegationXdr: delegation.transaction_hash,
@@ -625,6 +702,8 @@ export class RampService {
       status: txn.status,
       amountUsdc: txn.amountUsdc,
       amountBrl: txn.amountBrl,
+      fiatCurrency,
+      amountFiat: txn.amountBrl,
       unsignedDelegationXdr: txn.unsignedDelegationXdr,
       // Present only when the sender wallet still needs a USDB trustline.
       // Mobile must sign + submit this XDR before signing the delegation XDR.
@@ -680,6 +759,8 @@ export class RampService {
       status: txn.status,
       amountUsdc: Number(txn.amountUsdc),
       amountBrl: Number(quote.receiver_amount),
+      fiatCurrency: rowCurrency(txn),
+      amountFiat: Number(quote.receiver_amount),
       unsignedDelegationXdr: delegation.transaction_hash,
     };
   }
@@ -857,6 +938,14 @@ export class RampService {
       data: { [`${kind}Id`]: txn.id },
       details: { amount: txn.amountUsdc?.div(scale), asset: 'USDC' },
     });
+  }
+
+  private isFinal(status: RampStatus): boolean {
+    return (
+      status === RampStatus.COMPLETED ||
+      status === RampStatus.FAILED ||
+      status === RampStatus.REFUNDED
+    );
   }
 
   private mapPayinStatus(bpStatus: string): RampStatus {

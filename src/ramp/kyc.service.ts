@@ -16,6 +16,15 @@ import type {
 import { CreateReceiverDto } from './dto/ramp.dto';
 import { validateRfiResponse } from './rfi-validation';
 import { stellarNetwork } from './ramp-network';
+import {
+  assertEnhancedFields,
+  assertIdDocAllowed,
+  bankAccountParamsFromStored,
+  buildReceiverParams,
+  getRampRail,
+  railError,
+  resolveKycType,
+} from './ramp-rail-validation';
 
 /** Statuses em que existe um RFI aberto para o customer. */
 const RFI_STATUSES: BlindPayKycStatus[] = [
@@ -216,9 +225,13 @@ export class RampKycService {
    * Refaz o KYC criando um customer BlindPay novo.
    *
    * A doc é explícita: não dá para corrigir o KYC de um customer existente. Por
-   * isso a conta Pix e a blockchain wallet também precisam ser recriadas — elas
-   * ficam presas ao customer antigo. O usuário não redigita nada: reaproveitamos
-   * a chave Pix e o endereço Stellar já salvos.
+   * isso as contas bancárias e a blockchain wallet também precisam ser
+   * recriadas — elas ficam presas ao customer antigo. O usuário não redigita
+   * nada: reaproveitamos os dados de conta (chave Pix ou `details`) e o
+   * endereço Stellar já salvos.
+   *
+   * O país não muda no reenvio: contas e transações existentes pertencem ao
+   * rail original.
    */
   async resubmitReceiver(dto: CreateReceiverDto) {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
@@ -249,43 +262,47 @@ export class RampKycService {
       });
     }
 
+    const savedRail = getRampRail(receiver.country);
+    const rail = getRampRail(dto.country ?? savedRail.country);
+    if (rail !== savedRail) {
+      throw railError(
+        'RECEIVER_COUNTRY_MISMATCH',
+        `O reenvio de KYC precisa manter o país do cadastro (${savedRail.country}).`,
+        { country: `Use ${savedRail.country}.` },
+      );
+    }
+    const kycType = resolveKycType(rail, dto);
+    assertEnhancedFields(dto, kycType);
+    assertIdDocAllowed(rail, dto);
+
     const name =
       [dto.firstName, dto.lastName].filter(Boolean).join(' ') || receiver.name;
 
-    const created = await this.blindpay.createReceiver({
-      type: dto.type ?? 'individual',
-      kyc_type: dto.kycType ?? 'standard',
-      email: dto.email,
-      country: dto.country ?? 'BR',
-      first_name: dto.firstName,
-      last_name: dto.lastName,
-      tax_id: dto.taxId,
-      address_line_1: dto.addressLine1,
-      address_line_2: dto.addressLine2,
-      city: dto.city,
-      state_province_region: dto.stateProvinceRegion,
-      postal_code: dto.postalCode,
-      date_of_birth: dto.dateOfBirth,
-      id_doc_country: dto.idDocCountry,
-      id_doc_type: dto.idDocType,
-      selfie_file: dto.selfieFileUrl,
-      id_doc_front_file: dto.idDocFrontUrl,
-      id_doc_back_file: dto.idDocBackUrl,
-      tos_id: dto.tosId,
-    });
+    // Confere antes de criar o customer novo: um customer criado e abandonado
+    // na BlindPay não tem volta, e o usuário ficaria sem a conta antiga.
+    const accountParams = receiver.bankAccounts.map((account) => ({
+      localId: account.id,
+      params: bankAccountParamsFromStored(account, name),
+    }));
+    if (accountParams.some((account) => account.params === null)) {
+      throw railError(
+        'BANK_ACCOUNT_NOT_REBUILDABLE',
+        'Não foi possível recriar uma das contas bancárias cadastradas. Fale com o suporte para concluir o reenvio.',
+      );
+    }
+
+    const created = await this.blindpay.createReceiver(
+      buildReceiverParams(dto, rail, kycType),
+    );
 
     // As chamadas de rede acontecem antes da transação: o Prisma não pode
     // segurar uma transação aberta esperando HTTP externo.
     const network = stellarNetwork(this.config);
     const rebuiltAccounts = await Promise.all(
-      receiver.bankAccounts.map(async (account) => ({
-        localId: account.id,
+      accountParams.map(async (account) => ({
+        localId: account.localId,
         remoteId: (
-          await this.blindpay.createBankAccount(created.id, {
-            type: 'pix',
-            name,
-            pix_key: account.pixKey ?? undefined,
-          })
+          await this.blindpay.createBankAccount(created.id, account.params!)
         ).id,
       })),
     );

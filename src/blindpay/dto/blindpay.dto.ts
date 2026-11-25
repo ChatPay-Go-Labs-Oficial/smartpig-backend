@@ -1,8 +1,45 @@
+// ─── Enums confirmados nos tipos do SDK oficial (@blindpay/node 6.2.1) ───────
+
+export const SPEI_PROTOCOLS = ['clabe', 'debitcard', 'phonenum'] as const;
+export type SpeiProtocol = (typeof SPEI_PROTOCOLS)[number];
+
+export const SOURCE_OF_FUNDS_DOC_TYPES = [
+  'business_income',
+  'esops',
+  'gambling_proceeds',
+  'gifts',
+  'government_benefits',
+  'inheritance',
+  'investment_loans',
+  'investment_proceeds',
+  'pension_retirement',
+  'salary',
+  'sale_of_assets_real_estate',
+  'savings',
+  'someone_else_funds',
+] as const;
+export type SourceOfFundsDocType = (typeof SOURCE_OF_FUNDS_DOC_TYPES)[number];
+
+export const PURPOSES_OF_TRANSACTIONS = [
+  'business_transactions',
+  'charitable_donations',
+  'investment_purposes',
+  'payments_to_friends_or_family_abroad',
+  'personal_or_living_expenses',
+  'protect_wealth',
+  'purchase_good_and_services',
+  'receive_payment_for_freelancing',
+  'receive_salary',
+  'other',
+] as const;
+export type PurposeOfTransactions = (typeof PURPOSES_OF_TRANSACTIONS)[number];
+
 // ─── Receivers ───────────────────────────────────────────────────────────────
 
 export interface CreateReceiverParams {
   type: 'individual' | 'business';
-  kyc_type: 'light' | 'standard' | 'enhanced';
+  /** 'light' não entra: a BlindPay sempre o recusa na criação de customer. */
+  kyc_type: 'standard' | 'enhanced';
   email: string;
   country: string;
   first_name?: string;
@@ -24,6 +61,13 @@ export interface CreateReceiverParams {
   id_doc_back_file?: string;
   /** Accepted Terms of Service ID — obtain via POST /ramp/tos */
   tos_id?: string;
+  // Enhanced KYC fields. Enums conforme os tipos do SDK oficial
+  // (@blindpay/node 6.2.1), já que a doc pública não os lista.
+  source_of_funds_doc_type?: SourceOfFundsDocType;
+  source_of_funds_doc_file?: string;
+  purpose_of_transactions?: PurposeOfTransactions;
+  /** Obrigatório quando purpose_of_transactions = 'other'. */
+  purpose_of_transactions_explanation?: string;
 }
 
 /** Valores de kyc_status devolvidos pela BlindPay. */
@@ -97,12 +141,52 @@ export type BlindPayRfiResponseBody = Record<string, string | string[]>;
 
 // ─── Bank Accounts ────────────────────────────────────────────────────────────
 
-/** receiver_id is passed in the URL path, not in the body */
-export interface CreateBankAccountParams {
+export interface CreatePixBankAccountParams {
   type: 'pix';
   name: string;
   pix_key?: string;
 }
+
+/** MX (MXN). spei_institution_code só é exigido para debitcard/phonenum. */
+export interface CreateSpeiBankAccountParams {
+  type: 'spei_bitso';
+  name: string;
+  beneficiary_name: string;
+  spei_protocol: SpeiProtocol;
+  spei_clabe: string;
+  /** `null` quando o protocolo não exige (o SDK oficial manda a chave sempre). */
+  spei_institution_code: string | null;
+}
+
+/** AR (ARS). */
+export interface CreateTransfersBankAccountParams {
+  type: 'transfers_bitso';
+  name: string;
+  beneficiary_name: string;
+  transfers_type: 'CVU' | 'CBU' | 'ALIAS';
+  transfers_account: string;
+}
+
+/** CO (COP). */
+export interface CreateAchCopBankAccountParams {
+  type: 'ach_cop_bitso';
+  name: string;
+  ach_cop_beneficiary_first_name: string;
+  ach_cop_beneficiary_last_name: string;
+  ach_cop_document_id: string;
+  ach_cop_document_type: 'CC' | 'CE' | 'NIT' | 'PASS' | 'PEP';
+  ach_cop_email: string;
+  ach_cop_bank_code: string;
+  ach_cop_bank_account: string;
+  account_type: 'checking' | 'saving';
+}
+
+/** receiver_id is passed in the URL path, not in the body */
+export type CreateBankAccountParams =
+  | CreatePixBankAccountParams
+  | CreateSpeiBankAccountParams
+  | CreateTransfersBankAccountParams
+  | CreateAchCopBankAccountParams;
 
 export interface BlindPayBankAccount {
   id: string;
@@ -110,6 +194,20 @@ export interface BlindPayBankAccount {
   type: string;
   name: string;
   pix_key: string | null;
+  beneficiary_name?: string | null;
+  spei_protocol?: string | null;
+  spei_clabe?: string | null;
+  spei_institution_code?: string | null;
+  transfers_type?: string | null;
+  transfers_account?: string | null;
+  ach_cop_beneficiary_first_name?: string | null;
+  ach_cop_beneficiary_last_name?: string | null;
+  ach_cop_document_id?: string | null;
+  ach_cop_document_type?: string | null;
+  ach_cop_email?: string | null;
+  ach_cop_bank_code?: string | null;
+  ach_cop_bank_account?: string | null;
+  account_type?: string | null;
   created_at: string;
 }
 
@@ -225,12 +323,31 @@ export interface CreatePayinQuoteParams {
   /** currency_type: 'sender' means request_amount is the BRL amount sender pays */
   currency_type: 'sender' | 'receiver';
   token: 'USDC' | 'USDT' | 'USDB';
-  payment_method: 'pix';
+  /** BR pix · MX spei · AR transfers · CO pse. A moeda é inferida pelo método. */
+  payment_method: 'pix' | 'spei' | 'transfers' | 'pse';
   /** Amount in fiat cents (e.g. R$10.00 = 1000) */
   request_amount: number;
   /** Partner fee ID from the BlindPay dashboard. Omit/null uses the instance default. */
   partner_fee_id?: string | null;
+  /** Exigido por transfers (AR) e pse (CO); omitido nos demais métodos. */
+  payer_rules?: BlindPayPayerRules;
 }
+
+export interface TransfersPayerRules {
+  /** CUIT/CUIL de quem pode pagar, ex.: 20-12345678-6. */
+  transfers_allowed_tax_id: string;
+}
+
+export interface PsePayerRules {
+  pse_full_name: string;
+  pse_document_type: 'CC' | 'NIT';
+  pse_document_number: string;
+  pse_email: string;
+  pse_phone: string;
+  pse_bank_code: string;
+}
+
+export type BlindPayPayerRules = TransfersPayerRules | PsePayerRules;
 
 export interface BlindPayPayinQuote {
   id: string;
@@ -258,6 +375,14 @@ export interface BlindPayPayin {
   payin_quote_id: string;
   pix_code: string | null;
   memo_code: string | null;
+  /** SPEI (MX): CLABE para onde o usuário transfere. */
+  clabe?: string | null;
+  /** PSE (CO): link de pagamento do banco. */
+  pse_payment_link?: string | null;
+  tracking_transaction?: {
+    transfers_instruction?: { account?: string | null; type?: string | null };
+    pse_instruction?: { payment_link?: string | null };
+  } | null;
   created_at: string;
 }
 

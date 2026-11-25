@@ -241,6 +241,14 @@ describe('ScrubService', () => {
       expect(dataOf(calls, 'blindPayBankAccount').pixKey).toBeNull();
     });
 
+    it('clears the stored bank details of non-Pix accounts', async () => {
+      const { service, calls } = createService();
+
+      await service.scrub(USER);
+
+      expect(dataOf(calls, 'blindPayBankAccount').details).toBe(Prisma.DbNull);
+    });
+
     it('skips blindpay entirely when the user never had a receiver', async () => {
       const { service, tx } = createService({ receiverId: null });
 
@@ -286,6 +294,19 @@ describe('ScrubService', () => {
       const offramp = dataOf(calls, 'offrampTransaction');
       expect(offramp.unsignedDelegationXdr).toBeNull();
       expect(offramp.signedDelegationHash).toBeNull();
+    });
+
+    it('clears the payment instructions of the onramps, keeping currency', async () => {
+      const { service, calls } = createService();
+
+      await service.scrub(USER);
+
+      const onramp = dataOf(calls, 'onrampTransaction');
+      expect(onramp.paymentInstructions).toBe(Prisma.DbNull);
+      expect(onramp).not.toHaveProperty('fiatCurrency');
+      expect(dataOf(calls, 'offrampTransaction')).not.toHaveProperty(
+        'fiatCurrency',
+      );
     });
 
     it('keeps the sender wallet address on the offramp, the counterparty of the operation', async () => {
