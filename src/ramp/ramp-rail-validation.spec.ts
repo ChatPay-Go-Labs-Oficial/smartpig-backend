@@ -428,6 +428,37 @@ describe('ramp-rail-validation', () => {
       ).not.toThrow();
     });
 
+    it("normaliza speiProtocol: ' CLABE ' vira 'clabe' e exige 18 dígitos", () => {
+      expect(
+        buildBankAccountParams(MX, 'Conta', {
+          spei: { ...SPEI, speiProtocol: ' CLABE ' },
+        }).params,
+      ).toMatchObject({ spei_protocol: 'clabe' });
+      expect(
+        errorOf(() =>
+          buildBankAccountParams(MX, 'Conta', {
+            spei: { ...SPEI, speiProtocol: 'CLABE', speiClabe: '1234' },
+          }),
+        ).fields,
+      ).toHaveProperty(['spei.speiClabe']);
+    });
+
+    it("'DEBITCARD' também exige instituição e vai em minúsculas", () => {
+      const spei = {
+        ...SPEI,
+        speiProtocol: 'DEBITCARD',
+        speiClabe: '4111111111111111',
+      };
+      expect(
+        errorOf(() => buildBankAccountParams(MX, 'Conta', { spei })).fields,
+      ).toHaveProperty(['spei.speiInstitutionCode']);
+      expect(
+        buildBankAccountParams(MX, 'Conta', {
+          spei: { ...spei, speiInstitutionCode: '40012' },
+        }).details,
+      ).toMatchObject({ spei_protocol: 'debitcard' });
+    });
+
     describe('bankAccountParamsFromStored', () => {
       it('Pix é sempre reconstruível, inclusive sem chave e sem type', () => {
         expect(

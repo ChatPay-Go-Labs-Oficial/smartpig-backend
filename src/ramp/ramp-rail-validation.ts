@@ -309,7 +309,9 @@ function invalidDetails(fields: Record<string, string>): BadRequestException {
 }
 
 function speiDetails(spei: SpeiDetailsInput): BankAccountDetails {
-  const protocol = spei.speiProtocol?.trim() || 'clabe';
+  // A BlindPay usa os valores em minúsculas; 'CLABE' digitado pelo app vale o
+  // mesmo que 'clabe', inclusive para a checagem dos 18 dígitos.
+  const protocol = spei.speiProtocol?.trim().toLowerCase() || 'clabe';
   const clabe = spei.speiClabe?.trim() ?? '';
   const institution = spei.speiInstitutionCode?.trim();
   const fields: Record<string, string> = {};

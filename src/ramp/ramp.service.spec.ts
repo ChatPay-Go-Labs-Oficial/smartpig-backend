@@ -1344,4 +1344,159 @@ describe('RampService', () => {
       ).toBe(true);
     });
   });
+
+  describe('fluxo BR legado (golden)', () => {
+    it('envia à BlindPay exatamente os payloads de antes do multi-rail', async () => {
+      // Receiver
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
+      mockBlindPayService.createReceiver.mockResolvedValue({ id: 'bp_r1' });
+      mockPrisma.blindPayReceiver.create.mockResolvedValue({ id: 'r1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        name: 'X',
+        email: 'x@x.co',
+      });
+
+      await service.createReceiver({
+        userId: 'u1',
+        email: 'alice@example.com',
+        firstName: 'Alice',
+        lastName: 'Silva',
+        taxId: '12345678900',
+        tosId: 'to_1',
+      });
+
+      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith({
+        type: 'individual',
+        kyc_type: 'standard',
+        email: 'alice@example.com',
+        country: 'BR',
+        first_name: 'Alice',
+        last_name: 'Silva',
+        tax_id: '12345678900',
+        address_line_1: undefined,
+        address_line_2: undefined,
+        city: undefined,
+        state_province_region: undefined,
+        postal_code: undefined,
+        date_of_birth: undefined,
+        id_doc_country: undefined,
+        id_doc_type: undefined,
+        selfie_file: undefined,
+        id_doc_front_file: undefined,
+        id_doc_back_file: undefined,
+        tos_id: 'to_1',
+        source_of_funds_doc_type: undefined,
+        source_of_funds_doc_file: undefined,
+        purpose_of_transactions: undefined,
+        purpose_of_transactions_explanation: undefined,
+      });
+
+      // Conta Pix — receiver legado, sem coluna country no mock.
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'r1',
+        blindpayReceiverId: 'bp_r1',
+      });
+      mockBlindPayService.createBankAccount.mockResolvedValue({ id: 'bp_ba1' });
+      mockPrisma.blindPayBankAccount.create.mockResolvedValue({ id: 'ba1' });
+
+      await service.createBankAccount({
+        userId: 'u1',
+        name: 'Conta',
+        pixKey: 'alice@pix',
+      });
+
+      expect(mockBlindPayService.createBankAccount).toHaveBeenCalledWith(
+        'bp_r1',
+        { type: 'pix', name: 'Conta', pix_key: 'alice@pix' },
+      );
+
+      // Cotação de onramp em BRL
+      mockPrisma.blindPayBlockchainWallet.findFirst.mockResolvedValue({
+        id: 'w1',
+        blindpayWalletId: 'bw_1',
+        address: 'GABC',
+      });
+      mockBlindPayService.createPayinQuote.mockResolvedValue({ id: 'pq_1' });
+
+      await service.getOnrampQuote({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountBrl: 1050,
+      });
+
+      const [params] = mockBlindPayService.createPayinQuote.mock.calls[0];
+      expect(params).toEqual({
+        blockchain_wallet_id: 'bw_1',
+        token: 'testnet',
+        partner_fee_id: 'testnet',
+        payment_method: 'pix',
+        currency_type: 'sender',
+        request_amount: 1050,
+      });
+      expect(Object.keys(params)).not.toContain('payer_rules');
+    });
+  });
+
+  describe('regras de KYC por receiver', () => {
+    beforeEach(() => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
+      mockBlindPayService.createReceiver.mockResolvedValue({ id: 'bp_r1' });
+      mockPrisma.blindPayReceiver.create.mockResolvedValue({ id: 'r1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        name: 'X',
+        email: 'x@x.co',
+      });
+    });
+
+    it('BR com kycType enhanced sem os campos → KYC_ENHANCED_FIELDS_REQUIRED', async () => {
+      await expect(
+        service.createReceiver({
+          userId: 'u1',
+          email: 'a@example.com',
+          kycType: 'enhanced',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'KYC_ENHANCED_FIELDS_REQUIRED' },
+      });
+      expect(mockBlindPayService.createReceiver).not.toHaveBeenCalled();
+    });
+
+    it('CO pessoa jurídica sem kycType não é forçada a enhanced', async () => {
+      await service.createReceiver({
+        userId: 'u1',
+        email: 'a@example.com',
+        country: 'CO',
+        type: 'business',
+      });
+      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          country: 'CO',
+          type: 'business',
+          kyc_type: 'standard',
+        }),
+      );
+    });
+  });
+
+  describe('sync de instruções de pagamento', () => {
+    it('não sobrescreve paymentInstructions já gravadas', async () => {
+      mockPrisma.onrampTransaction.findFirst.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.PROCESSING,
+        blindpayPayinId: 'pi_1',
+        fiatCurrency: 'MXN',
+        paymentInstructions: { method: 'spei', clabe: '646180000000000000' },
+      });
+      mockBlindPayService.getPayin.mockResolvedValue({
+        status: 'processing',
+        clabe: '646180000000000999',
+      });
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({ id: 'or1' });
+
+      await service.syncOnrampFromBlindPay('or1', 'u1');
+
+      expect(mockPrisma.onrampTransaction.update).not.toHaveBeenCalled();
+    });
+  });
 });
