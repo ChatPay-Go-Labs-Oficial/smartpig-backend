@@ -1189,4 +1189,159 @@ describe('RampService', () => {
       expect(mockPrisma.onrampTransaction.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('offramp e histórico multi-rail', () => {
+    function givenOfframp(type?: string) {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({ id: 'r1' });
+      mockPrisma.blindPayBankAccount.findFirst.mockResolvedValue({
+        id: 'ba1',
+        blindpayBankAccountId: 'bp_ba1',
+        ...(type ? { type } : {}),
+      });
+      mockBlindPayService.createPayoutQuote.mockResolvedValue({
+        id: 'qu_1',
+        receiver_amount: 18000,
+      });
+      mockBlindPayService.prepareStellarDelegation.mockResolvedValue({
+        transaction_hash: 'AAAA',
+      });
+      mockPrisma.offrampTransaction.create.mockImplementation(
+        ({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({ id: 'of1', ...data }),
+      );
+    }
+
+    it.each([
+      [undefined, 'BRL'],
+      ['pix', 'BRL'],
+      ['spei_bitso', 'MXN'],
+      ['transfers_bitso', 'ARS'],
+      ['ach_cop_bitso', 'COP'],
+    ])('conta %s → fiatCurrency %s', async (type, currency) => {
+      givenOfframp(type);
+
+      const result = await service.createOfframp({
+        userId: 'u1',
+        bankAccountId: 'ba1',
+        senderWalletAddress: 'GABC',
+        amountUsdc: 1000000,
+      });
+
+      expect(mockPrisma.offrampTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          fiatCurrency: currency,
+          amountBrl: 18000,
+        }),
+      });
+      expect(result).toMatchObject({
+        fiatCurrency: currency,
+        amountFiat: 18000,
+        amountBrl: 18000,
+      });
+    });
+
+    it('refreshOfframpDelegation devolve a moeda salva', async () => {
+      mockPrisma.offrampTransaction.findFirst.mockResolvedValue({
+        id: 'of1',
+        status: RampStatus.DELEGATION_NEEDED,
+        bankAccountId: 'ba1',
+        amountUsdc: new Prisma.Decimal(1000000),
+        senderWalletAddress: 'GABC',
+        fiatCurrency: 'COP',
+      });
+      mockPrisma.blindPayBankAccount.findUnique.mockResolvedValue({
+        id: 'ba1',
+        blindpayBankAccountId: 'bp_ba1',
+      });
+      mockBlindPayService.createPayoutQuote.mockResolvedValue({
+        id: 'qu_2',
+        receiver_amount: 400000,
+      });
+      mockBlindPayService.prepareStellarDelegation.mockResolvedValue({
+        transaction_hash: 'BBBB',
+      });
+
+      const result = await service.refreshOfframpDelegation('of1', 'u1');
+
+      expect(result).toMatchObject({
+        fiatCurrency: 'COP',
+        amountFiat: 400000,
+        amountBrl: 400000,
+      });
+    });
+
+    it('histórico misto: amountFiat sempre, amountBrl só em BRL', async () => {
+      mockPrisma.onrampTransaction.findMany.mockResolvedValue([
+        {
+          id: 'or_mx',
+          fiatCurrency: 'MXN',
+          amountBrl: new Prisma.Decimal(50000),
+          amountUsdc: new Prisma.Decimal(2500),
+          status: RampStatus.COMPLETED,
+          completedAt: null,
+          createdAt: new Date('2026-11-20T12:00:00.000Z'),
+        },
+        {
+          id: 'or_br',
+          fiatCurrency: 'BRL',
+          amountBrl: new Prisma.Decimal(10000),
+          amountUsdc: new Prisma.Decimal(1950),
+          status: RampStatus.COMPLETED,
+          completedAt: null,
+          createdAt: new Date('2026-11-19T12:00:00.000Z'),
+        },
+      ]);
+      mockPrisma.offrampTransaction.findMany.mockResolvedValue([
+        {
+          id: 'of_co',
+          fiatCurrency: 'COP',
+          amountBrl: null,
+          amountUsdc: new Prisma.Decimal(10000000),
+          status: RampStatus.PROCESSING,
+          completedAt: null,
+          createdAt: new Date('2026-11-21T12:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.listTransactions('u1');
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'of_co',
+          fiatCurrency: 'COP',
+          amountFiat: null,
+          amountBrl: null,
+        }),
+        expect.objectContaining({
+          id: 'or_mx',
+          fiatCurrency: 'MXN',
+          amountFiat: '500.00',
+          amountBrl: null,
+        }),
+        expect.objectContaining({
+          id: 'or_br',
+          fiatCurrency: 'BRL',
+          amountFiat: '100.00',
+          amountBrl: '100.00',
+        }),
+      ]);
+      for (const model of [
+        mockPrisma.onrampTransaction,
+        mockPrisma.offrampTransaction,
+      ]) {
+        expect(model.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            select: expect.objectContaining({ fiatCurrency: true }),
+          }),
+        );
+      }
+      expect(
+        result.every(
+          (transaction) =>
+            !('pixCode' in transaction) &&
+            !('paymentInstructions' in transaction),
+        ),
+      ).toBe(true);
+    });
+  });
 });

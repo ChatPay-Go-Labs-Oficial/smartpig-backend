@@ -36,8 +36,10 @@ import {
   extractPaymentInstructions,
   findRailForRowCurrency,
   getRampRail,
+  railForBankAccountType,
   resolveFiatAmount,
   resolveKycType,
+  rowCurrency,
   type FiatAmountInput,
   type PayerRulesInput,
 } from './ramp-rail-validation';
@@ -481,9 +483,13 @@ export class RampService {
   }
 
   /**
-   * Client-facing Pix history. Keep the projection explicit: QR codes, XDRs,
-   * bank-account references and provider identifiers must never reach the
-   * general transaction history endpoint.
+   * Client-facing ramp history (Pix/SPEI/Transfers/PSE). Keep the projection
+   * explicit: QR codes, payment instructions, XDRs, bank-account references
+   * and provider identifiers must never reach the general transaction history
+   * endpoint.
+   *
+   * `amountFiat` vem na moeda de `fiatCurrency`; `amountBrl` continua para o
+   * app atual e só é preenchido quando a moeda é BRL.
    */
   async listTransactions(userId: string) {
     const [onramps, offramps] = await Promise.all([
@@ -491,6 +497,7 @@ export class RampService {
         where: { userId },
         select: {
           id: true,
+          fiatCurrency: true,
           amountBrl: true,
           amountUsdc: true,
           status: true,
@@ -503,6 +510,7 @@ export class RampService {
         where: { userId },
         select: {
           id: true,
+          fiatCurrency: true,
           amountBrl: true,
           amountUsdc: true,
           status: true,
@@ -513,11 +521,25 @@ export class RampService {
       }),
     ]);
 
+    // Valor salvo em unidades menores da moeda; null segue null.
+    const fiat = (
+      row: { fiatCurrency?: string | null },
+      amount: Prisma.Decimal | null | undefined,
+    ) => {
+      const fiatCurrency = rowCurrency(row);
+      const amountFiat = amount?.div(100).toFixed(2) ?? null;
+      return {
+        fiatCurrency,
+        amountFiat,
+        amountBrl: fiatCurrency === 'BRL' ? amountFiat : null,
+      };
+    };
+
     return [
       ...onramps.map((transaction) => ({
         id: transaction.id,
         direction: 'ONRAMP' as const,
-        amountBrl: transaction.amountBrl.div(100).toFixed(2),
+        ...fiat(transaction, transaction.amountBrl),
         amountUsdc:
           transaction.amountUsdc?.div(ONRAMP_USDC_SCALE).toFixed(2) ?? null,
         status: transaction.status,
@@ -527,7 +549,7 @@ export class RampService {
       ...offramps.map((transaction) => ({
         id: transaction.id,
         direction: 'OFFRAMP' as const,
-        amountBrl: transaction.amountBrl?.div(100).toFixed(2) ?? null,
+        ...fiat(transaction, transaction.amountBrl),
         amountUsdc: transaction.amountUsdc.div(OFFRAMP_USDC_SCALE).toFixed(6),
         status: transaction.status,
         completedAt: transaction.completedAt,
@@ -632,6 +654,9 @@ export class RampService {
     });
     if (!bankAccount) throw new NotFoundException('Bank account not found');
 
+    // A moeda do payout é a da conta de destino (a BlindPay infere pela conta).
+    const fiatCurrency = railForBankAccountType(bankAccount.type).currency;
+
     // Create quote
     const quote = await this.blindpay.createPayoutQuote({
       bank_account_id: bankAccount.blindpayBankAccountId,
@@ -663,6 +688,8 @@ export class RampService {
         bankAccountId: bankAccount.id,
         blindpayQuoteId: quote.id,
         amountUsdc: dto.amountUsdc,
+        fiatCurrency,
+        // Unidades menores de fiatCurrency, apesar do nome.
         amountBrl: quote.receiver_amount,
         senderWalletAddress: dto.senderWalletAddress,
         unsignedDelegationXdr: delegation.transaction_hash,
@@ -675,6 +702,8 @@ export class RampService {
       status: txn.status,
       amountUsdc: txn.amountUsdc,
       amountBrl: txn.amountBrl,
+      fiatCurrency,
+      amountFiat: txn.amountBrl,
       unsignedDelegationXdr: txn.unsignedDelegationXdr,
       // Present only when the sender wallet still needs a USDB trustline.
       // Mobile must sign + submit this XDR before signing the delegation XDR.
@@ -730,6 +759,8 @@ export class RampService {
       status: txn.status,
       amountUsdc: Number(txn.amountUsdc),
       amountBrl: Number(quote.receiver_amount),
+      fiatCurrency: rowCurrency(txn),
+      amountFiat: Number(quote.receiver_amount),
       unsignedDelegationXdr: delegation.transaction_hash,
     };
   }
