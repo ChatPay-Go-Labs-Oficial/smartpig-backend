@@ -775,4 +775,157 @@ describe('RampService', () => {
       expect(mockPrisma.blindPayReceiver.create).not.toHaveBeenCalled();
     });
   });
+
+  describe('createBankAccount multi-rail', () => {
+    it('BR mantém o payload Pix atual', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'r1',
+        blindpayReceiverId: 'bp_r1',
+      });
+      mockBlindPayService.createBankAccount.mockResolvedValue({ id: 'bp_ba1' });
+      mockPrisma.blindPayBankAccount.create.mockResolvedValue({ id: 'ba1' });
+
+      await service.createBankAccount({
+        userId: 'u1',
+        name: 'Conta',
+        pixKey: 'a@pix',
+      });
+
+      expect(mockBlindPayService.createBankAccount).toHaveBeenCalledWith(
+        'bp_r1',
+        { type: 'pix', name: 'Conta', pix_key: 'a@pix' },
+      );
+      expect(mockPrisma.blindPayBankAccount.create).toHaveBeenCalledWith({
+        data: {
+          receiverId: 'r1',
+          blindpayBankAccountId: 'bp_ba1',
+          type: 'pix',
+          pixKey: 'a@pix',
+          isDefault: false,
+        },
+      });
+    });
+
+    it.each([
+      [
+        'MX',
+        { spei: { beneficiaryName: 'Juan', speiClabe: '012345678901234567' } },
+        'spei_bitso',
+        {
+          beneficiary_name: 'Juan',
+          spei_protocol: 'clabe',
+          spei_clabe: '012345678901234567',
+        },
+      ],
+      [
+        'AR',
+        {
+          transfers: {
+            transfersType: 'ALIAS' as const,
+            transfersAccount: 'mi.alias',
+            beneficiaryName: 'Lucía',
+          },
+        },
+        'transfers_bitso',
+        {
+          beneficiary_name: 'Lucía',
+          transfers_type: 'ALIAS',
+          transfers_account: 'mi.alias',
+        },
+      ],
+      [
+        'CO',
+        {
+          achCop: {
+            beneficiaryFirstName: 'Andrés',
+            beneficiaryLastName: 'Rojas',
+            documentType: 'CC' as const,
+            documentId: '1234567',
+            email: 'andres@example.com',
+            bankCode: '007',
+            bankAccount: '123456',
+            accountType: 'checking' as const,
+          },
+        },
+        'ach_cop_bitso',
+        {
+          ach_cop_beneficiary_first_name: 'Andrés',
+          ach_cop_beneficiary_last_name: 'Rojas',
+          ach_cop_document_id: '1234567',
+          ach_cop_document_type: 'CC',
+          ach_cop_email: 'andres@example.com',
+          ach_cop_bank_code: '007',
+          ach_cop_bank_account: '123456',
+          account_type: 'checking',
+        },
+      ],
+    ])(
+      '%s cria conta %s e guarda details',
+      async (country, input, type, details) => {
+        mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+          id: 'r1',
+          blindpayReceiverId: 'bp_r1',
+          country,
+        });
+        mockBlindPayService.createBankAccount.mockResolvedValue({
+          id: 'bp_ba1',
+        });
+        mockPrisma.blindPayBankAccount.create.mockResolvedValue({ id: 'ba1' });
+
+        await service.createBankAccount({
+          userId: 'u1',
+          name: 'Conta',
+          ...input,
+        });
+
+        expect(mockBlindPayService.createBankAccount).toHaveBeenCalledWith(
+          'bp_r1',
+          { type, name: 'Conta', ...details },
+        );
+        expect(mockPrisma.blindPayBankAccount.create).toHaveBeenCalledWith({
+          data: {
+            receiverId: 'r1',
+            blindpayBankAccountId: 'bp_ba1',
+            type,
+            pixKey: null,
+            details,
+            isDefault: false,
+          },
+        });
+      },
+    );
+
+    it('recusa chave Pix num receiver MX sem chamar a BlindPay', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'r1',
+        blindpayReceiverId: 'bp_r1',
+        country: 'MX',
+      });
+
+      await expect(
+        service.createBankAccount({
+          userId: 'u1',
+          name: 'Conta',
+          pixKey: 'a@pix',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: 'BANK_ACCOUNT_DETAILS_MISMATCH' },
+      });
+      expect(mockBlindPayService.createBankAccount).not.toHaveBeenCalled();
+    });
+
+    it('exige os detalhes do rail', async () => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'r1',
+        blindpayReceiverId: 'bp_r1',
+        country: 'CO',
+      });
+
+      await expect(
+        service.createBankAccount({ userId: 'u1', name: 'Conta' }),
+      ).rejects.toMatchObject({
+        response: { code: 'BANK_ACCOUNT_DETAILS_REQUIRED' },
+      });
+    });
+  });
 });

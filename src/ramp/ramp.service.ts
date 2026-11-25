@@ -30,6 +30,7 @@ import { stellarNetwork } from './ramp-network';
 import {
   assertEnhancedFields,
   assertIdDocAllowed,
+  buildBankAccountParams,
   buildReceiverParams,
   getRampRail,
   resolveKycType,
@@ -296,21 +297,24 @@ export class RampService {
     if (!receiver)
       throw new NotFoundException('Receiver not found — create it first');
 
+    // O tipo de conta vem do país do receiver, nunca do cliente.
+    const rail = getRampRail(receiver.country);
+    const built = buildBankAccountParams(rail, dto.name, dto);
+
     const bpAccount = await this.blindpay.createBankAccount(
       receiver.blindpayReceiverId,
-      {
-        type: 'pix',
-        name: dto.name,
-        pix_key: dto.pixKey,
-      },
+      built.params,
     );
 
     return this.prisma.blindPayBankAccount.create({
       data: {
         receiverId: receiver.id,
         blindpayBankAccountId: bpAccount.id,
-        type: 'pix',
-        pixKey: dto.pixKey,
+        type: rail.bankAccountType,
+        pixKey: built.pixKey,
+        // Guardado para recriar a conta no reenvio de KYC. Pix não precisa:
+        // a chave já está em pixKey.
+        ...(built.details ? { details: built.details } : {}),
         isDefault: false,
       },
     });
