@@ -98,7 +98,9 @@ export class ScrubService {
 
     await tx.blindPayBankAccount.updateMany({
       where: { receiverId: receiver.id },
-      data: { pixKey: null },
+      // `details` guarda os dados bancários dos rails não-Pix (CLABE, CVU,
+      // documento...) — mesmo tratamento da chave Pix.
+      data: { pixKey: null, details: Prisma.DbNull },
     });
 
     // O endereço Stellar é mantido de propósito em `archivedStellarAddress`, onde
@@ -131,7 +133,13 @@ export class ScrubService {
   private async scrubRamps(tx: Prisma.TransactionClient, userId: string) {
     await tx.onrampTransaction.updateMany({
       where: { userId },
-      data: { pixCode: null, errorMessage: null },
+      // paymentInstructions é a versão multi-rail do pixCode. País e moeda
+      // ficam: fazem parte da trilha financeira, como valores e status.
+      data: {
+        pixCode: null,
+        paymentInstructions: Prisma.DbNull,
+        errorMessage: null,
+      },
     });
     await tx.offrampTransaction.updateMany({
       where: { userId },
