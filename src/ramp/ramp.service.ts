@@ -27,6 +27,13 @@ import type {
 import { Prisma, RampStatus } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { stellarNetwork } from './ramp-network';
+import {
+  assertEnhancedFields,
+  assertIdDocAllowed,
+  buildReceiverParams,
+  getRampRail,
+  resolveKycType,
+} from './ramp-rail-validation';
 
 /**
  * Unidade do `amountUsdc` gravado em cada direção. O onramp guarda o
@@ -148,6 +155,13 @@ export class RampService {
   // ─── Receiver ──────────────────────────────────────────────────────────────
 
   async createReceiver(dto: CreateReceiverDto) {
+    // Toda regra de país roda antes de qualquer chamada à BlindPay: um customer
+    // criado lá não pode ser corrigido depois, só substituído.
+    const rail = getRampRail(dto.country);
+    const kycType = resolveKycType(rail, dto);
+    assertEnhancedFields(dto, kycType);
+    assertIdDocAllowed(rail, dto);
+
     const existing = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
     });
@@ -155,27 +169,9 @@ export class RampService {
       throw new BadRequestException('User already has a BlindPay receiver');
     }
 
-    const bpReceiver = await this.blindpay.createReceiver({
-      type: dto.type ?? 'individual',
-      kyc_type: dto.kycType ?? 'standard',
-      email: dto.email,
-      country: dto.country ?? 'BR',
-      first_name: dto.firstName,
-      last_name: dto.lastName,
-      tax_id: dto.taxId,
-      address_line_1: dto.addressLine1,
-      address_line_2: dto.addressLine2,
-      city: dto.city,
-      state_province_region: dto.stateProvinceRegion,
-      postal_code: dto.postalCode,
-      date_of_birth: dto.dateOfBirth,
-      id_doc_country: dto.idDocCountry,
-      id_doc_type: dto.idDocType,
-      selfie_file: dto.selfieFileUrl,
-      id_doc_front_file: dto.idDocFrontUrl,
-      id_doc_back_file: dto.idDocBackUrl,
-      tos_id: dto.tosId,
-    });
+    const bpReceiver = await this.blindpay.createReceiver(
+      buildReceiverParams(dto, rail, kycType),
+    );
 
     const name =
       [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email;
@@ -199,6 +195,9 @@ export class RampService {
           // Guardado para auditoria: cada `tos_id` fica ligado a exatamente um
           // customer, então este registra qual aceitação vale para este.
           tosId: dto.tosId,
+          // Fixa o rail do receiver: contas, payins e reenvio de KYC seguem
+          // este país.
+          country: rail.country,
         },
       });
 

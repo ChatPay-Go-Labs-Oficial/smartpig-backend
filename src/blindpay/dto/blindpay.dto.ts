@@ -2,7 +2,8 @@
 
 export interface CreateReceiverParams {
   type: 'individual' | 'business';
-  kyc_type: 'light' | 'standard' | 'enhanced';
+  /** 'light' não entra: a BlindPay sempre o recusa na criação de customer. */
+  kyc_type: 'standard' | 'enhanced';
   email: string;
   country: string;
   first_name?: string;

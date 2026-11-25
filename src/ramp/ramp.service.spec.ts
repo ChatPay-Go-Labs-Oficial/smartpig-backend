@@ -681,4 +681,98 @@ describe('RampService', () => {
       );
     });
   });
+
+  // ─── Multi-rail (MX / AR / CO) ───────────────────────────────────────────────
+
+  describe('createReceiver multi-rail', () => {
+    const ENHANCED = {
+      sourceOfFundsDocType: 'salary',
+      sourceOfFundsDocFile: 'https://files.example.com/doc.pdf',
+      purposeOfTransactions: 'savings',
+    };
+
+    beforeEach(() => {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue(null);
+      mockBlindPayService.createReceiver.mockResolvedValue({ id: 'bp_r1' });
+      mockPrisma.blindPayReceiver.create.mockResolvedValue({ id: 'r1' });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        name: 'X',
+        email: 'x@x.co',
+      });
+    });
+
+    it('persiste BR quando o app não manda country', async () => {
+      await service.createReceiver({ userId: 'u1', email: 'a@example.com' });
+      expect(mockPrisma.blindPayReceiver.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ country: 'BR' }),
+      });
+    });
+
+    it("converte 'light' em 'standard'", async () => {
+      await service.createReceiver({
+        userId: 'u1',
+        email: 'a@example.com',
+        kycType: 'light',
+      });
+      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({ kyc_type: 'standard' }),
+      );
+    });
+
+    it.each(['MX', 'AR'])(
+      'cria receiver %s com KYC standard',
+      async (country) => {
+        await service.createReceiver({
+          userId: 'u1',
+          email: 'a@example.com',
+          country,
+        });
+        expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
+          expect.objectContaining({ country, kyc_type: 'standard' }),
+        );
+        expect(mockPrisma.blindPayReceiver.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({ country }),
+        });
+      },
+    );
+
+    it('CO pessoa física vai como enhanced, com os campos enhanced', async () => {
+      await service.createReceiver({
+        userId: 'u1',
+        email: 'a@example.com',
+        country: 'CO',
+        kycType: 'standard',
+        idDocType: 'PASSPORT',
+        ...ENHANCED,
+      });
+      expect(mockBlindPayService.createReceiver).toHaveBeenCalledWith(
+        expect.objectContaining({
+          country: 'CO',
+          kyc_type: 'enhanced',
+          source_of_funds_doc_type: 'salary',
+          source_of_funds_doc_file: 'https://files.example.com/doc.pdf',
+          purpose_of_transactions: 'savings',
+        }),
+      );
+    });
+
+    it.each([
+      [{ country: 'CO' }, 'KYC_ENHANCED_FIELDS_REQUIRED'],
+      [
+        { country: 'CO', idDocType: 'DRIVERS' as const, ...ENHANCED },
+        'KYC_ID_DOC_TYPE_NOT_ALLOWED',
+      ],
+      [{ country: 'CL' }, 'RAMP_COUNTRY_UNSUPPORTED'],
+    ])('%#: recusa antes de chamar a BlindPay (%s)', async (extra, code) => {
+      await expect(
+        service.createReceiver({
+          userId: 'u1',
+          email: 'a@example.com',
+          ...extra,
+        }),
+      ).rejects.toMatchObject({ response: { statusCode: 400, code } });
+      expect(mockBlindPayService.createReceiver).not.toHaveBeenCalled();
+      expect(mockPrisma.blindPayReceiver.create).not.toHaveBeenCalled();
+    });
+  });
 });
