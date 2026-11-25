@@ -105,6 +105,13 @@ export function findRampRail(country: string): RampRail | null {
   return isRampCountry(normalized) ? RAMP_RAILS[normalized] : null;
 }
 
+/** Rail da moeda dada (cada moeda tem um único rail); `null` se desconhecida. */
+export function findRailForCurrency(currency: string): RampRail | null {
+  return (
+    Object.values(RAMP_RAILS).find((rail) => rail.currency === currency) ?? null
+  );
+}
+
 /** Rail que emite contas do tipo dado; `null` para tipo desconhecido. */
 export function findRailForBankAccountType(type: string): RampRail | null {
   return (

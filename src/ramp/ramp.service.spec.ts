@@ -928,4 +928,265 @@ describe('RampService', () => {
       });
     });
   });
+
+  describe('onramp multi-rail', () => {
+    const WALLET = { id: 'w1', blindpayWalletId: 'bw_1', address: 'GABC' };
+    const PSE_PAYER = {
+      fullName: 'Andrés Rojas',
+      documentType: 'CC' as const,
+      documentNumber: '1234567890',
+      email: 'andres@example.com',
+      phone: '+573001234567',
+      bankCode: '1007',
+    };
+
+    function givenReceiver(country?: string) {
+      mockPrisma.blindPayReceiver.findUnique.mockResolvedValue({
+        id: 'r1',
+        ...(country ? { country } : {}),
+      });
+      mockPrisma.blindPayBlockchainWallet.findFirst.mockResolvedValue(WALLET);
+      mockBlindPayService.createPayinQuote.mockResolvedValue({
+        id: 'pq_1',
+        sender_amount: 50000,
+        receiver_amount: 2500,
+      });
+      mockPrisma.onrampTransaction.create.mockResolvedValue({ id: 'or1' });
+    }
+
+    it('getOnrampQuote lê o país do receiver', async () => {
+      givenReceiver('MX');
+      await service.getOnrampQuote({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountFiat: 50000,
+      });
+      expect(mockPrisma.blindPayReceiver.findUnique).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+        select: { id: true, country: true },
+      });
+      expect(mockBlindPayService.createPayinQuote).toHaveBeenCalledWith({
+        blockchain_wallet_id: 'bw_1',
+        token: expect.any(String),
+        partner_fee_id: expect.anything(),
+        payment_method: 'spei',
+        currency_type: 'sender',
+        request_amount: 50000,
+      });
+    });
+
+    it('BR segue mandando pix, sem payer_rules', async () => {
+      givenReceiver();
+      await service.getOnrampQuote({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountBrl: 1050,
+      });
+      const params = mockBlindPayService.createPayinQuote.mock.calls[0][0];
+      expect(params).toMatchObject({
+        payment_method: 'pix',
+        currency_type: 'sender',
+        request_amount: 1050,
+      });
+      expect(params).not.toHaveProperty('payer_rules');
+    });
+
+    it('AR manda payer_rules transfers com CUIT normalizado', async () => {
+      givenReceiver('AR');
+      await service.getOnrampQuote({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountFiat: 100000,
+        transfersPayer: { allowedTaxId: '20123456786' },
+      });
+      expect(mockBlindPayService.createPayinQuote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payment_method: 'transfers',
+          payer_rules: { transfers_allowed_tax_id: '20-12345678-6' },
+        }),
+      );
+    });
+
+    it('CO repete payer_rules em toda tentativa do fluxo amountUsd', async () => {
+      givenReceiver('CO');
+      mockBlindPayService.createPayinQuote
+        .mockResolvedValueOnce({ id: 'pq_1', receiver_amount: 900 })
+        .mockResolvedValueOnce({ id: 'pq_2', receiver_amount: 1000 });
+
+      await service.getOnrampQuote({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountUsd: 1000,
+        psePayer: PSE_PAYER,
+      });
+
+      expect(mockBlindPayService.createPayinQuote).toHaveBeenCalledTimes(2);
+      for (const [params] of mockBlindPayService.createPayinQuote.mock.calls) {
+        expect(params).toMatchObject({
+          payment_method: 'pse',
+          currency_type: 'receiver',
+          payer_rules: expect.objectContaining({ pse_phone: '+573001234567' }),
+        });
+      }
+    });
+
+    it.each([
+      ['AR', { amountFiat: 100000 }, 'PAYER_RULES_REQUIRED'],
+      ['BR', { amountBrl: 1000, psePayer: PSE_PAYER }, 'PAYER_RULES_MISMATCH'],
+      ['MX', { amountFiat: 12345 }, 'AMOUNT_MUST_BE_WHOLE_UNIT'],
+      ['MX', { amountBrl: 1000 }, 'AMOUNT_CURRENCY_MISMATCH'],
+      [undefined, { amountBrl: 1000, amountFiat: 1000 }, 'AMOUNT_AMBIGUOUS'],
+      [undefined, {}, 'AMOUNT_REQUIRED'],
+    ])('%s %o → %s sem cotar', async (country, amounts, code) => {
+      givenReceiver(country);
+      await expect(
+        service.createOnramp({
+          userId: 'u1',
+          blockchainWalletId: 'w1',
+          ...amounts,
+        }),
+      ).rejects.toMatchObject({ response: { statusCode: 400, code } });
+      expect(mockBlindPayService.createPayinQuote).not.toHaveBeenCalled();
+    });
+
+    it('BR grava BRL, pixCode e a instrução pix', async () => {
+      givenReceiver();
+      mockBlindPayService.createPayinStellar.mockResolvedValue({
+        id: 'pi_1',
+        pix_code: '000201',
+      });
+
+      await service.createOnramp({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountBrl: 1000,
+      });
+
+      expect(mockPrisma.onrampTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          fiatCurrency: 'BRL',
+          amountBrl: 50000,
+          pixCode: '000201',
+          paymentInstructions: { method: 'pix', pixCode: '000201' },
+        }),
+      });
+    });
+
+    it.each([
+      [
+        'MX',
+        {},
+        { clabe: '646180000000000000' },
+        { method: 'spei', clabe: '646180000000000000' },
+        'MXN',
+      ],
+      [
+        'AR',
+        { transfersPayer: { allowedTaxId: '20-12345678-6' } },
+        {
+          tracking_transaction: {
+            transfers_instruction: { account: '0000003100', type: 'CVU' },
+          },
+        },
+        { method: 'transfers', account: '0000003100', accountType: 'CVU' },
+        'ARS',
+      ],
+      [
+        'CO',
+        { psePayer: PSE_PAYER },
+        { pse_payment_link: 'https://pse.example/pay' },
+        { method: 'pse', paymentLink: 'https://pse.example/pay' },
+        'COP',
+      ],
+    ])(
+      '%s grava moeda e instrução, sem pixCode nem payer_rules',
+      async (country, payer, payin, instructions, currency) => {
+        givenReceiver(country);
+        mockBlindPayService.createPayinStellar.mockResolvedValue({
+          id: 'pi_1',
+          pix_code: null,
+          ...payin,
+        });
+
+        await service.createOnramp({
+          userId: 'u1',
+          blockchainWalletId: 'w1',
+          amountFiat: 50000,
+          ...payer,
+        });
+
+        const { data } = mockPrisma.onrampTransaction.create.mock.calls[0][0];
+        expect(data).toMatchObject({
+          fiatCurrency: currency,
+          amountBrl: 50000,
+          pixCode: null,
+          paymentInstructions: instructions,
+        });
+        expect(JSON.stringify(data)).not.toMatch(/payer|tax_id|pse_/);
+      },
+    );
+
+    it('grava DbNull quando a instrução ainda não veio', async () => {
+      givenReceiver('MX');
+      mockBlindPayService.createPayinStellar.mockResolvedValue({
+        id: 'pi_1',
+        pix_code: null,
+      });
+
+      await service.createOnramp({
+        userId: 'u1',
+        blockchainWalletId: 'w1',
+        amountFiat: 50000,
+      });
+
+      expect(mockPrisma.onrampTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ paymentInstructions: Prisma.DbNull }),
+      });
+    });
+
+    it('sync preenche a instrução que faltava enquanto o payin está aberto', async () => {
+      mockPrisma.onrampTransaction.findFirst.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.PROCESSING,
+        blindpayPayinId: 'pi_1',
+        fiatCurrency: 'MXN',
+        paymentInstructions: null,
+      });
+      mockBlindPayService.getPayin.mockResolvedValue({
+        status: 'processing',
+        clabe: '646180000000000000',
+      });
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({ id: 'or1' });
+
+      await service.syncOnrampFromBlindPay('or1', 'u1');
+
+      expect(mockPrisma.onrampTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'or1' },
+        data: {
+          paymentInstructions: { method: 'spei', clabe: '646180000000000000' },
+        },
+      });
+    });
+
+    it('sync não mexe na instrução de payin já finalizado', async () => {
+      mockPrisma.onrampTransaction.findFirst.mockResolvedValue({
+        id: 'or1',
+        userId: 'u1',
+        status: RampStatus.COMPLETED,
+        blindpayPayinId: 'pi_1',
+        fiatCurrency: 'MXN',
+        paymentInstructions: null,
+      });
+      mockBlindPayService.getPayin.mockResolvedValue({
+        status: 'completed',
+        clabe: '646180000000000000',
+      });
+      mockPrisma.onrampTransaction.findUnique.mockResolvedValue({ id: 'or1' });
+
+      await service.syncOnrampFromBlindPay('or1', 'u1');
+
+      expect(mockPrisma.onrampTransaction.update).not.toHaveBeenCalled();
+    });
+  });
 });

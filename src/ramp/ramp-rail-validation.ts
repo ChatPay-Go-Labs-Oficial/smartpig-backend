@@ -9,6 +9,7 @@ import {
   DEFAULT_RAMP_COUNTRY,
   RAMP_COUNTRIES,
   findRailForBankAccountType,
+  findRailForCurrency,
   findRampRail,
   type BankAccountType,
   type BankDetailsKey,
@@ -83,6 +84,13 @@ export function railForBankAccountType(type?: string | null): RampRail {
     );
   }
   return rail;
+}
+
+/** Rail de uma moeda salva; `null` para moeda fora do registry. */
+export function findRailForRowCurrency(row: {
+  fiatCurrency?: string | null;
+}): RampRail | null {
+  return findRailForCurrency(rowCurrency(row));
 }
 
 /** Moeda de uma transação salva. Rows anteriores ao multi-rail são BRL. */

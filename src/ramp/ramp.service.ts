@@ -31,10 +31,17 @@ import {
   assertEnhancedFields,
   assertIdDocAllowed,
   buildBankAccountParams,
+  buildPayerRules,
   buildReceiverParams,
+  extractPaymentInstructions,
+  findRailForRowCurrency,
   getRampRail,
+  resolveFiatAmount,
   resolveKycType,
+  type FiatAmountInput,
+  type PayerRulesInput,
 } from './ramp-rail-validation';
+import type { RampRail } from './ramp-rails';
 
 /**
  * Unidade do `amountUsdc` gravado em cada direção. O onramp guarda o
@@ -129,28 +136,39 @@ export class RampService {
   }
 
   /**
-   * Onramp aceita valor alvo em duas direções: amountBrl (quanto o usuário
-   * paga via Pix) ou amountUsd (quanto ele quer RECEBER líquido em USDC,
-   * já compensando a taxa) — os chips de valor rápido do app usam amountUsd
-   * porque o mínimo da BlindPay ($10) é em dólar, e o usuário não tem como
-   * saber quantos reais digitar pra bater nesse mínimo sem consultar o
-   * câmbio primeiro.
+   * Onramp aceita valor alvo em duas direções: amountFiat/amountBrl (quanto o
+   * usuário paga na moeda do rail) ou amountUsd (quanto ele quer RECEBER
+   * líquido em USDC, já compensando a taxa) — os chips de valor rápido do app
+   * usam amountUsd porque o mínimo da BlindPay ($10) é em dólar, e o usuário
+   * não tem como saber quanto digitar na moeda local pra bater nesse mínimo
+   * sem consultar o câmbio primeiro.
+   *
+   * Método de pagamento e payer_rules vêm do rail do receiver. payer_rules vai
+   * em toda tentativa de cotação e nunca é persistido.
    */
   private async createPayinQuoteForDto(
-    dto: { amountBrl?: number; amountUsd?: number },
-    base: Omit<CreatePayinQuoteParams, 'request_amount' | 'currency_type'>,
+    rail: RampRail,
+    dto: FiatAmountInput & PayerRulesInput,
+    base: Pick<
+      CreatePayinQuoteParams,
+      'blockchain_wallet_id' | 'token' | 'partner_fee_id'
+    >,
   ): Promise<BlindPayPayinQuote> {
-    if (dto.amountUsd != null) {
-      return this.quotePayinForTarget(dto.amountUsd, base);
+    const amount = resolveFiatAmount(rail, dto);
+    const payerRules = buildPayerRules(rail, dto);
+    const params = {
+      ...base,
+      payment_method: rail.payinMethod,
+      ...(payerRules ? { payer_rules: payerRules } : {}),
+    };
+    if (amount.kind === 'usd') {
+      return this.quotePayinForTarget(amount.amount, params);
     }
-    if (dto.amountBrl != null) {
-      return this.blindpay.createPayinQuote({
-        ...base,
-        currency_type: 'sender',
-        request_amount: dto.amountBrl,
-      });
-    }
-    throw new BadRequestException('Informe amountBrl ou amountUsd');
+    return this.blindpay.createPayinQuote({
+      ...params,
+      currency_type: 'sender',
+      request_amount: amount.amount,
+    });
   }
 
   // ─── Receiver ──────────────────────────────────────────────────────────────
@@ -374,7 +392,7 @@ export class RampService {
   async getOnrampQuote(dto: OnrampQuoteDto) {
     const receiver = await this.prisma.blindPayReceiver.findUnique({
       where: { userId: dto.userId },
-      select: { id: true },
+      select: { id: true, country: true },
     });
     if (!receiver) throw new NotFoundException('Receiver not found');
 
@@ -385,10 +403,9 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
-    return this.createPayinQuoteForDto(dto, {
+    return this.createPayinQuoteForDto(getRampRail(receiver.country), dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
       token: this.rampToken,
-      payment_method: 'pix',
       partner_fee_id: this.partnerFeeId,
     });
   }
@@ -406,11 +423,12 @@ export class RampService {
     });
     if (!wallet) throw new NotFoundException('Blockchain wallet not found');
 
+    const rail = getRampRail(receiver.country);
+
     // Create quote
-    const quote = await this.createPayinQuoteForDto(dto, {
+    const quote = await this.createPayinQuoteForDto(rail, dto, {
       blockchain_wallet_id: wallet.blindpayWalletId,
       token: this.rampToken,
-      payment_method: 'pix',
       partner_fee_id: this.partnerFeeId,
     });
 
@@ -418,6 +436,17 @@ export class RampService {
     const payin = await this.blindpay.createPayinStellar({
       payin_quote_id: quote.id,
     });
+
+    // A instrução pode ainda não ter vindo na criação; o sync preenche depois.
+    const paymentInstructions = extractPaymentInstructions(
+      rail.payinMethod,
+      payin,
+    );
+    if (!paymentInstructions) {
+      this.logger.warn(
+        `Payin ${payin.id} sem instrução de pagamento (${rail.payinMethod}) na criação`,
+      );
+    }
 
     // TESTNET ONLY: simulate USDB delivery — BlindPay dev env never auto-completes
     // tracking_complete for Stellar. Remove when going to mainnet.
@@ -436,12 +465,16 @@ export class RampService {
         blockchainWalletId: wallet.id,
         blindpayPayinId: payin.id,
         blindpayQuoteId: quote.id,
-        // quote.sender_amount (não dto.amountBrl) porque dto.amountBrl fica
-        // undefined no fluxo de amountUsd — e mesmo no fluxo BRL é o valor
-        // que a BlindPay efetivamente cobrou, não o que o cliente mandou.
+        fiatCurrency: rail.currency,
+        // quote.sender_amount (não o valor do DTO) porque ele fica undefined
+        // no fluxo de amountUsd — e mesmo no fluxo fiat é o valor que a
+        // BlindPay efetivamente cobrou, não o que o cliente mandou. Unidades
+        // menores de fiatCurrency, apesar do nome.
         amountBrl: quote.sender_amount,
         amountUsdc: quote.receiver_amount,
-        pixCode: payin.pix_code,
+        // pixCode segue existindo para o app atual; fora do Pix fica null.
+        pixCode: rail.payinMethod === 'pix' ? payin.pix_code : null,
+        paymentInstructions: paymentInstructions ?? Prisma.DbNull,
         status: RampStatus.AWAITING_PAYMENT,
       },
     });
@@ -527,6 +560,20 @@ export class RampService {
 
     const payin = await this.blindpay.getPayin(txn.blindpayPayinId);
     const status = this.mapPayinStatus(payin.status);
+
+    // SPEI/Transfers/PSE podem devolver a instrução só depois da criação.
+    // Sem utilidade depois que o payin fechou, então só preenche enquanto
+    // ainda dá para pagar.
+    const rail = findRailForRowCurrency(txn);
+    if (txn.paymentInstructions == null && rail && !this.isFinal(status)) {
+      const instructions = extractPaymentInstructions(rail.payinMethod, payin);
+      if (instructions) {
+        await this.prisma.onrampTransaction.update({
+          where: { id: txn.id },
+          data: { paymentInstructions: instructions },
+        });
+      }
+    }
 
     if (status !== txn.status) {
       await this.prisma.onrampTransaction.update({
@@ -860,6 +907,14 @@ export class RampService {
       data: { [`${kind}Id`]: txn.id },
       details: { amount: txn.amountUsdc?.div(scale), asset: 'USDC' },
     });
+  }
+
+  private isFinal(status: RampStatus): boolean {
+    return (
+      status === RampStatus.COMPLETED ||
+      status === RampStatus.FAILED ||
+      status === RampStatus.REFUNDED
+    );
   }
 
   private mapPayinStatus(bpStatus: string): RampStatus {
